@@ -79,3 +79,9 @@ Pre-requis :
   Projects ;
 - un remote local absent ou compatible avec `Lesur-ai/dcmo5` ;
 - branche locale `main` prete a etre poussee.
+
+Limite outillage au 2026-06-04 : `gh project field-create` permet de creer
+les champs `Priority`, `Size`, `Estimate`, `Start date` et `Target date`, mais
+ne permet pas de creer directement les vues Project v2 ni un champ
+`Iteration`. Ces elements restent a configurer dans l'interface GitHub si le
+projet en a besoin immediatement.

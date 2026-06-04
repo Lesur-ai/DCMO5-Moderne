@@ -196,8 +196,7 @@ ensure_project() {
     return
   fi
 
-  project_number="$("$GH_BIN" project list --owner "$OWNER" --format json \
-    --jq ".projects[] | select(.title == \"${PROJECT_TITLE}\") | .number" | head -n 1)"
+  project_number="$(project_number_for_title)"
 
   if [ -n "$project_number" ]; then
     info "Project v2 '${PROJECT_TITLE}' already exists as #${project_number}"
@@ -206,6 +205,70 @@ ensure_project() {
 
   info "Creating Project v2 '${PROJECT_TITLE}'"
   "$GH_BIN" project create --owner "$OWNER" --title "$PROJECT_TITLE" >/dev/null
+}
+
+project_number_for_title() {
+  "$GH_BIN" project list --owner "$OWNER" --format json \
+    --jq ".projects[] | select(.title == \"${PROJECT_TITLE}\") | .number" | head -n 1
+}
+
+project_field_exists() {
+  project_number="$1"
+  field_name="$2"
+
+  "$GH_BIN" project field-list "$project_number" --owner "$OWNER" --format json \
+    --jq ".fields[].name" | grep -Fx "$field_name" >/dev/null
+}
+
+create_project_field_if_missing() {
+  project_number="$1"
+  field_name="$2"
+  data_type="$3"
+  options="${4:-}"
+
+  if project_field_exists "$project_number" "$field_name"; then
+    return
+  fi
+
+  if [ -n "$options" ]; then
+    "$GH_BIN" project field-create "$project_number" \
+      --owner "$OWNER" \
+      --name "$field_name" \
+      --data-type "$data_type" \
+      --single-select-options "$options" >/dev/null
+    return
+  fi
+
+  "$GH_BIN" project field-create "$project_number" \
+    --owner "$OWNER" \
+    --name "$field_name" \
+    --data-type "$data_type" >/dev/null
+}
+
+configure_project() {
+  project_number="$(project_number_for_title)"
+  if [ -z "$project_number" ]; then
+    warn "Project v2 '${PROJECT_TITLE}' not found; skipping project field setup."
+    return
+  fi
+
+  info "Configuring Project v2 #${project_number}"
+  "$GH_BIN" project edit "$project_number" \
+    --owner "$OWNER" \
+    --visibility PRIVATE \
+    --description "$REPO_DESCRIPTION" >/dev/null
+
+  "$GH_BIN" project link "$project_number" \
+    --owner "$OWNER" \
+    --repo "$FULL_REPO" >/dev/null 2>&1 || true
+
+  create_project_field_if_missing "$project_number" "Priority" "SINGLE_SELECT" "P0,P1,P2,P3"
+  create_project_field_if_missing "$project_number" "Size" "SINGLE_SELECT" "XS,S,M,L,XL"
+  create_project_field_if_missing "$project_number" "Estimate" "NUMBER"
+  create_project_field_if_missing "$project_number" "Start date" "DATE"
+  create_project_field_if_missing "$project_number" "Target date" "DATE"
+
+  warn "GitHub CLI 2.93 cannot create Project views or Iteration fields directly; configure Backlog, Board, Current iteration, Roadmap, My items and the Iteration field in the GitHub UI if required."
 }
 
 ensure_remote_and_push() {
@@ -252,6 +315,7 @@ main() {
   configure_labels
   configure_milestones
   ensure_project
+  configure_project
   ensure_remote_and_push
   verify_setup
 }
