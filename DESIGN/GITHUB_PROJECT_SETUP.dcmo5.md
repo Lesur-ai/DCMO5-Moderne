@@ -83,6 +83,15 @@ Le fichier `scripts/github/configs/dcmo5.conf` contient le profil DCMO5 :
 variables projet, labels specifiques et jalons specialises. Le wrapper
 `setup_dcmo5.sh` ne fait que charger cette configuration.
 
+Le Project v2 DCMO5 peut etre peuple avec les issues de cadrage P0-P8 via :
+
+```bash
+scripts/github/seed_dcmo5_project_issues.sh
+```
+
+Ce script est idempotent : il reutilise les issues existantes par titre, puis
+les ajoute au Project v2 #8 si necessaire.
+
 Pre-requis :
 
 - `gh` authentifie avec les scopes necessaires au repository et a GitHub
