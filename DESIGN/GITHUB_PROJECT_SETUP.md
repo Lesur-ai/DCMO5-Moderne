@@ -1,56 +1,53 @@
-# Note de setup GitHub — Portal
+# Setup GitHub du projet DCMO5
 
-> Etat observe le 2026-06-04 sur `Lesur-ai/portal`.
-> Objectif : permettre a un autre agent de reproduire le setup GitHub initial sur
-> un nouveau repository, avec la meme discipline de travail et les memes objets
-> GitHub structurants.
+> Etat cible pour le repository GitHub du portage moderne de DCMO5.
+> Date : 2026-06-04.
+> Objet : fournir un setup reproductible pour un repository prive, ses labels,
+> ses jalons, son Project v2 et sa discipline de Pull Request.
 
-## 1. Principes de setup
+## 1. Variables du projet
 
-Le repository GitHub n'est pas seulement un depot de code. Pour Portal, il sert
-de systeme de pilotage :
-
-- le code vit sur `main`, mais l'integration vers `main` se fait uniquement via
-  Pull Request GitHub ;
-- les issues portent le probleme, les decisions d'attaque et le lien vers le
-  Project ;
-- les PR portent l'execution, les checks, les reviews et la trace `Closes #N` ;
-- GitHub Projects v2 porte le statut d'avancement, pas les labels.
-
-Point important : au moment de cette note, `main` n'a ni branch protection
-native, ni ruleset GitHub. La contrainte "PR only" est donc une discipline
-operationnelle documentee dans `AGENTS.md`, pas un verrou GitHub configure.
-
-## 2. Creation du repository
-
-Parametres observes sur `Lesur-ai/portal` :
-
-| Parametre | Valeur |
-|---|---|
-| Organisation | `Lesur-ai` |
-| Repository | `portal` |
-| Visibilite | `PRIVATE` |
-| Branche par defaut | `main` |
-| Description | `Portal Lesur.AI — Rails frontend & API for chat.lesur.ai (SaaS souverain, multi-tenant, chat + Transkryptor)` |
-| Homepage | vide |
-| Topics | aucun |
-| Issues | activees |
-| Projects | actifs |
-| Wiki | actif |
-| Discussions | desactivees |
-
-Commande type pour un nouveau projet :
+Les commandes ci-dessous utilisent les variables suivantes :
 
 ```bash
-gh repo create Lesur-ai/<repo> \
-  --private \
-  --description "Portal Lesur.AI — Rails frontend & API for chat.lesur.ai (SaaS souverain, multi-tenant, chat + Transkryptor)"
+OWNER="Lesur-ai"
+REPO="dcmo5"
+FULL_REPO="${OWNER}/${REPO}"
+PROJECT_TITLE="DCMO5 modern port"
 ```
 
-Puis appliquer les options repo :
+Le repository doit rester prive tant que les sujets de licence ROM/logiciels MO5
+et la direction produit ne sont pas stabilises.
+
+## 2. Principes de travail
+
+Le repository GitHub sert de systeme de pilotage :
+
+- le code vit sur `main` ;
+- l'integration vers `main` se fait par Pull Request ;
+- les issues portent le probleme, le contexte, la decision d'attaque et le lien
+  vers le Project ;
+- les PR portent l'execution, les checks, les reviews et la trace `Closes #N` ;
+- GitHub Projects v2 porte le statut officiel d'avancement ;
+- les labels de statut ne remplacent pas le champ `Status` du Project.
+
+Pour le demarrage, la contrainte "PR only" peut etre une discipline
+operationnelle avant d'etre verrouillee par branch protection ou ruleset.
+
+## 3. Creation du repository prive
+
+Creation :
 
 ```bash
-gh api -X PATCH repos/Lesur-ai/<repo> \
+gh repo create "${FULL_REPO}" \
+  --private \
+  --description "DCMO5 modern port — Thomson MO5 emulator rewritten in Go/Ebitengine for macOS and Linux"
+```
+
+Options repository :
+
+```bash
+gh api -X PATCH "repos/${FULL_REPO}" \
   -f has_issues=true \
   -f has_projects=true \
   -f has_wiki=true \
@@ -63,52 +60,54 @@ gh api -X PATCH repos/Lesur-ai/<repo> \
   -f allow_update_branch=false
 ```
 
-## 3. Actions GitHub
+Remote local :
 
-Actions est active avec :
+```bash
+git remote add origin "https://github.com/${FULL_REPO}.git"
+git push -u origin main
+```
+
+## 4. Actions GitHub
+
+Actions doit etre active avec :
 
 - `allowed_actions = all` ;
 - `sha_pinning_required = false` ;
 - `default_workflow_permissions = read` ;
 - `can_approve_pull_request_reviews = false`.
 
-Commandes de verification :
+Verification :
 
 ```bash
-gh api repos/Lesur-ai/<repo>/actions/permissions
-gh api repos/Lesur-ai/<repo>/actions/permissions/workflow
+gh api "repos/${FULL_REPO}/actions/permissions"
+gh api "repos/${FULL_REPO}/actions/permissions/workflow"
 ```
 
-Le repo ne definit aucun secret ou variable Actions au niveau repository.
+Le repo ne doit pas stocker de secrets Actions au demarrage. Les ROM, logiciels
+MO5, tokens et chemins locaux ne doivent jamais etre commits.
 
-La CI est dans `.github/workflows/ci.yml` et se declenche sur :
+CI cible initiale :
 
-- `push` vers `main` ;
-- toute `pull_request`.
+- `go test ./...` ;
+- `go vet ./...` ;
+- verification formatting `gofmt` ;
+- verification que les payloads sensibles restent absents du repo ;
+- build macOS/Linux quand le module Go existe.
 
-Jobs declares :
+La CI doit etre presente avant les premieres PR d'implementation significatives.
 
-| Job | Role |
-|---|---|
-| `lint` | Ruby setup + `bundle exec rubocop -f github` |
-| `security` | Brakeman + bundler-audit |
-| `test` | PostgreSQL 14, tests JS Node 22, `db:test:prepare`, smoke, gates P2/P4/P5/P6, puis RSpec complet |
-| `sidecar` | Python 3.12, install `chat-engine-svc`, Ruff, gate P3, pytest complet, build Docker sidecar |
-
-La CI doit etre presente avant d'ouvrir les premieres PR d'implementation.
-
-## 4. Branches et PR
+## 5. Branches et Pull Requests
 
 Flux nominal :
 
 ```bash
 git checkout main
 git pull --ff-only
-git checkout -b phaseX/<issue>-slug
+git checkout -b phase0/<issue>-slug
 # travail + commits atomiques
 git fetch origin
 git rebase origin/main
-git push -u origin phaseX/<issue>-slug
+git push -u origin phase0/<issue>-slug
 gh pr create --base main --title "..." --body-file /tmp/pr-body.md
 ```
 
@@ -121,69 +120,64 @@ Closes #<N>
 Verification apres creation :
 
 ```bash
-gh issue view <N> --repo Lesur-ai/<repo> --json closedByPullRequestsReferences
+gh issue view <N> --repo "${FULL_REPO}" --json closedByPullRequestsReferences
 ```
 
-La PR est mergee sur GitHub uniquement, jamais par `git merge` local sur
-`main`. Apres merge GitHub :
+La PR est mergee sur GitHub uniquement. Apres merge GitHub :
 
 ```bash
 git checkout main
 git pull --ff-only
-git branch -d phaseX/<issue>-slug
+git branch -d phase0/<issue>-slug
 ```
 
-## 5. Labels
+## 6. Labels
 
-Les labels de base GitHub sont conserves, puis les labels projet suivants sont
-ajoutes.
+Les labels de base GitHub peuvent etre conserves. Les labels projet suivants
+doivent etre crees ou mis a jour de maniere idempotente.
 
-Labels de phase :
-
-| Label | Couleur | Description |
-|---|---|---|
-| `phase-0` | `0E8A16` | Phase 0 — fondations & scaffold |
-| `phase-1` | `1D76DB` | Phase 1 — identite, tenancy & isolation |
-| `phase-2` | `5319E7` | Phase 2 — billing & metrage durable |
-| `phase-3` | `0052CC` | Phase 3 — sidecar chat-engine (Cloud Temple) |
-| `phase-4` | `8957E5` | Phase 4 — Chat MVP (streaming/persistance/metrage) |
-| `phase-5` | `D93F0B` | Phase 5 — tooling, MCP, gouvernance & BYOK |
-| `phase-6` | `006B75` | Phase 6 — compte, confidentialite, preferences |
-| `phase-7` | `BFD4F2` | Phase 7 — Transkryptor & API mobile |
-| `phase-8` | `C2E0C6` | Phase 8 — durcissement & scale |
-
-Labels de domaine :
+### Labels de phase
 
 | Label | Couleur | Description |
 |---|---|---|
-| `area:bootstrap` | `FBCA04` | Domaine : bootstrap |
-| `area:identity` | `FBCA04` | Domaine : identity |
-| `area:tenancy` | `FBCA04` | Domaine : tenancy |
-| `area:billing` | `FBCA04` | Domaine : billing |
-| `area:inference` | `FBCA04` | Domaine : inference |
-| `area:chat` | `FBCA04` | Domaine : chat |
-| `area:tooling` | `FBCA04` | Domaine : tooling |
-| `area:memory` | `FBCA04` | Domaine : memory |
-| `area:transkryptor` | `FBCA04` | Domaine : transkryptor |
-| `area:platform` | `FBCA04` | Domaine : platform |
-| `area:api` | `FBCA04` | Domaine : api |
-| `area:ci` | `FBCA04` | Domaine : ci |
-| `area:security` | `FBCA04` | Domaine : security |
-| `area:tests` | `FBCA04` | Domaine : tests |
+| `phase-0` | `0E8A16` | Phase 0 - cadrage, architecture, repository, CI |
+| `phase-1` | `1D76DB` | Phase 1 - squelette Go/Ebitengine et packaging minimal |
+| `phase-2` | `5319E7` | Phase 2 - CPU Motorola 6809 |
+| `phase-3` | `0052CC` | Phase 3 - bus MO5, memoire, ROM, ports |
+| `phase-4` | `8957E5` | Phase 4 - video, clavier, joystick, crayon |
+| `phase-5` | `D93F0B` | Phase 5 - media k7/fd/rom, imprimante, stockage |
+| `phase-6` | `006B75` | Phase 6 - application desktop complete |
+| `phase-7` | `BFD4F2` | Phase 7 - fidelite, compatibilite, regression suite |
+| `phase-8` | `C2E0C6` | Phase 8 - distribution, durcissement, documentation |
 
-Labels de pilotage :
+### Labels de domaine
+
+| Label | Couleur | Description |
+|---|---|---|
+| `area:architecture` | `FBCA04` | Domaine : architecture et decisions structurantes |
+| `area:cpu6809` | `FBCA04` | Domaine : emulation CPU Motorola 6809 |
+| `area:core` | `FBCA04` | Domaine : machine MO5, bus, memoire, ports |
+| `area:video` | `FBCA04` | Domaine : rendu video et framebuffer |
+| `area:audio` | `FBCA04` | Domaine : audio et cadence |
+| `area:input` | `FBCA04` | Domaine : clavier, joystick, souris/crayon |
+| `area:media` | `FBCA04` | Domaine : k7, fd, rom, imprimante |
+| `area:app` | `FBCA04` | Domaine : application desktop Ebitengine |
+| `area:packaging` | `FBCA04` | Domaine : packaging macOS/Linux |
+| `area:ci` | `FBCA04` | Domaine : CI et outillage |
+| `area:docs` | `FBCA04` | Domaine : documentation |
+| `area:legal` | `FBCA04` | Domaine : licences, ROM, logiciels MO5 |
+| `area:tests` | `FBCA04` | Domaine : tests et golden data |
+
+### Labels de pilotage
 
 | Label | Couleur | Description |
 |---|---|---|
 | `debt` | `5319E7` | Dette technique |
-| `gate` | `B60205` | Verification bloquante (gate de phase) |
-| `status:in-progress` | `FBCA04` | Travail en cours |
+| `gate` | `B60205` | Verification bloquante |
+| `risk` | `B60205` | Risque produit, technique ou legal |
+| `status:in-progress` | `FBCA04` | Label informatif seulement, ne remplace pas Project Status |
 
-`status:in-progress` existe encore comme label, mais ne doit pas representer le
-statut officiel d'une issue. Le statut officiel est le champ `Status` du Project
-v2.
-
-Labels de routage modele :
+### Labels de routage modele
 
 | Label | Couleur | Description |
 |---|---|---|
@@ -194,71 +188,68 @@ Labels de routage modele :
 | `opus_4-8` | `6F42C1` | Modele recommande : Opus 4.8 |
 | `sonnet_4-6` | `030E98` | Modele recommande : Sonnet 4.6 |
 
-Exemple de creation idempotente :
+Commande type idempotente :
 
 ```bash
-gh label create phase-4 --repo Lesur-ai/<repo> --color 8957E5 \
-  --description "Phase 4 — Chat MVP (streaming/persistance/metrage)" \
-  || gh label edit phase-4 --repo Lesur-ai/<repo> --color 8957E5 \
-  --description "Phase 4 — Chat MVP (streaming/persistance/metrage)"
+gh label create phase-0 --repo "${FULL_REPO}" --color 0E8A16 \
+  --description "Phase 0 - cadrage, architecture, repository, CI" \
+  || gh label edit phase-0 --repo "${FULL_REPO}" --color 0E8A16 \
+  --description "Phase 0 - cadrage, architecture, repository, CI"
 ```
 
-## 6. Milestones
+## 7. Jalons
 
-Milestones observes :
+Les jalons structurent le portage par increments testables.
 
 | Milestone | Description |
 |---|---|
-| `P2 — Billing & métrage durable` | Facturation & metrage durable AVANT le chat (Plan, Subscription/Stripe, Entitlement, UsageRecord, Outbox, Rollup, quotas, ecrans 13/10). Ref. archi §10 (P2), §5.2, §3.4. |
-| `P3 — Sidecar chat-engine` | Sidecar FastAPI (chat-engine[http]), Inference:: + seed Cloud Temple, usage durable, mTLS+JWT, default-deny, lib/chat_engine_client. Ref. archi §10 (P3), §3, §5.4. |
-| `P4 — Chat MVP` | Chat conversationnel: Project/Conversation/Message/Run, gateway SSE (tx courtes), metrage reconcilie, ephemere, ecrans 02-06. Ref. archi §10 (P4), §7, §8.1. |
-| `P5 — Tooling, MCP, gouvernance & BYOK complet` | Tooling, MCP, gouvernance, BYOK complet, capabilities, audit, deferred tools et Memory bindings. Ref. archi §10 P5, §5.4, §5.5, §5.6. |
-| `P6 — Compte, confidentialité, préférences, recherche` | Compte, confidentialite, preferences, recherche, export/suppression RGPD et OpenAPI account/privacy. Ref. archi §10 P6. |
+| `P0 - Fondations projet` | Repository prive, architecture, setup GitHub, CI initiale, politique licences/ROM. |
+| `P1 - Squelette Go/Ebitengine` | Module Go, structure packages, fenetre Ebitengine minimale, etat ROM manquante explicite. |
+| `P2 - CPU Motorola 6809` | Portage CPU deterministe, registres uint8/uint16, opcodes prioritaires, tests flags/cycles. |
+| `P3 - Machine MO5 core` | Bus memoire, RAM/ROM, banques MEMO5, ports, reset, IRQ, scheduler de cycles. |
+| `P4 - Video et entrees` | Palette, framebuffer 336x216, clavier, joysticks clavier, crayon optique souris. |
+| `P5 - Media et persistence` | Cassette k7, disquette fd, cartouche rom, imprimante fichier, config utilisateur portable. |
+| `P6 - Desktop complet` | Menus, preferences, chargement fichiers, audio bufferise, packaging macOS/Linux. |
+| `P7 - Fidelity suite` | Golden tests, checksums deterministes, corpus de programmes autorises, corrections timing. |
+| `P8 - Distribution privee` | Release privee, documentation utilisateur, procedure d'import ROM, durcissement final. |
 
-Exemple :
+Commande type :
 
 ```bash
-gh api -X POST repos/Lesur-ai/<repo>/milestones \
-  -f title="P4 — Chat MVP" \
-  -f description="Chat conversationnel: Project/Conversation/Message/Run, gateway SSE (tx courtes), metrage reconcilie, ephemere, ecrans 02-06. Ref. archi §10 (P4), §7, §8.1."
+gh api -X POST "repos/${FULL_REPO}/milestones" \
+  -f title="P0 - Fondations projet" \
+  -f description="Repository prive, architecture, setup GitHub, CI initiale, politique licences/ROM."
 ```
 
-## 7. Project v2 principal
+## 8. Project v2 principal
 
-Projet principal observe :
+Projet principal cible :
 
 | Parametre | Valeur |
 |---|---|
 | Owner | `Lesur-ai` |
-| Numero | `7` |
-| Titre | `Portal chat.lesur.ai build` |
-| Visibilite | prive |
-| URL | `https://github.com/orgs/Lesur-ai/projects/7` |
-| Items observes | 150 |
+| Titre | `DCMO5 modern port` |
+| Visibilite | privee |
 
-Champs :
+Creation :
+
+```bash
+gh project create --owner "${OWNER}" --title "${PROJECT_TITLE}"
+```
+
+Champs souhaites :
 
 | Champ | Type / options |
 |---|---|
-| `Title` | champ systeme |
-| `Assignees` | champ systeme |
 | `Status` | single select : `Todo`, `Ready`, `In progress`, `Done` |
-| `Labels` | champ systeme |
-| `Linked pull requests` | champ systeme |
-| `Milestone` | champ systeme |
-| `Repository` | champ systeme |
-| `Reviewers` | champ systeme |
-| `Parent issue` | champ systeme |
-| `Sub-issues progress` | champ systeme |
-| `Created`, `Updated`, `Closed` | champs systeme |
-| `Priority` | single select, sans option configuree observee |
+| `Priority` | single select : `P0`, `P1`, `P2`, `P3` |
 | `Size` | single select : `XS`, `S`, `M`, `L`, `XL` |
 | `Estimate` | number |
-| `Iteration` | iterations de 14 jours, premiere iteration le 2026-05-28 |
+| `Iteration` | iteration 14 jours |
 | `Start date` | date |
 | `Target date` | date |
 
-Vues :
+Vues souhaites :
 
 | Vue | Layout |
 |---|---|
@@ -268,65 +259,36 @@ Vues :
 | `Roadmap` | roadmap |
 | `My items` | table |
 
-Creation :
+Selon les capacites de la version de `gh`, la creation exacte des champs et vues
+peut necessiter l'API GraphQL Projects v2 ou l'interface GitHub.
+
+Verification :
 
 ```bash
-gh project create --owner Lesur-ai --title "Portal chat.lesur.ai build"
+gh project list --owner "${OWNER}" --format json
+gh project field-list <project-number> --owner "${OWNER}" --format json
 ```
 
-La creation exacte des champs single-select et des vues peut necessiter l'API
-GraphQL Projects v2 ou l'interface GitHub selon les capacites de la version de
-`gh`. Une fois cree, recuperer les IDs :
-
-```bash
-gh project field-list <project-number> --owner Lesur-ai --format json
-```
-
-## 8. Cycle de vie des issues
+## 9. Cycle de vie des issues
 
 Au demarrage d'une issue :
 
 ```bash
-gh issue edit <N> --repo Lesur-ai/<repo> --add-assignee "@me"
+gh issue edit <N> --repo "${FULL_REPO}" --add-assignee "@me"
 ```
 
 Ensuite, passer l'item Project a `In progress` via l'API Projects v2. Ne pas
-utiliser le label `status:in-progress` pour cela.
-
-Mutation type :
-
-```bash
-gh api graphql -f query='
-mutation(
-  $projectId: ID!
-  $itemId: ID!
-  $statusFieldId: ID!
-  $inProgressOptionId: String!
-) {
-  updateProjectV2ItemFieldValue(input: {
-    projectId: $projectId
-    itemId: $itemId
-    fieldId: $statusFieldId
-    value: { singleSelectOptionId: $inProgressOptionId }
-  }) {
-    projectV2Item { id }
-  }
-}' \
-  -F projectId="$PROJECT_ID" \
-  -F itemId="$PROJECT_ITEM_ID" \
-  -F statusFieldId="$STATUS_FIELD_ID" \
-  -F inProgressOptionId="$IN_PROGRESS_OPTION_ID"
-```
+utiliser le label `status:in-progress` comme source de verite.
 
 Les decisions de conception avant PR vont en commentaire d'issue :
 
 ```bash
-gh issue comment <N> --repo Lesur-ai/<repo> --body "Decision: ..."
+gh issue comment <N> --repo "${FULL_REPO}" --body "Decision: ..."
 ```
 
 Apres ouverture de la PR, les discussions de revue basculent dans la PR.
 
-## 9. Review et auto-review
+## 10. Review et auto-review
 
 Le standard de review du projet est un commentaire PR, pas `gh pr review`.
 
@@ -338,10 +300,10 @@ LGTM
 Reviewed-Head: <sha>
 
 Checks pris en compte:
-- lint: pass
-- security: pass
-- sidecar: pass
-- test: pass
+- go test: pass
+- go vet: pass
+- gofmt: pass
+- packaging smoke: pass
 
 Limites:
 - ...
@@ -350,33 +312,36 @@ Findings:
 - Aucun finding bloquant.
 ```
 
-S'il existe un finding bloquant, le commentaire commence par
-`changements demandés`.
+S'il existe un finding bloquant, le commentaire commence par :
+
+```text
+changements demandes
+```
 
 Avant toute demande de merge, verifier que le dernier `Reviewed-Head` correspond
 au `headRefOid` actuel de la PR :
 
 ```bash
-gh pr view <PR> --repo Lesur-ai/<repo> --json headRefOid
-gh pr view <PR> --repo Lesur-ai/<repo> --comments
+gh pr view <PR> --repo "${FULL_REPO}" --json headRefOid
+gh pr view <PR> --repo "${FULL_REPO}" --comments
 ```
 
-## 10. Verification du setup
+## 11. Verification du setup
 
-Checklist rapide pour un nouveau repo :
+Checklist rapide :
 
 ```bash
-gh repo view Lesur-ai/<repo> --json nameWithOwner,visibility,defaultBranchRef
-gh api repos/Lesur-ai/<repo>/actions/permissions
-gh api repos/Lesur-ai/<repo>/actions/permissions/workflow
-gh label list --repo Lesur-ai/<repo> --limit 200
-gh api 'repos/Lesur-ai/<repo>/milestones?state=all&per_page=100'
-gh project list --owner Lesur-ai --format json
-gh project field-list <project-number> --owner Lesur-ai --format json
-gh api repos/Lesur-ai/<repo>/branches/main/protection
-gh api repos/Lesur-ai/<repo>/rulesets
+gh repo view "${FULL_REPO}" --json nameWithOwner,visibility,defaultBranchRef
+gh api "repos/${FULL_REPO}/actions/permissions"
+gh api "repos/${FULL_REPO}/actions/permissions/workflow"
+gh label list --repo "${FULL_REPO}" --limit 200
+gh api "repos/${FULL_REPO}/milestones?state=all&per_page=100"
+gh project list --owner "${OWNER}" --format json
+gh api "repos/${FULL_REPO}/branches/main/protection"
+gh api "repos/${FULL_REPO}/rulesets"
 ```
 
-Sur `Lesur-ai/portal`, les deux dernieres verifications retournent
-respectivement `Branch not protected` et une liste vide de rulesets.
-
+Les deux dernieres verifications peuvent retourner respectivement
+`Branch not protected` et une liste vide de rulesets au demarrage. Si c'est le
+cas, la discipline PR-only reste une regle operationnelle jusqu'a mise en place
+des protections.
