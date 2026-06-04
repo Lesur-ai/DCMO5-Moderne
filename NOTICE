@@ -1,0 +1,40 @@
+DCMO5 Moderne
+=============
+
+Portage moderne en Go / Ebitengine de l'emulateur Thomson MO5 "DCMO5 v11".
+
+Copyright (C) 2026 Christophe Lesur (auteur du portage moderne).
+
+Ce programme est un logiciel libre : vous pouvez le redistribuer et/ou le
+modifier selon les termes de la GNU General Public License version 3, ou
+(a votre gre) toute version ulterieure. Voir le fichier LICENSE pour le
+texte complet.
+
+
+Oeuvre d'origine
+----------------
+
+Ce projet est une oeuvre derivee de DCMO5 v11.
+
+  DCMO5 v11
+  Copyright (C) 2007 Daniel Coulom <danielcoulom@gmail.com>
+  Site d'origine : http://dcmo5.free.fr/
+  Licence : GNU General Public License v3 ou ulterieure.
+
+Le code C historique de DCMO5 v11 sert de reference fonctionnelle et
+documentaire au portage. Il n'est pas une dependance runtime de la version
+moderne.
+
+
+Contenus copyright NON distribues avec ce logiciel
+---------------------------------------------------
+
+Les elements suivants sont soumis a copyright et ne sont jamais embarques
+dans ce logiciel ni dans ses paquets de distribution. L'utilisateur doit
+les fournir lui-meme via le mecanisme d'import.
+
+  - ROM Thomson MO5 et ROM du controleur disque CD90-640
+    (accord ecrit des ayants droit requis).
+  - Logiciels MO5 commerciaux (.k7, .fd, .rom).
+
+Voir DESIGN/LICENSING.md pour la classification complete et les garde-fous.
