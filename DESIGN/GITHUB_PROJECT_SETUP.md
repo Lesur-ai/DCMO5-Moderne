@@ -34,6 +34,41 @@ Regle : ne jamais mettre de secret, token, endpoint sensible ou identifiant
 d'environnement privilegie dans ce document. Ces valeurs vivent dans les
 gestionnaires de secrets, les variables d'environnement ou la configuration MCP.
 
+## 1.1. Automatisation recommandee
+
+Le setup GitHub doit etre applique par le script generique :
+
+```bash
+scripts/github/setup_project.sh scripts/github/configs/<repo>.conf
+```
+
+Chaque fichier de configuration projet est un profil shell versionne qui
+contient uniquement des valeurs non secretes :
+
+- variables obligatoires : `OWNER`, `REPO`, `PROJECT_TITLE`,
+  `REPO_DESCRIPTION`, `DEFAULT_BRANCH`, `VISIBILITY` ;
+- variables optionnelles : `PROJECT_KIND`, `PRIMARY_STACK`, `CI_PROFILE`,
+  `LICENSE_PROFILE`, `ENABLE_PROJECT` ;
+- tableaux optionnels : `PROJECT_LABELS`, `MILESTONES`, `PROJECT_FIELDS`.
+
+Le script applique le socle commun de ce document, puis ajoute les labels et
+jalons propres au projet. Les profils projet vivent dans
+`scripts/github/configs/`. Un wrapper court peut etre conserve pour un projet
+frequent, par exemple `scripts/github/setup_<repo>.sh`.
+
+Pour creer un nouveau profil, copier
+`scripts/github/configs/template.conf.example` vers
+`scripts/github/configs/<repo>.conf`, puis remplacer les valeurs du projet.
+
+Verification locale sans ecriture reseau :
+
+```bash
+DRY_RUN=1 scripts/github/setup_project.sh scripts/github/configs/<repo>.conf
+```
+
+Le dry-run valide le chargement du profil et affiche les commandes principales,
+mais il ne remplace pas les verifications GitHub reelles apres execution.
+
 ## 2. Principes communs
 
 Le repository GitHub sert de systeme de pilotage, pas seulement de stockage de

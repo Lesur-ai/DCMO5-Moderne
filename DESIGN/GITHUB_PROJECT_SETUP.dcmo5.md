@@ -73,6 +73,16 @@ Le setup GitHub DCMO5 s'execute avec :
 scripts/github/setup_dcmo5.sh
 ```
 
+ou directement avec le script generique :
+
+```bash
+scripts/github/setup_project.sh scripts/github/configs/dcmo5.conf
+```
+
+Le fichier `scripts/github/configs/dcmo5.conf` contient le profil DCMO5 :
+variables projet, labels specifiques et jalons specialises. Le wrapper
+`setup_dcmo5.sh` ne fait que charger cette configuration.
+
 Pre-requis :
 
 - `gh` authentifie avec les scopes necessaires au repository et a GitHub
