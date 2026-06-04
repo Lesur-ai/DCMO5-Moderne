@@ -1,50 +1,67 @@
-# Setup GitHub du projet DCMO5
+# Template Setup GitHub Projet
 
-> Etat cible pour le repository GitHub du portage moderne de DCMO5.
-> Date : 2026-06-04.
-> Objet : fournir un setup reproductible pour un repository prive, ses labels,
-> ses jalons, son Project v2 et sa discipline de Pull Request.
+> Template generique pour initialiser et piloter un repository GitHub prive.
+> Date de reference : 2026-06-04.
+> Objet : fournir une discipline reproductible pour tous nos projets :
+> repository, labels, jalons, Project v2, Pull Requests, reviews et
+> verifications de setup.
 
-## 1. Variables du projet
+## 1. Variables a renseigner
 
-Les commandes ci-dessous utilisent les variables suivantes :
+Chaque projet doit commencer par renseigner ces variables. Elles sont le contrat
+minimal entre la documentation, les commandes d'administration et les agents.
 
 ```bash
 OWNER="Lesur-ai"
-REPO="dcmo5"
+REPO="<repo>"
 FULL_REPO="${OWNER}/${REPO}"
-PROJECT_TITLE="DCMO5 modern port"
+PROJECT_TITLE="<nom lisible du projet>"
+REPO_DESCRIPTION="<description courte du projet>"
+DEFAULT_BRANCH="main"
+VISIBILITY="private"
 ```
 
-Le repository doit rester prive tant que les sujets de licence ROM/logiciels MO5
-et la direction produit ne sont pas stabilises.
+Variables optionnelles utiles :
 
-## 2. Principes de travail
+```bash
+PROJECT_KIND="<software|documentation|infra|data|research|mixed>"
+PRIMARY_STACK="<go|rails|python|typescript|rust|mixed|none>"
+CI_PROFILE="<go|rails|python|node|mixed|docs|none>"
+LICENSE_PROFILE="<internal|oss|mixed|sensitive>"
+```
 
-Le repository GitHub sert de systeme de pilotage :
+Regle : ne jamais mettre de secret, token, endpoint sensible ou identifiant
+d'environnement privilegie dans ce document. Ces valeurs vivent dans les
+gestionnaires de secrets, les variables d'environnement ou la configuration MCP.
 
-- le code vit sur `main` ;
-- l'integration vers `main` se fait par Pull Request ;
-- les issues portent le probleme, le contexte, la decision d'attaque et le lien
-  vers le Project ;
+## 2. Principes communs
+
+Le repository GitHub sert de systeme de pilotage, pas seulement de stockage de
+code :
+
+- le travail integre vit sur `${DEFAULT_BRANCH}` ;
+- l'integration vers `${DEFAULT_BRANCH}` se fait par Pull Request ;
+- les issues portent le probleme, le contexte, les decisions et le lien Project ;
 - les PR portent l'execution, les checks, les reviews et la trace `Closes #N` ;
 - GitHub Projects v2 porte le statut officiel d'avancement ;
-- les labels de statut ne remplacent pas le champ `Status` du Project.
+- les labels qualifient le travail, mais ne remplacent pas le champ `Status` ;
+- les documents canoniques du repository priment sur la memoire ou les notes.
 
-Pour le demarrage, la contrainte "PR only" peut etre une discipline
-operationnelle avant d'etre verrouillee par branch protection ou ruleset.
+Pour un nouveau repository, la contrainte "PR only" peut d'abord etre une
+discipline operationnelle. Elle peut ensuite etre renforcee par branch protection
+ou ruleset quand la CI existe.
 
-## 3. Creation du repository prive
+## 3. Creation du repository
 
-Creation :
+Creation du repository prive :
 
 ```bash
 gh repo create "${FULL_REPO}" \
   --private \
-  --description "DCMO5 modern port — Thomson MO5 emulator rewritten in Go/Ebitengine for macOS and Linux"
+  --description "${REPO_DESCRIPTION}"
 ```
 
-Options repository :
+Options repository communes :
 
 ```bash
 gh api -X PATCH "repos/${FULL_REPO}" \
@@ -64,10 +81,17 @@ Remote local :
 
 ```bash
 git remote add origin "https://github.com/${FULL_REPO}.git"
-git push -u origin main
+git push -u origin "${DEFAULT_BRANCH}"
 ```
 
-## 4. Actions GitHub
+Si le repository existe deja, verifier avant modification :
+
+```bash
+gh repo view "${FULL_REPO}" --json nameWithOwner,visibility,defaultBranchRef
+git remote -v
+```
+
+## 4. Actions GitHub et CI
 
 Actions doit etre active avec :
 
@@ -76,39 +100,42 @@ Actions doit etre active avec :
 - `default_workflow_permissions = read` ;
 - `can_approve_pull_request_reviews = false`.
 
-Verification :
+Verifications :
 
 ```bash
 gh api "repos/${FULL_REPO}/actions/permissions"
 gh api "repos/${FULL_REPO}/actions/permissions/workflow"
 ```
 
-Le repo ne doit pas stocker de secrets Actions au demarrage. Les ROM, logiciels
-MO5, tokens et chemins locaux ne doivent jamais etre commits.
+Profil CI minimal selon `CI_PROFILE` :
 
-CI cible initiale :
-
-- `go test ./...` ;
-- `go vet ./...` ;
-- verification formatting `gofmt` ;
-- verification que les payloads sensibles restent absents du repo ;
-- build macOS/Linux quand le module Go existe.
+| Profil | Checks minimaux |
+|---|---|
+| `go` | `go test ./...`, `go vet ./...`, `gofmt` |
+| `rails` | tests unitaires, lint Ruby, audit securite, migrations test |
+| `python` | tests, lint, type-check si applicable |
+| `node` | tests, lint, type-check, build |
+| `mixed` | checks par sous-projet + smoke global |
+| `docs` | liens, format, build documentation si applicable |
+| `none` | aucun check automatique au demarrage ; a documenter comme risque |
 
 La CI doit etre presente avant les premieres PR d'implementation significatives.
+Un projet peut demarrer sans CI seulement si le risque est explicitement note
+dans une issue ou un document de cadrage.
 
 ## 5. Branches et Pull Requests
 
 Flux nominal :
 
 ```bash
-git checkout main
+git checkout "${DEFAULT_BRANCH}"
 git pull --ff-only
 git checkout -b phase0/<issue>-slug
 # travail + commits atomiques
 git fetch origin
-git rebase origin/main
+git rebase "origin/${DEFAULT_BRANCH}"
 git push -u origin phase0/<issue>-slug
-gh pr create --base main --title "..." --body-file /tmp/pr-body.md
+gh pr create --base "${DEFAULT_BRANCH}" --title "..." --body-file /tmp/pr-body.md
 ```
 
 Le body de toute PR qui resout une issue doit contenir en premiere ligne :
@@ -126,55 +153,54 @@ gh issue view <N> --repo "${FULL_REPO}" --json closedByPullRequestsReferences
 La PR est mergee sur GitHub uniquement. Apres merge GitHub :
 
 ```bash
-git checkout main
+git checkout "${DEFAULT_BRANCH}"
 git pull --ff-only
 git branch -d phase0/<issue>-slug
 ```
 
-## 6. Labels
+## 6. Labels socle
 
-Les labels de base GitHub peuvent etre conserves. Les labels projet suivants
-doivent etre crees ou mis a jour de maniere idempotente.
+Les labels GitHub de base peuvent etre conserves. Les labels ci-dessous forment
+le socle commun a tous les projets.
 
 ### Labels de phase
 
 | Label | Couleur | Description |
 |---|---|---|
-| `phase-0` | `0E8A16` | Phase 0 - cadrage, architecture, repository, CI |
-| `phase-1` | `1D76DB` | Phase 1 - squelette Go/Ebitengine et packaging minimal |
-| `phase-2` | `5319E7` | Phase 2 - CPU Motorola 6809 |
-| `phase-3` | `0052CC` | Phase 3 - bus MO5, memoire, ROM, ports |
-| `phase-4` | `8957E5` | Phase 4 - video, clavier, joystick, crayon |
-| `phase-5` | `D93F0B` | Phase 5 - media k7/fd/rom, imprimante, stockage |
-| `phase-6` | `006B75` | Phase 6 - application desktop complete |
-| `phase-7` | `BFD4F2` | Phase 7 - fidelite, compatibilite, regression suite |
-| `phase-8` | `C2E0C6` | Phase 8 - distribution, durcissement, documentation |
+| `phase-0` | `0E8A16` | Phase 0 - cadrage, repository, architecture, CI |
+| `phase-1` | `1D76DB` | Phase 1 - socle produit ou technique initial |
+| `phase-2` | `5319E7` | Phase 2 - premiere tranche fonctionnelle majeure |
+| `phase-3` | `0052CC` | Phase 3 - integration et stabilisation |
+| `phase-4` | `8957E5` | Phase 4 - experience utilisateur ou exploitation |
+| `phase-5` | `D93F0B` | Phase 5 - durcissement, gouvernance, observabilite |
+| `phase-6` | `006B75` | Phase 6 - extension fonctionnelle ou scale |
+| `phase-7` | `BFD4F2` | Phase 7 - compatibilite, migration, documentation avancee |
+| `phase-8` | `C2E0C6` | Phase 8 - release, distribution, maintenance |
 
-### Labels de domaine
+### Labels de domaine communs
 
 | Label | Couleur | Description |
 |---|---|---|
-| `area:architecture` | `FBCA04` | Domaine : architecture et decisions structurantes |
-| `area:cpu6809` | `FBCA04` | Domaine : emulation CPU Motorola 6809 |
-| `area:core` | `FBCA04` | Domaine : machine MO5, bus, memoire, ports |
-| `area:video` | `FBCA04` | Domaine : rendu video et framebuffer |
-| `area:audio` | `FBCA04` | Domaine : audio et cadence |
-| `area:input` | `FBCA04` | Domaine : clavier, joystick, souris/crayon |
-| `area:media` | `FBCA04` | Domaine : k7, fd, rom, imprimante |
-| `area:app` | `FBCA04` | Domaine : application desktop Ebitengine |
-| `area:packaging` | `FBCA04` | Domaine : packaging macOS/Linux |
-| `area:ci` | `FBCA04` | Domaine : CI et outillage |
-| `area:docs` | `FBCA04` | Domaine : documentation |
-| `area:legal` | `FBCA04` | Domaine : licences, ROM, logiciels MO5 |
-| `area:tests` | `FBCA04` | Domaine : tests et golden data |
+| `area:architecture` | `FBCA04` | Architecture et decisions structurantes |
+| `area:product` | `FBCA04` | Produit, cadrage fonctionnel, UX |
+| `area:backend` | `FBCA04` | Backend, services, logique serveur |
+| `area:frontend` | `FBCA04` | Frontend, UI, experience utilisateur |
+| `area:infra` | `FBCA04` | Infrastructure, runtime, deploiement |
+| `area:data` | `FBCA04` | Donnees, schemas, migrations, corpus |
+| `area:api` | `FBCA04` | API, contrats, compatibilite externe |
+| `area:security` | `FBCA04` | Securite, confidentialite, durcissement |
+| `area:ci` | `FBCA04` | CI, outillage, automatisation |
+| `area:docs` | `FBCA04` | Documentation, runbooks, guides |
+| `area:legal` | `FBCA04` | Licences, conformite, contraintes legales |
+| `area:tests` | `FBCA04` | Tests, qualite, non-regression |
 
 ### Labels de pilotage
 
 | Label | Couleur | Description |
 |---|---|---|
-| `debt` | `5319E7` | Dette technique |
+| `debt` | `5319E7` | Dette technique ou documentaire |
 | `gate` | `B60205` | Verification bloquante |
-| `risk` | `B60205` | Risque produit, technique ou legal |
+| `risk` | `B60205` | Risque produit, technique, legal ou operationnel |
 | `status:in-progress` | `FBCA04` | Label informatif seulement, ne remplace pas Project Status |
 
 ### Labels de routage modele
@@ -192,44 +218,67 @@ Commande type idempotente :
 
 ```bash
 gh label create phase-0 --repo "${FULL_REPO}" --color 0E8A16 \
-  --description "Phase 0 - cadrage, architecture, repository, CI" \
+  --description "Phase 0 - cadrage, repository, architecture, CI" \
   || gh label edit phase-0 --repo "${FULL_REPO}" --color 0E8A16 \
-  --description "Phase 0 - cadrage, architecture, repository, CI"
+  --description "Phase 0 - cadrage, repository, architecture, CI"
 ```
 
-## 7. Jalons
+## 7. Labels specifiques projet
 
-Les jalons structurent le portage par increments testables.
+Chaque projet peut ajouter des labels `area:*` specifiques. Ils doivent rester
+stables et representer des domaines de responsabilite, pas des statuts.
+
+Exemples :
+
+| Type de projet | Labels specifiques possibles |
+|---|---|
+| Emulateur | `area:cpu`, `area:video`, `area:audio`, `area:input`, `area:media` |
+| SaaS | `area:billing`, `area:identity`, `area:tenancy`, `area:chat` |
+| Infra | `area:kubernetes`, `area:network`, `area:observability`, `area:backup` |
+| Data/IA | `area:dataset`, `area:evaluation`, `area:training`, `area:inference` |
+| Documentation | `area:content`, `area:publishing`, `area:taxonomy`, `area:search` |
+
+Regle : les labels specifiques doivent etre declares dans un document projet,
+par exemple `DESIGN/GITHUB_PROJECT_SETUP.<repo>.md`, ou dans une section
+"Profil projet" ajoutee au setup local.
+
+## 8. Jalons generiques
+
+Les jalons doivent refleter les increments du projet. Le socle generique suivant
+convient a la plupart des nouveaux repositories :
 
 | Milestone | Description |
 |---|---|
-| `P0 - Fondations projet` | Repository prive, architecture, setup GitHub, CI initiale, politique licences/ROM. |
-| `P1 - Squelette Go/Ebitengine` | Module Go, structure packages, fenetre Ebitengine minimale, etat ROM manquante explicite. |
-| `P2 - CPU Motorola 6809` | Portage CPU deterministe, registres uint8/uint16, opcodes prioritaires, tests flags/cycles. |
-| `P3 - Machine MO5 core` | Bus memoire, RAM/ROM, banques MEMO5, ports, reset, IRQ, scheduler de cycles. |
-| `P4 - Video et entrees` | Palette, framebuffer 336x216, clavier, joysticks clavier, crayon optique souris. |
-| `P5 - Media et persistence` | Cassette k7, disquette fd, cartouche rom, imprimante fichier, config utilisateur portable. |
-| `P6 - Desktop complet` | Menus, preferences, chargement fichiers, audio bufferise, packaging macOS/Linux. |
-| `P7 - Fidelity suite` | Golden tests, checksums deterministes, corpus de programmes autorises, corrections timing. |
-| `P8 - Distribution privee` | Release privee, documentation utilisateur, procedure d'import ROM, durcissement final. |
+| `P0 - Fondations projet` | Repository, architecture, setup GitHub, CI initiale, politique de contribution. |
+| `P1 - Socle executable` | Premier squelette qui se lance, structure de code, tests minimaux. |
+| `P2 - Tranche fonctionnelle 1` | Premier bloc fonctionnel majeur, teste et utilisable. |
+| `P3 - Tranche fonctionnelle 2` | Deuxieme bloc fonctionnel majeur ou integration structurante. |
+| `P4 - Experience et workflows` | UX, workflows, ergonomie, operations courantes. |
+| `P5 - Qualite et gouvernance` | Tests, securite, observabilite, dette, documentation technique. |
+| `P6 - Extension ou scale` | Extension fonctionnelle, performance, multi-tenant, volumetrie ou compatibilite. |
+| `P7 - Stabilisation` | Non-regression, migrations, compatibilite, corrections de bord. |
+| `P8 - Release et maintenance` | Release, distribution, runbooks, support, maintenance. |
 
 Commande type :
 
 ```bash
 gh api -X POST "repos/${FULL_REPO}/milestones" \
   -f title="P0 - Fondations projet" \
-  -f description="Repository prive, architecture, setup GitHub, CI initiale, politique licences/ROM."
+  -f description="Repository, architecture, setup GitHub, CI initiale, politique de contribution."
 ```
 
-## 8. Project v2 principal
+Un projet peut remplacer les descriptions generiques par des descriptions
+metier, mais il doit conserver une progression lisible de `P0` a `P8`.
+
+## 9. Project v2 principal
 
 Projet principal cible :
 
 | Parametre | Valeur |
 |---|---|
-| Owner | `Lesur-ai` |
-| Titre | `DCMO5 modern port` |
-| Visibilite | privee |
+| Owner | `${OWNER}` |
+| Titre | `${PROJECT_TITLE}` |
+| Visibilite | privee par defaut |
 
 Creation :
 
@@ -249,7 +298,7 @@ Champs souhaites :
 | `Start date` | date |
 | `Target date` | date |
 
-Vues souhaites :
+Vues souhaitees :
 
 | Vue | Layout |
 |---|---|
@@ -269,7 +318,7 @@ gh project list --owner "${OWNER}" --format json
 gh project field-list <project-number> --owner "${OWNER}" --format json
 ```
 
-## 9. Cycle de vie des issues
+## 10. Cycle de vie des issues
 
 Au demarrage d'une issue :
 
@@ -288,7 +337,7 @@ gh issue comment <N> --repo "${FULL_REPO}" --body "Decision: ..."
 
 Apres ouverture de la PR, les discussions de revue basculent dans la PR.
 
-## 10. Review et auto-review
+## 11. Review et auto-review
 
 Le standard de review du projet est un commentaire PR, pas `gh pr review`.
 
@@ -300,10 +349,9 @@ LGTM
 Reviewed-Head: <sha>
 
 Checks pris en compte:
-- go test: pass
-- go vet: pass
-- gofmt: pass
-- packaging smoke: pass
+- <check 1>: pass
+- <check 2>: pass
+- <check 3>: pass
 
 Limites:
 - ...
@@ -326,7 +374,7 @@ gh pr view <PR> --repo "${FULL_REPO}" --json headRefOid
 gh pr view <PR> --repo "${FULL_REPO}" --comments
 ```
 
-## 11. Verification du setup
+## 12. Verification du setup
 
 Checklist rapide :
 
@@ -337,7 +385,7 @@ gh api "repos/${FULL_REPO}/actions/permissions/workflow"
 gh label list --repo "${FULL_REPO}" --limit 200
 gh api "repos/${FULL_REPO}/milestones?state=all&per_page=100"
 gh project list --owner "${OWNER}" --format json
-gh api "repos/${FULL_REPO}/branches/main/protection"
+gh api "repos/${FULL_REPO}/branches/${DEFAULT_BRANCH}/protection"
 gh api "repos/${FULL_REPO}/rulesets"
 ```
 
@@ -345,3 +393,33 @@ Les deux dernieres verifications peuvent retourner respectivement
 `Branch not protected` et une liste vide de rulesets au demarrage. Si c'est le
 cas, la discipline PR-only reste une regle operationnelle jusqu'a mise en place
 des protections.
+
+## 13. Adaptation par projet
+
+Avant d'executer ce template sur un nouveau projet, produire un court bloc de
+profil projet :
+
+```text
+Projet:
+- OWNER:
+- REPO:
+- PROJECT_TITLE:
+- REPO_DESCRIPTION:
+- PROJECT_KIND:
+- PRIMARY_STACK:
+- CI_PROFILE:
+- LICENSE_PROFILE:
+
+Labels specifiques:
+- ...
+
+Jalons specialises:
+- ...
+
+Risques initiaux:
+- ...
+```
+
+Ce bloc peut vivre dans le README, dans `DESIGN/ARCHITECTURE.md`, ou dans un
+fichier `DESIGN/GITHUB_PROJECT_SETUP.<repo>.md` si le projet necessite des
+ecarts importants au socle commun.
