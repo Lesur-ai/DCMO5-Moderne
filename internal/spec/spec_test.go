@@ -12,15 +12,20 @@ func TestFramebufferDimensions(t *testing.T) {
 	}
 }
 
-func TestRAMSizes(t *testing.T) {
+func TestRAMPartition(t *testing.T) {
 	if spec.RAMTotalSize != 0xC000 {
 		t.Errorf("RAMTotalSize = 0x%X, want 0xC000", spec.RAMTotalSize)
 	}
-	if spec.RAMVideoSize != 0x2000 {
-		t.Errorf("RAMVideoSize = 0x%X, want 0x2000", spec.RAMVideoSize)
+	// Les deux pages vidéo + RAM user ne doivent pas dépasser la RAM totale.
+	videoTotal := spec.RAMVideoPages * spec.RAMVideoSize
+	if videoTotal+spec.RAMUserSize > spec.RAMTotalSize {
+		t.Errorf("partition RAM incohérente: 2*video(%d) + user(%d) = %d > total(%d)",
+			spec.RAMVideoSize, spec.RAMUserSize, videoTotal+spec.RAMUserSize, spec.RAMTotalSize)
 	}
-	if spec.RAMVideoSize*2 > spec.RAMTotalSize {
-		t.Error("deux pages vidéo dépassent la RAM totale")
+	// La RAM utilisateur commence après les deux pages vidéo.
+	if spec.RAMUserOffset != uint16(spec.RAMVideoPages*spec.RAMVideoSize) {
+		t.Errorf("RAMUserOffset = 0x%X, want 0x%X", spec.RAMUserOffset,
+			uint16(spec.RAMVideoPages*spec.RAMVideoSize))
 	}
 }
 
@@ -43,17 +48,28 @@ func TestVectors(t *testing.T) {
 	}
 }
 
-func TestPaletteSize(t *testing.T) {
-	if len(spec.Palette) != 19 {
-		t.Errorf("Palette len = %d, want 19", len(spec.Palette))
+func TestPaletteImmutable(t *testing.T) {
+	if spec.PaletteLen() != 19 {
+		t.Errorf("PaletteLen = %d, want 19", spec.PaletteLen())
+	}
+	// Vérifier que deux appels successifs retournent des copies indépendantes.
+	a := spec.PaletteColor(0)
+	a[0] = 99
+	b := spec.PaletteColor(0)
+	if b[0] == 99 {
+		t.Error("PaletteColor doit retourner une copie, pas une référence mutable")
 	}
 }
 
 func TestGammaTableMonotonic(t *testing.T) {
-	g := spec.GammaTable
-	for i := 1; i < len(g); i++ {
-		if g[i] <= g[i-1] {
-			t.Errorf("GammaTable[%d]=%d <= GammaTable[%d]=%d (non monotone)", i, g[i], i-1, g[i-1])
+	if spec.GammaLen() != 16 {
+		t.Errorf("GammaLen = %d, want 16", spec.GammaLen())
+	}
+	for i := 1; i < spec.GammaLen(); i++ {
+		prev := spec.GammaLookup(i - 1)
+		curr := spec.GammaLookup(i)
+		if curr <= prev {
+			t.Errorf("GammaLookup(%d)=%d <= GammaLookup(%d)=%d (non monotone)", i, curr, i-1, prev)
 		}
 	}
 }
