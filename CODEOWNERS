@@ -1,0 +1,12 @@
+# CODEOWNERS — DCMO5 Moderne
+#
+# Format : pattern  @owner
+# Les owners sont notifiés automatiquement sur les PR touchant leurs fichiers.
+
+*                   @chrlesur
+
+# Architecture et décisions structurantes
+DESIGN/             @chrlesur
+CONTRIBUTING.md     @chrlesur
+NOTICE              @chrlesur
+LICENSE             @chrlesur
