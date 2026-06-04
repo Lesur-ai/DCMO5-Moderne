@@ -67,6 +67,10 @@ le mécanisme d'import. Voir [`DESIGN/LICENSING.md`](DESIGN/LICENSING.md).
 
 ## Pré-requis
 
+> **Note (P0) :** le module Go et le squelette applicatif seront initialisés
+> dans le milestone P1. Les commandes ci-dessous seront disponibles à partir
+> de P1.
+
 - Go 1.22+ (voir `go.mod`)
 - macOS arm64 / amd64 ou Linux amd64 (cibles de premier ordre)
 
@@ -86,8 +90,9 @@ go test ./...
 
 ## Contribuer
 
-Voir [`CONTRIBUTING.md`](CONTRIBUTING.md). Workflow PR-only — tout merge vers
-`main` passe exclusivement par une Pull Request GitHub.
+Workflow PR-only — tout merge vers `main` passe exclusivement par une Pull
+Request GitHub. Le guide de contribution (`CONTRIBUTING.md`) sera ajouté dans
+le milestone P0 (issue #12).
 
 ---
 
