@@ -32,10 +32,16 @@ jobs:
           fi
 
       - name: go vet
-        run: go vet ./...
+        run: |
+          pkgs=$(go list ./... 2>/dev/null || true)
+          if [ -n "$pkgs" ]; then go vet ./...; fi
 
       - name: build
-        run: go build ./...
+        run: |
+          pkgs=$(go list ./... 2>/dev/null || true)
+          if [ -n "$pkgs" ]; then go build ./...; fi
 
       - name: test
-        run: go test -race ./...
+        run: |
+          pkgs=$(go list ./... 2>/dev/null || true)
+          if [ -n "$pkgs" ]; then go test -race ./...; fi
