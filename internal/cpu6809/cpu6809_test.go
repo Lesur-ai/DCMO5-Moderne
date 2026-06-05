@@ -39,11 +39,12 @@ func TestResetCC(t *testing.T) {
 	cpu := cpu6809.New(bus)
 	cpu.Reset()
 	s := cpu.Snapshot()
+	// Ref C dc6809emul.c : CC = 0x10 (FlagI masqué, FlagF démasqué)
 	if s.CC&cpu6809.FlagI == 0 {
 		t.Errorf("FlagI non positionné après Reset : CC=0x%02X", s.CC)
 	}
-	if s.CC&cpu6809.FlagF == 0 {
-		t.Errorf("FlagF non positionné après Reset : CC=0x%02X", s.CC)
+	if s.CC&cpu6809.FlagF != 0 {
+		t.Errorf("FlagF doit être démasqué après Reset (CC=0x10) : CC=0x%02X", s.CC)
 	}
 	if s.CC != cpu6809.ResetCC {
 		t.Errorf("CC après Reset = 0x%02X, want 0x%02X", s.CC, cpu6809.ResetCC)

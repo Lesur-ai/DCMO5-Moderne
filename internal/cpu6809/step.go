@@ -7,6 +7,60 @@ func (c *CPU) Step() int {
 	switch opcode {
 	// ── Page 0 ──────────────────────────────────────────────────────────────
 
+	// ── Opérations mémoire directes (DP:byte) ────────────────────────────
+
+	case 0x00: // NEG direct
+		r := c.AddrDirect()
+		c.bus.Write8(r.Addr, c.neg8(c.bus.Read8(r.Addr)))
+		return 6
+	case 0x01: // undoc — consomme l'octet opérande, NOP
+		c.AddrDirect()
+		return 3
+	case 0x03: // COM direct
+		r := c.AddrDirect()
+		c.bus.Write8(r.Addr, c.com8(c.bus.Read8(r.Addr)))
+		return 6
+	case 0x04: // LSR direct
+		r := c.AddrDirect()
+		c.bus.Write8(r.Addr, c.lsr8(c.bus.Read8(r.Addr)))
+		return 6
+	case 0x06: // ROR direct
+		r := c.AddrDirect()
+		c.bus.Write8(r.Addr, c.ror8(c.bus.Read8(r.Addr)))
+		return 6
+	case 0x07: // ASR direct
+		r := c.AddrDirect()
+		c.bus.Write8(r.Addr, c.asr8(c.bus.Read8(r.Addr)))
+		return 6
+	case 0x08: // ASL/LSL direct
+		r := c.AddrDirect()
+		c.bus.Write8(r.Addr, c.asl8(c.bus.Read8(r.Addr)))
+		return 6
+	case 0x09: // ROL direct
+		r := c.AddrDirect()
+		c.bus.Write8(r.Addr, c.rol8(c.bus.Read8(r.Addr)))
+		return 6
+	case 0x0A: // DEC direct
+		r := c.AddrDirect()
+		c.bus.Write8(r.Addr, c.dec8(c.bus.Read8(r.Addr)))
+		return 6
+	case 0x0C: // INC direct
+		r := c.AddrDirect()
+		c.bus.Write8(r.Addr, c.inc8(c.bus.Read8(r.Addr)))
+		return 6
+	case 0x0D: // TST direct
+		r := c.AddrDirect()
+		c.tst8(c.bus.Read8(r.Addr))
+		return 6
+	case 0x0E: // JMP direct
+		r := c.AddrDirect()
+		c.pc = r.Addr
+		return 3
+	case 0x0F: // CLR direct
+		r := c.AddrDirect()
+		c.bus.Write8(r.Addr, c.clr8())
+		return 6
+
 	// NOP
 	case 0x12:
 		return 2
@@ -1093,7 +1147,7 @@ func (c *CPU) stepPage1() int {
 		c.st16(r.Addr, c.s)
 		return 7
 	default:
-		return -int(op)
+		return -(0x1000 | int(op))
 	}
 }
 
@@ -1137,7 +1191,7 @@ func (c *CPU) stepPage2() int {
 		c.cmp16(c.s, c.read16(r.Addr))
 		return 8
 	default:
-		return -int(op)
+		return -(0x1100 | int(op))
 	}
 }
 
