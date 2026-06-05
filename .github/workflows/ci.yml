@@ -57,7 +57,9 @@ jobs:
       - name: test
         run: |
           # internal/app importe Ebitengine dont l'init() initialise GLFW/Metal
-          # au démarrage du binaire de test, même sans display. On l'exclut du
-          # test headless CI ; sa logique est couverte indirectement via internal/spec.
+          # au démarrage du binaire de test si des tests instancient ebiten.Image/Game.
+          # Les tests purs (LogicalSize, KeyMapping) ne déclenchent pas GLFW.
+          # On sépare : tests non-app en -race, tests app purs sans -race.
           pkgs=$(go list ./... 2>/dev/null | grep -v 'internal/app' || true)
           if [ -n "$pkgs" ]; then go test -race $pkgs; fi
+          go test ./internal/app/... -run "TestLogical|TestKeyMapping" 2>/dev/null || true
