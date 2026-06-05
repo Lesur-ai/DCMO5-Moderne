@@ -101,13 +101,40 @@ sudo dnf install -y \
 > uniquement des fonctions pures testables sans initialiser Ebitengine.
 > `go build ./...` requiert les libs ci-dessus sur Linux.
 
-## Lancer l'application
+## Utilisation
+
+### Lancer l'émulateur
 
 ```bash
+# Sans ROM (état indéfini, avertissement affiché)
 go run ./cmd/dcmo5
+
+# Avec ROM (recommandé)
+go run ./cmd/dcmo5 -rom /chemin/vers/mo5.rom
+
+# Avec ROM + cassette
+go run ./cmd/dcmo5 -rom mo5.rom -tape jeu.k7
+
+# Avec ROM + disquette
+go run ./cmd/dcmo5 -rom mo5.rom -disk dos.fd
+
+# Avec cartouche MEMO5
+go run ./cmd/dcmo5 -rom mo5.rom -cart memo5.rom
 ```
 
-## Tests
+Les chemins sont mémorisés dans la configuration utilisateur
+(`~/.config/dcmo5/config.json` sur Linux, `~/Library/Application Support/dcmo5/config.json` sur macOS)
+et réutilisés au prochain lancement sans argument.
+
+### Raccourcis clavier
+
+| Touche | Action |
+|--------|--------|
+| `F5` | Reset machine |
+| `P` | Pause / Reprise |
+| `Escape` | Quitter |
+
+### Tests
 
 ```bash
 go test ./...
