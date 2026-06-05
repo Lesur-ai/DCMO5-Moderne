@@ -6,9 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"image/color"
+	"io"
+	"os"
 	"path/filepath"
 
 	"github.com/Lesur-ai/dcmo5/internal/core"
+	"github.com/Lesur-ai/dcmo5/internal/media"
+	"github.com/Lesur-ai/dcmo5/internal/media/impl"
+	"github.com/Lesur-ai/dcmo5/internal/menu"
 	"github.com/Lesur-ai/dcmo5/internal/spec"
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -35,23 +40,53 @@ type App struct {
 	keys       *keyInjector
 	inputChars []rune
 
+	// Menu de pilotage
+	menu     *menu.Model
+	mediaDir string // répertoire de départ du navigateur de fichiers
+
+	// Médias montés : on garde les Closer pour fermer les fichiers à l'éjection
+	// ou avant un remplacement (éviter les fuites de descripteurs).
+	tapeCloser io.Closer
+	diskCloser io.Closer
+
 	// État desktop
 	paused     bool
 	romMissing bool
 	romName    string
 	tapeName   string
 	diskName   string
+	cartName   string
 }
 
 // New crée une application avec la machine donnée.
 func New(machine *core.Machine) *App {
 	fb := ebiten.NewImage(spec.FrameWidth, spec.FrameHeight)
 	fb.Fill(color.RGBA{R: 0, G: 0, B: 0, A: 0xFF})
-	return &App{
-		machine: machine,
-		fb:      fb,
-		keys:    newKeyInjector(defaultKeyHoldFrames, defaultKeyGapFrames),
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = "."
 	}
+	a := &App{
+		machine:  machine,
+		fb:       fb,
+		keys:     newKeyInjector(defaultKeyHoldFrames, defaultKeyGapFrames),
+		mediaDir: home,
+	}
+	a.menu = menu.NewModel(osLister)
+	return a
+}
+
+// osLister liste un répertoire réel pour le navigateur du menu.
+func osLister(dir string) ([]menu.Entry, error) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]menu.Entry, 0, len(ents))
+	for _, e := range ents {
+		out = append(out, menu.Entry{Name: e.Name(), IsDir: e.IsDir()})
+	}
+	return out, nil
 }
 
 // SetROMStatus indique si la ROM est absente (affichage d'avertissement).
@@ -66,9 +101,22 @@ func (a *App) SetMediaNames(rom, tape, disk string) {
 
 // Update est appelé à chaque tick (60 Hz) : entrées + émulation CPU.
 func (a *App) Update() error {
-	// Quitter proprement via Escape ou fermeture fenêtre
-	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
-		return ErrUserQuit
+	// ÉCHAP pilote le menu : ouvre s'il est fermé, remonte d'un niveau sinon.
+	if inputJustPressed(ebiten.KeyEscape) {
+		if a.menu.IsOpen() {
+			a.menu.Back()
+		} else {
+			a.menu.Toggle()
+		}
+		a.updateTitle()
+	}
+
+	// Menu ouvert : il capte toutes les entrées et suspend l'émulation.
+	if a.menu.IsOpen() {
+		if err := a.updateMenu(); err != nil {
+			return err
+		}
+		return nil
 	}
 
 	// F5 = reset machine
@@ -143,6 +191,110 @@ func (a *App) Update() error {
 	return nil
 }
 
+// updateMenu traite les entrées quand le menu est ouvert et exécute l'action
+// sélectionnée. L'émulation est suspendue tant que le menu est affiché.
+func (a *App) updateMenu() error {
+	if inputJustPressed(ebiten.KeyArrowUp) {
+		a.menu.MoveUp()
+	}
+	if inputJustPressed(ebiten.KeyArrowDown) {
+		a.menu.MoveDown()
+	}
+	if inputJustPressed(ebiten.KeyEnter) {
+		act := a.menu.Activate(a.mediaDir)
+		return a.handleMenuAction(act)
+	}
+	return nil
+}
+
+// handleMenuAction exécute l'intention produite par le menu.
+func (a *App) handleMenuAction(act menu.Action) error {
+	switch act {
+	case menu.ActResume:
+		// Le modèle a déjà fermé le menu.
+	case menu.ActReset:
+		a.machine.Reset()
+		a.menu.Close()
+	case menu.ActQuit:
+		return ErrUserQuit
+	case menu.ActEjectTape:
+		a.machine.EjectTape()
+		a.closeTape()
+		a.tapeName = ""
+	case menu.ActEjectDisk:
+		a.machine.EjectDisk()
+		a.closeDisk()
+		a.diskName = ""
+	case menu.ActEjectCart:
+		a.machine.EjectCartridge()
+		a.cartName = ""
+	case menu.ActMountChosen:
+		a.mountChosen()
+	}
+	a.updateTitle()
+	return nil
+}
+
+// mountChosen ouvre le fichier choisi dans le navigateur et le monte sur la
+// machine, en remplaçant proprement le média précédent du même type.
+func (a *App) mountChosen() {
+	path, kind := a.menu.Chosen()
+	if path == "" {
+		return
+	}
+	// Mémoriser le répertoire pour rouvrir le navigateur au même endroit.
+	a.mediaDir = filepath.Dir(path)
+
+	switch kind {
+	case menu.KindTape:
+		t, err := impl.OpenTape(path, false)
+		if err != nil {
+			return
+		}
+		a.closeTape()
+		a.machine.MountTape(t)
+		a.tapeCloser = t
+		a.tapeName = filepath.Base(path)
+	case menu.KindDisk:
+		d, err := impl.OpenDisk(path, false)
+		if err != nil {
+			return
+		}
+		a.closeDisk()
+		a.machine.MountDisk(d)
+		a.diskCloser = d
+		a.diskName = filepath.Base(path)
+	case menu.KindCart:
+		c, err := impl.OpenCartridge(path)
+		if err != nil {
+			return
+		}
+		a.machine.MountCartridge(c)
+		a.cartName = filepath.Base(path)
+	}
+}
+
+// closeTape / closeDisk ferment le fichier média courant s'il y en a un.
+func (a *App) closeTape() {
+	if a.tapeCloser != nil {
+		a.tapeCloser.Close()
+		a.tapeCloser = nil
+	}
+}
+
+func (a *App) closeDisk() {
+	if a.diskCloser != nil {
+		a.diskCloser.Close()
+		a.diskCloser = nil
+	}
+}
+
+// compile-time : *impl types satisfont media + io.Closer (sécurité de typage).
+var (
+	_ media.Tape = (*impl.FileTape)(nil)
+	_ io.Closer  = (*impl.FileTape)(nil)
+)
+
 // Draw rend le framebuffer machine dans la surface Ebitengine.
 func (a *App) Draw(screen *ebiten.Image) {
 	if a.romMissing {
@@ -163,6 +315,9 @@ func (a *App) Draw(screen *ebiten.Image) {
 	scaleY := float64(screen.Bounds().Dy()) / float64(spec.FrameHeight)
 	op.GeoM.Scale(scaleX, scaleY)
 	screen.DrawImage(a.fb, op)
+
+	// Overlay du menu de pilotage par-dessus l'écran émulé.
+	drawMenu(screen, a.menu)
 }
 
 // Layout retourne les dimensions logiques fixes du framebuffer MO5.
@@ -179,10 +334,17 @@ func (a *App) updateTitle() {
 	} else if a.romName != "" && a.romName != "." {
 		title += " — " + a.romName
 		if a.tapeName != "" && a.tapeName != "." {
-			title += " [" + a.tapeName + "]"
-		} else if a.diskName != "" && a.diskName != "." {
-			title += " [" + a.diskName + "]"
+			title += " [K7:" + a.tapeName + "]"
 		}
+		if a.diskName != "" && a.diskName != "." {
+			title += " [FD:" + a.diskName + "]"
+		}
+		if a.cartName != "" && a.cartName != "." {
+			title += " [CART:" + a.cartName + "]"
+		}
+	}
+	if a.menu != nil && a.menu.IsOpen() {
+		title += " [MENU]"
 	}
 	if a.paused {
 		title += " [PAUSE]"
