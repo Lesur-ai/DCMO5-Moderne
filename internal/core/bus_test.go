@@ -53,6 +53,37 @@ func TestBus_UserRAM(t *testing.T) {
 	}
 }
 
+func TestBus_UserRAM_noAlias_videoPage1(t *testing.T) {
+	// Page vidéo 1 (0x0000-0x1FFF → ram[0x2000-0x3FFF])
+	// La RAM user (0x2000-0x3FFF via CPU) doit mapper sur ram[0x4000-0x5FFF], pas se chevaucher.
+	m := newMachine(t)
+	// Passer en page vidéo 1
+	m.Write8(0xA7C0, 0x01)
+	// Écrire via la fenêtre vidéo (CPU 0x0100 → ram[0x2100])
+	m.Write8(0x0100, 0xAA)
+	// Écrire via la fenêtre user (CPU 0x2100 → ram[0x4100])
+	m.Write8(0x2100, 0xBB)
+	// Les deux lectures doivent retourner des valeurs indépendantes
+	if v := m.Read8(0x0100); v != 0xAA {
+		t.Errorf("vidéo page1 0x0100: got 0x%02X, want 0xAA", v)
+	}
+	if v := m.Read8(0x2100); v != 0xBB {
+		t.Errorf("user 0x2100: got 0x%02X, want 0xBB (ne doit pas aliaser vidéo)", v)
+	}
+}
+
+func TestBus_Keyboard_guardColumn(t *testing.T) {
+	// Colonne hors-bornes (0x7E → col=63 ≥ KeyMax=58) ne doit pas paniquer
+	m := newMachine(t)
+	m.Write8(0xA7C1, 0x7E)
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("colonne hors-bornes a causé une panique : %v", r)
+		}
+	}()
+	_ = m.Read8(0xA7C1) // ne doit pas paniquer
+}
+
 // ── ROM système read-only ─────────────────────────────────────────────────────
 
 func TestBus_ROMsys_readonly(t *testing.T) {

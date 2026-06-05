@@ -136,9 +136,9 @@ func (m *Machine) Read8(addr uint16) uint8 {
 	case 0x0, 0x1: // RAM vidéo (couleurs ou formes selon page active)
 		return m.ram[m.videoBase()+addr]
 	case 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9:
-		// RAM vidéo formes (0x2000-0x3FFF) et RAM utilisateur (0x4000-0x9FFF)
-		// Dans ram[], ces zones sont à leur adresse directe (adresse = index RAM)
-		return m.ram[addr]
+		// RAM utilisateur (CPU 0x2000-0x9FFF) → ram[addr+0x2000] = ram[0x4000-0xBFFF]
+		// ram[0x2000-0x3FFF] est réservé à la page vidéo 1 (formes), pas aliasée ici.
+		return m.ram[addr+0x2000]
 	case 0xA:
 		return m.readPort(addr)
 	case 0xB:
@@ -149,7 +149,7 @@ func (m *Machine) Read8(addr uint16) uint8 {
 	case 0xF:
 		return m.rom[addr-0xC000]
 	default:
-		return m.ram[addr]
+		return m.ram[addr+0x2000]
 	}
 }
 
@@ -160,20 +160,19 @@ func (m *Machine) Write8(addr uint16, v uint8) {
 	case 0x0, 0x1:
 		m.ram[m.videoBase()+addr] = v
 	case 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9:
-		m.ram[addr] = v
+		m.ram[addr+0x2000] = v
 	case 0xA:
 		m.writePort(addr, v)
 	case 0xB, 0xC, 0xD, 0xE:
-		if m.carflags&8 != 0 && m.cartype == 0 {
+		// Écriture cartouche : write-enable (bit3) + cart active (bit2) + cart simple (type 0)
+		if m.carflags&8 != 0 && m.carflags&4 != 0 && m.cartype == 0 {
 			base := m.romBankBase()
-			if base != 0 {
-				m.car[base+(uint32(addr)-0xB000)] = v
-			}
+			m.car[base+(uint32(addr)-0xB000)] = v
 		}
 	case 0xF:
 		// ROM sys read-only : écriture ignorée
 	default:
-		m.ram[addr] = v
+		m.ram[addr+0x2000] = v
 	}
 }
 
@@ -191,6 +190,9 @@ func (m *Machine) readPort(addr uint16) uint8 {
 		return m.port[0] | 0x80 | penBit
 	case 0xA7C1:
 		col := (m.port[1] & 0xFE) >> 1
+		if int(col) >= len(m.touche) {
+			col = 0
+		}
 		return m.port[1] | m.touche[col]
 	case 0xA7C2:
 		return m.port[2]
