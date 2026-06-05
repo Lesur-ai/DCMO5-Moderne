@@ -68,13 +68,13 @@ func (m *Machine) EjectDisk() {
 	m.opts.Disk = nil
 }
 
-// MountCartridge insère une cartouche, recharge l'espace cartouche et relance la
-// machine : sur MO5 réel, une cartouche prend le contrôle au reset. Ref C
-// Loadmemo() : chargement puis Initprog().
+// MountCartridge insère une cartouche et relance la machine dans un état propre.
+// Ref C Loadmemo() : réinitialise la RAM puis Initprog(). On délègue à Reset()
+// (hardReset RAM/ports + loadCartridge + cpu.Reset) pour qu'une cartouche montée
+// à chaud ne démarre jamais avec la RAM/entrées d'une session précédente.
 func (m *Machine) MountCartridge(c media.Cartridge) {
 	m.opts.Cartridge = c
-	m.loadCartridge()
-	m.cpu.Reset()
+	m.Reset()
 }
 
 // EjectCartridge retire la cartouche, désactive le banc cartouche et relance sur

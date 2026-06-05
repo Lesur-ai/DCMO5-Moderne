@@ -150,6 +150,29 @@ func TestMountCartridge_ResetsCPU(t *testing.T) {
 	}
 }
 
+func TestMountCartridge_ResetsRAM(t *testing.T) {
+	// Valeur de la RAM user après un reset propre (référence).
+	ref, _ := core.NewMachine(core.Options{})
+	ref.Reset()
+	const addr = 0x5000
+	resetVal := ref.Read8(addr)
+
+	// Machine « sale » : on écrit une valeur distincte de la valeur de reset.
+	m, _ := core.NewMachine(core.Options{})
+	m.Reset()
+	m.Write8(addr, resetVal^0xFF)
+	if m.Read8(addr) == resetVal {
+		t.Fatalf("préparation: la valeur écrite doit différer de la valeur reset")
+	}
+
+	// Monter une cartouche doit réinitialiser la RAM (ref Loadmemo).
+	cart := &stubCartridge{data: make([]byte, 0x4000)}
+	m.MountCartridge(cart)
+	if v := m.Read8(addr); v != resetVal {
+		t.Errorf("après MountCartridge: RAM[0x%04X] = 0x%02X (RAM périmée), want 0x%02X (reset)", addr, v, resetVal)
+	}
+}
+
 // ── Disquette ─────────────────────────────────────────────────────────────────
 
 func TestMountDisk_ReadsNewMedia(t *testing.T) {
