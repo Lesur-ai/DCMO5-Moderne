@@ -25,9 +25,10 @@ func TestLogicalSizeStable(t *testing.T) {
 
 func TestKeyMappingNoDuplicates(t *testing.T) {
 	seen := map[int]string{}
-	// Doublons légitimes : SHIFT (0x38), CNT (0x35), ACC (0x36) ont chacun
-	// une variante gauche et droite mappée sur le même index MO5.
-	legit := map[int]bool{0x38: true, 0x35: true, 0x36: true}
+	// Doublons légitimes : CNT (0x35) et ACC (0x36) ont chacun une variante
+	// gauche et droite sur le même index MO5. SHIFT n'est pas mappé en
+	// positionnel (piloté par l'injecteur de caractères).
+	legit := map[int]bool{0x35: true, 0x36: true}
 	for eKey, mo5Key := range app.KeyMapping() {
 		if legit[mo5Key] {
 			continue

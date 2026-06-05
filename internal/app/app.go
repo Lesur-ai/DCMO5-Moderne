@@ -87,6 +87,11 @@ func (a *App) Update() error {
 	}
 
 	// Saisie clavier MO5 : caractères (layout OS + Shift) + touches spéciales.
+	//
+	// LIMITE connue : les touches imprimables (lettres/chiffres) sont jouées en
+	// impulsions par l'injecteur, pas maintenues en continu — adapté à la frappe
+	// de texte (BASIC) mais pas au maintien d'une touche dans un jeu. Un mode
+	// « gaming » positionnel (toggle) est prévu dans une étape ultérieure.
 	a.inputChars = ebiten.AppendInputChars(a.inputChars[:0])
 	for _, r := range a.inputChars {
 		a.keys.Enqueue(r)
@@ -219,8 +224,6 @@ var keyMapping = map[ebiten.Key]int{
 	ebiten.KeyArrowLeft:    0x29,
 	ebiten.KeyArrowDown:    0x21,
 	ebiten.KeyArrowUp:      0x31,
-	ebiten.KeyShiftLeft:    0x38, // SHIFT
-	ebiten.KeyShiftRight:   0x38,
 	ebiten.KeyControlLeft:  0x35, // CNT
 	ebiten.KeyControlRight: 0x35,
 	ebiten.KeyAltLeft:      0x36, // ACC (accent)
@@ -228,6 +231,12 @@ var keyMapping = map[ebiten.Key]int{
 	ebiten.KeyTab:          0x39, // BASIC
 	ebiten.KeyEnd:          0x37, // STP (stop)
 }
+
+// NOTE : la touche SHIFT MO5 (0x38) n'est volontairement PAS mappée en
+// positionnel. En saisie par caractère, l'OS applique déjà Shift pour produire
+// le bon caractère (« 1 » vs « ! », majuscules…) ; l'injecteur décide alors
+// seul si SHIFT MO5 doit être pressé. Propager en plus le Shift physique
+// produirait un double-Shift (ex. AZERTY : « 1 » deviendrait « ! »).
 
 // titleForState retourne le titre de fenêtre pour un état donné.
 // Fonction pure testable sans Ebitengine.
