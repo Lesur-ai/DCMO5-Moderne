@@ -27,23 +27,32 @@ func TestFramebufferSize(t *testing.T) {
 }
 
 func TestMachineCPUBusConnection(t *testing.T) {
-	// Vérifie que Machine implémente cpu6809.Bus et que le CPU est connecté :
-	// après Reset avec une ROM contenant un NOP, Step() doit avancer PC.
+	// Vérifie que le CPU est bien connecté au bus machine : un programme ROM
+	// stocke une valeur en RAM, lisible via m.Read8.
+	//
+	// Programme ROM à 0xC000 :
+	//   LDA #0x42   (0x86 0x42)  — charge une valeur connue
+	//   STA $4000   (0xB7 0x40 0x00) — écrit en RAM user (CPU 0x4000)
+	//   NOP         (0x12)
 	rom := make([]byte, 0x4000)
-	// Vecteur reset à 0xFFFE pointe sur 0xC000 (rom[0x3FFE/0x3FFF])
-	rom[0x3FFE] = 0xC0
-	rom[0x3FFF] = 0x00
-	// Premier opcode à 0xC000 (rom[0]) = NOP (0x12)
-	rom[0x0000] = 0x12
+	rom[0x3FFE] = 0xC0 // vecteur reset hi
+	rom[0x3FFF] = 0x00 // vecteur reset lo → PC=0xC000
+	rom[0x0000] = 0x86 // LDA imm
+	rom[0x0001] = 0x42
+	rom[0x0002] = 0xB7 // STA ext
+	rom[0x0003] = 0x40
+	rom[0x0004] = 0x00
+	rom[0x0005] = 0x12 // NOP
 	m, err := core.NewMachine(core.Options{ROMSys: rom})
 	if err != nil {
 		t.Fatalf("NewMachine: %v", err)
 	}
 	m.Reset()
-	m.Step(4) // NOP = 2 cycles, Step(4) doit l'exécuter
-	// Si le CPU est bien connecté au bus, il a pu lire le NOP depuis la ROM.
-	// On vérifie juste que Step n'a pas paniqué et a progressé.
-	_ = m // pas d'accès PC depuis l'extérieur de core : test de non-panique suffisant ici
+	m.Step(20) // 3 instructions : LDA(2) + STA(5) + NOP(2) = 9 cycles
+	// La RAM user CPU 0x4000 doit contenir 0x42 si CPU et bus sont connectés.
+	if v := m.Read8(0x4000); v != 0x42 {
+		t.Errorf("CPU/bus connection: RAM[0x4000] = 0x%02X, want 0x42", v)
+	}
 }
 
 func TestNewMachineInvalidROMSize(t *testing.T) {
