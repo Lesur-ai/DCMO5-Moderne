@@ -96,6 +96,12 @@ const (
 	defaultKeyGapFrames  = 2 // relâchement entre deux frappes successives
 )
 
+// defaultKeyQueueMax borne la file d'attente de l'injecteur. Au-delà, les
+// frappes les plus anciennes sont abandonnées : un collage massif ou une
+// répétition OS rapide ne peut pas faire croître la mémoire ni accumuler une
+// latence sans fin. Dimensionné large pour ne jamais gêner une frappe humaine.
+const defaultKeyQueueMax = 256
+
 // injectorPhase est l'état courant de l'injecteur de frappes.
 type injectorPhase int
 
@@ -114,6 +120,7 @@ type keyInjector struct {
 	queue      []charKey
 	holdFrames int
 	gapFrames  int
+	queueMax   int
 
 	phase   injectorPhase
 	current charKey
@@ -122,14 +129,25 @@ type keyInjector struct {
 
 // newKeyInjector crée un injecteur avec les durées fournies (frames).
 func newKeyInjector(holdFrames, gapFrames int) *keyInjector {
-	return &keyInjector{holdFrames: holdFrames, gapFrames: gapFrames}
+	return &keyInjector{
+		holdFrames: holdFrames,
+		gapFrames:  gapFrames,
+		queueMax:   defaultKeyQueueMax,
+	}
 }
 
-// Enqueue ajoute le caractère à la file s'il a un équivalent MO5.
+// Enqueue ajoute le caractère à la file s'il a un équivalent MO5. La file est
+// bornée à queueMax : au-delà, la frappe la plus ancienne est abandonnée pour
+// éviter toute croissance mémoire / latence non bornée (paste, repeat OS).
 func (ki *keyInjector) Enqueue(r rune) {
-	if key, shift, ok := CharToMO5Key(r); ok {
-		ki.queue = append(ki.queue, charKey{key: key, shift: shift})
+	key, shift, ok := CharToMO5Key(r)
+	if !ok {
+		return
 	}
+	if ki.queueMax > 0 && len(ki.queue) >= ki.queueMax {
+		ki.queue = ki.queue[1:] // drop la plus ancienne
+	}
+	ki.queue = append(ki.queue, charKey{key: key, shift: shift})
 }
 
 // Pending retourne le nombre de frappes en attente (frappe courante incluse).

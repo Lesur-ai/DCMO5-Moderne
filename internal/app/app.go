@@ -97,15 +97,26 @@ func (a *App) Update() error {
 		a.keys.Enqueue(r)
 	}
 
+	// Touches caractère injectées (une frappe à la fois, maintenue puis relâchée).
+	tickKeys := a.keys.Tick()
+	// « injecting » : une frappe caractère est en cours de rejeu (hold ou gap).
+	// Pendant ce temps, le Shift physique ne doit PAS être propagé : l'OS a déjà
+	// produit le bon caractère, et l'injecteur pilote seul SHIFT MO5 (sinon
+	// double-Shift, ex. AZERTY « 1 » → « ! »). Hors saisie, Shift redevient une
+	// touche positionnelle maintenable (jeux, combinaisons MO5).
+	injecting := len(tickKeys) > 0 || a.keys.Pending() > 0
+
 	var active [spec.KeyMax]bool
 	// Touches spéciales en mode positionnel (état physique continu).
 	for eKey, mo5Key := range keyMapping {
+		if mo5Key == mo5KeyShift && injecting {
+			continue
+		}
 		if ebiten.IsKeyPressed(eKey) {
 			active[mo5Key] = true
 		}
 	}
-	// Touches caractère injectées (une frappe à la fois, maintenue puis relâchée).
-	for _, k := range a.keys.Tick() {
+	for _, k := range tickKeys {
 		if k >= 0 && k < spec.KeyMax {
 			active[k] = true
 		}
@@ -224,6 +235,8 @@ var keyMapping = map[ebiten.Key]int{
 	ebiten.KeyArrowLeft:    0x29,
 	ebiten.KeyArrowDown:    0x21,
 	ebiten.KeyArrowUp:      0x31,
+	ebiten.KeyShiftLeft:    0x38, // SHIFT (voir gestion conditionnelle dans Update)
+	ebiten.KeyShiftRight:   0x38,
 	ebiten.KeyControlLeft:  0x35, // CNT
 	ebiten.KeyControlRight: 0x35,
 	ebiten.KeyAltLeft:      0x36, // ACC (accent)
@@ -231,12 +244,6 @@ var keyMapping = map[ebiten.Key]int{
 	ebiten.KeyTab:          0x39, // BASIC
 	ebiten.KeyEnd:          0x37, // STP (stop)
 }
-
-// NOTE : la touche SHIFT MO5 (0x38) n'est volontairement PAS mappée en
-// positionnel. En saisie par caractère, l'OS applique déjà Shift pour produire
-// le bon caractère (« 1 » vs « ! », majuscules…) ; l'injecteur décide alors
-// seul si SHIFT MO5 doit être pressé. Propager en plus le Shift physique
-// produirait un double-Shift (ex. AZERTY : « 1 » deviendrait « ! »).
 
 // titleForState retourne le titre de fenêtre pour un état donné.
 // Fonction pure testable sans Ebitengine.

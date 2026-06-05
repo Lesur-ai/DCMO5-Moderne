@@ -135,3 +135,17 @@ func TestKeyInjector_IdleReturnsNil(t *testing.T) {
 		t.Errorf("injecteur vide: Pending = %d, want 0", ki.Pending())
 	}
 }
+
+// TestKeyInjector_QueueBounded vérifie que la file ne croît pas sans limite :
+// au-delà de queueMax, les frappes les plus anciennes sont abandonnées.
+func TestKeyInjector_QueueBounded(t *testing.T) {
+	ki := newKeyInjector(defaultKeyHoldFrames, defaultKeyGapFrames)
+	ki.queueMax = 4
+	// Enfiler 100 caractères valides : la file doit rester bornée.
+	for i := 0; i < 100; i++ {
+		ki.Enqueue('a')
+	}
+	if len(ki.queue) > ki.queueMax {
+		t.Errorf("file non bornée: len=%d, want <= %d", len(ki.queue), ki.queueMax)
+	}
+}
