@@ -93,10 +93,19 @@ func osLister(dir string) ([]menu.Entry, error) {
 func (a *App) SetROMStatus(missing bool) { a.romMissing = missing }
 
 // SetMediaNames configure les noms de médias montés pour le titre fenêtre.
-func (a *App) SetMediaNames(rom, tape, disk string) {
+func (a *App) SetMediaNames(rom, tape, disk, cart string) {
 	a.romName = filepath.Base(rom)
 	a.tapeName = filepath.Base(tape)
 	a.diskName = filepath.Base(disk)
+	a.cartName = filepath.Base(cart)
+}
+
+// SetStartupMediaClosers confie à l'App les descripteurs des médias ouverts au
+// démarrage (CLI), pour qu'ils soient fermés proprement si on les remplace
+// depuis le menu (évite une fuite du descripteur initial). nil est accepté.
+func (a *App) SetStartupMediaClosers(tape, disk io.Closer) {
+	a.tapeCloser = tape
+	a.diskCloser = disk
 }
 
 // Update est appelé à chaque tick (60 Hz) : entrées + émulation CPU.
