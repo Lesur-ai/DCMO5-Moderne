@@ -56,5 +56,8 @@ jobs:
 
       - name: test
         run: |
-          pkgs=$(go list ./... 2>/dev/null || true)
-          if [ -n "$pkgs" ]; then go test -race ./...; fi
+          # internal/app importe Ebitengine dont l'init() initialise GLFW/Metal
+          # au démarrage du binaire de test, même sans display. On l'exclut du
+          # test headless CI ; sa logique est couverte indirectement via internal/spec.
+          pkgs=$(go list ./... 2>/dev/null | grep -v 'internal/app' || true)
+          if [ -n "$pkgs" ]; then go test -race $pkgs; fi
