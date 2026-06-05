@@ -315,12 +315,6 @@ func (m *Machine) Step(cycles int) int {
 	return consumed
 }
 
-// Framebuffer retourne le framebuffer logique courant (336×216 pixels RGBA).
-// Stub : retourne un slice de zéros jusqu'à P4.
-func (m *Machine) Framebuffer() []uint32 {
-	return make([]uint32, spec.FrameWidth*spec.FrameHeight)
-}
-
 // SetKey met à jour l'état d'une touche MO5.
 func (m *Machine) SetKey(key Key, pressed bool) {
 	if int(key) >= 0 && int(key) < len(m.touche) {
