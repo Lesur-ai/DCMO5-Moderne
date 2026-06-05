@@ -62,8 +62,9 @@ func (m *Machine) entreesortie(io int) {
 
 // ── Cassette .k7 ─────────────────────────────────────────────────────────────
 
-// readOctetK7 lit un octet de la cassette, le place dans A et 0x2045.
-// Ref: dcmo5devices.c Readoctetk7() — *Ap = byte; Mputc(0x2045, byte)
+// readOctetK7 lit un octet de la cassette, le place dans A et 0x2045 et
+// réamorce l'état bit-level.
+// Ref: dcmo5devices.c Readoctetk7() — *Ap = k7octet = byte; Mputc(0x2045, byte); k7bit = 0
 func (m *Machine) readOctetK7() {
 	if m.opts.Tape == nil {
 		return
@@ -73,16 +74,32 @@ func (m *Machine) readOctetK7() {
 		m.opts.Tape.Rewind()
 		return
 	}
+	m.k7octet = b
+	m.k7bit = 0
 	m.cpu.SetRegA(b)
 	m.Write8(0x2045, b)
 }
 
-// readBitK7 lit un bit de la cassette.
-// Ref: dcmo5devices.c Readbitk7()
+// readBitK7 lit un bit de la cassette : A=0xFF si le bit vaut 1, 0x00 sinon, et
+// décale l'octet courant dans 0x2045. Recharge un octet quand tous les bits
+// sont consommés. Ref: dcmo5devices.c Readbitk7()
 func (m *Machine) readBitK7() {
-	// Implémentation simplifiée : délégue à readOctetK7 au niveau octet.
-	// Le protocole bit-à-bit de la K7 MO5 sera affiné si nécessaire.
-	m.readOctetK7()
+	if m.opts.Tape == nil {
+		return
+	}
+	octet := int(m.Read8(0x2045)) << 1
+	if m.k7bit == 0 {
+		m.readOctetK7() // recharge m.k7octet ; remet k7bit à 0
+		m.k7bit = 0x80
+	}
+	if m.k7octet&m.k7bit != 0 {
+		octet |= 0x01
+		m.cpu.SetRegA(0xFF)
+	} else {
+		m.cpu.SetRegA(0x00)
+	}
+	m.Write8(0x2045, uint8(octet))
+	m.k7bit >>= 1
 }
 
 // writeOctetK7 écrit le registre A sur la cassette, puis remet 0x2045 à 0.

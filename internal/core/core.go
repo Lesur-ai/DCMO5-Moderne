@@ -50,6 +50,10 @@ type Machine struct {
 	xpen, ypen   int
 	penbutton    bool
 
+	// Lecteur cassette bit-level (ref: dcmo5devices.c k7bit/k7octet)
+	k7bit   uint8 // masque du bit en cours (0x80→0x01) ; 0 = recharger un octet
+	k7octet uint8 // octet cassette courant en cours de lecture bit à bit
+
 	// Timing vidéo (ref: dcmo5emulation.c Run())
 	// 64 cycles par ligne, 312 lignes par trame (50 Hz)
 	videolinecycle  int // cycles dans la ligne courante [0,63]
@@ -380,6 +384,12 @@ func (m *Machine) SetPen(x, y int, pressed bool) {
 	m.xpen = x
 	m.ypen = y
 	m.penbutton = pressed
+}
+
+// CPUSnapshot retourne une copie de l'état courant du CPU (registres, cycles).
+// Utile pour l'observabilité (tests, futur affichage d'état machine).
+func (m *Machine) CPUSnapshot() cpu6809.Snapshot {
+	return m.cpu.Snapshot()
 }
 
 // PhysicalRAMChecksum retourne le hash FNV-32 de la RAM physique complète

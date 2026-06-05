@@ -161,4 +161,30 @@ func TestIO_Tape_ReadOctet(t *testing.T) {
 	if v := m.Read8(0x2045); v != 0x55 {
 		t.Errorf("ReadOctetK7: RAM[0x2045] = 0x%02X, want 0x55", v)
 	}
+	if a := m.CPUSnapshot().A; a != 0x55 {
+		t.Errorf("ReadOctetK7: A = 0x%02X, want 0x55", a)
+	}
+}
+
+// TestIO_Tape_ReadBit vérifie la lecture bit à bit (ref dcmo5devices.c
+// Readbitk7) : A=0xFF quand le bit courant vaut 1, 0x00 sinon. L'octet 0xC0
+// (bits 1,1,0,0,0,0,0,0) donne donc FF, FF, 00 sur les trois premiers bits.
+func TestIO_Tape_ReadBit(t *testing.T) {
+	path := t.TempDir() + "/bit.k7"
+	tape, _ := impl.NewTape(path)
+	tape.WriteByte(0xC0) // 1100 0000
+	tape.Rewind()
+	tape.Close()
+
+	tape2, _ := impl.OpenTape(path, true)
+	m, _ := core.NewMachine(core.Options{Tape: tape2})
+	m.Reset()
+
+	want := []uint8{0xFF, 0xFF, 0x00}
+	for i, w := range want {
+		m.Entreesortie(0x41) // ReadBitK7
+		if a := m.CPUSnapshot().A; a != w {
+			t.Errorf("ReadBitK7 bit %d: A = 0x%02X, want 0x%02X", i, a, w)
+		}
+	}
 }
