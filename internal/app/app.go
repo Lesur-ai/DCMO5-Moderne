@@ -68,8 +68,8 @@ func (a *App) Update() error {
 		a.machine.Reset()
 	}
 
-	// P = pause / resume
-	if inputJustPressed(ebiten.KeyP) {
+	// F3 = pause / resume (KeyP est la touche MO5 P=0x1C, on évite le conflit)
+	if inputJustPressed(ebiten.KeyF3) {
 		a.paused = !a.paused
 		a.updateTitle()
 	}

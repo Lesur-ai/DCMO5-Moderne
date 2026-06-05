@@ -98,12 +98,13 @@ func main() {
 	}
 	machine.Reset()
 
-	// Sauvegarder les chemins utilisés
+	// Sauvegarder uniquement le chemin ROM : les médias (tape/disk/cart) sont
+	// acceptés en CLI et passés à core.Options, mais l'émulation I/O
+	// (cassette, disque, cartouche) sera branchée dans le core en P6+.
+	// On ne persiste pas les médias non encore fonctionnels pour ne pas
+	// induire l'utilisateur en erreur.
 	if store != nil && !romMissing {
 		cfg.ROMPath = *romPath
-		cfg.LastTape = *tapePath
-		cfg.LastDisk = *diskPath
-		cfg.LastCart = *cartPath
 		store.Save(cfg)
 	}
 

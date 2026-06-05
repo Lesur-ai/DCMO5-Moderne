@@ -131,7 +131,7 @@ et réutilisés au prochain lancement sans argument.
 | Touche | Action |
 |--------|--------|
 | `F5` | Reset machine |
-| `P` | Pause / Reprise |
+| `F3` | Pause / Reprise |
 | `Escape` | Quitter |
 
 ### Tests
