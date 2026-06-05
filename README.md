@@ -142,6 +142,18 @@ go test ./...
 
 ---
 
+## Distribution
+
+Des archives binaires pré-compilées (macOS arm64/amd64, Linux amd64) sont
+disponibles dans les [releases GitHub](https://github.com/Lesur-ai/dcmo5/releases).
+
+```bash
+tar xzf dcmo5-darwin-arm64.tar.gz
+./dcmo5-darwin-arm64 -rom /chemin/vers/mo5.rom
+```
+
+Voir [`RELEASE.md`](RELEASE.md) pour la procédure de release complète.
+
 ## Contribuer
 
 Workflow PR-only — tout merge vers `main` passe exclusivement par une Pull
