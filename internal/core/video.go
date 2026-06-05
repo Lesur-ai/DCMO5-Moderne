@@ -86,6 +86,36 @@ func (m *Machine) composeLine(fb []uint32, dst, ramOffset int) {
 	}
 }
 
+// ── Signaux de synchronisation vidéo ─────────────────────────────────────────
+
+// initn retourne 0x80 si le balayage est dans la zone active de trame,
+// 0 sinon. Utilisé par les ports 0xA7C3, 0xA7D8, 0xA7E7.
+// Ref: dcmo5emulation.c Initn() — zone active = lignes 56..255
+func (m *Machine) initn() int {
+	n := m.videolinenumber
+	c := m.videolinecycle
+	if n < 56 || n > 255 {
+		return 0
+	}
+	if n == 56 && c < 24 {
+		return 0
+	}
+	if n == 255 && c > 62 {
+		return 0
+	}
+	return 0x80
+}
+
+// iniln retourne 0x20 si le balayage est dans la zone active de ligne,
+// 0 sinon. Utilisé par le port 0xA7E6.
+// Ref: dcmo5emulation.c Iniln() — zone active = cycles 23..63
+func (m *Machine) iniln() int {
+	if m.videolinecycle < 23 {
+		return 0
+	}
+	return 0x20
+}
+
 // paletteRGBA retourne la couleur RGBA d'un index palette Thomson (0–18)
 // avec correction gamma appliquée. Format : 0xAABBGGRR (Ebitengine RGBA).
 func (m *Machine) paletteRGBA(idx int) uint32 {

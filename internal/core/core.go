@@ -49,6 +49,11 @@ type Machine struct {
 	joysAction   uint8              // boutons d'action
 	xpen, ypen   int
 	penbutton    bool
+
+	// Timing vidéo (ref: dcmo5emulation.c Run())
+	// 64 cycles par ligne, 312 lignes par trame (50 Hz)
+	videolinecycle  int // cycles dans la ligne courante [0,63]
+	videolinenumber int // numéro de ligne courante [0,311]
 }
 
 // NewMachine crée une machine avec les options fournies.
@@ -92,6 +97,8 @@ func (m *Machine) hardReset() {
 	m.cartype = 0
 	m.xpen, m.ypen = 0, 0
 	m.penbutton = false
+	m.videolinecycle = 0
+	m.videolinenumber = 0
 	m.mo5VideoRAM()
 }
 
@@ -198,7 +205,8 @@ func (m *Machine) readPort(addr uint16) uint8 {
 	case 0xA7C2:
 		return m.port[2]
 	case 0xA7C3:
-		return m.port[3]
+		// bit7 = ~Initn() : 1 hors zone active (lignes 56-255), 0 dans zone active
+		return m.port[3] | uint8(^m.initn()&0xFF)
 	case 0xA7CB:
 		return (m.carflags & 0x3F) | ((m.carflags & 0x80) >> 1) | ((m.carflags & 0x40) << 1)
 	case 0xA7CC:
@@ -213,8 +221,17 @@ func (m *Machine) readPort(addr uint16) uint8 {
 		return m.port[0x0D]
 	case 0xA7CE:
 		return 4
+	case 0xA7D8:
+		// état disquette : ~Initn() (ref C)
+		return uint8(^m.initn() & 0xFF)
 	case 0xA7E1:
 		return 0xFF
+	case 0xA7E6:
+		// Iniln() << 1 : bit de synchro ligne (ref C)
+		return uint8(m.iniln() << 1)
+	case 0xA7E7:
+		// Initn() : bit de synchro trame (ref C)
+		return uint8(m.initn())
 	default:
 		if addr < 0xA7C0 {
 			return 0 // CD90-640 ROM (hors périmètre v1)
@@ -297,10 +314,16 @@ func (m *Machine) Reset() {
 	m.cpu.Reset()
 }
 
+const (
+	cyclesPerLine = 64  // cycles par ligne horizontale MO5
+	linesPerFrame = 312 // lignes par trame (50 Hz)
+)
+
 // Step avance l'émulation d'au plus n cycles et retourne les cycles consommés.
-// Si cpu.Step() retourne une valeur négative, c'est un opcode illégal du 6809 :
-// on dispatche vers entreesortie(-code) et on compte 64 cycles.
-// Ref: dcmo5emulation.c Run() + dc6809emul.c default: return -code
+// Reproduit fidèlement la boucle dcmo5emulation.c Run() :
+//   - opcode illégal → entreesortie(-code) + 64 cycles (I/O)
+//   - tous les 64 cycles → fin de ligne (videolinecycle, videolinenumber++)
+//   - toutes les 312 lignes → IRQ 50 Hz (trame complète)
 func (m *Machine) Step(cycles int) int {
 	if cycles <= 0 {
 		return 0
@@ -309,13 +332,25 @@ func (m *Machine) Step(cycles int) int {
 	for consumed < cycles {
 		c := m.cpu.Step()
 		if c < 0 {
-			// Opcode illégal → appel I/O (convention dcmo5emulation.c)
 			m.entreesortie(-c)
 			c = 64
 		} else if c == 0 {
-			c = 2 // sécurité anti-boucle infinie
+			c = 2
 		}
 		consumed += c
+
+		// Timing vidéo (ref: dcmo5emulation.c Run())
+		m.videolinecycle += c
+		for m.videolinecycle >= cyclesPerLine {
+			m.videolinecycle -= cyclesPerLine
+			m.videolinenumber++
+			if m.videolinenumber >= linesPerFrame {
+				m.videolinenumber = 0
+				// IRQ de fin de trame (50 Hz) — non masquable par le code ROM
+				m.cpu.IRQ()
+			}
+		}
+
 		if consumed >= cycles {
 			break
 		}
