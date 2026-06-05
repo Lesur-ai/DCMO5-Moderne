@@ -277,7 +277,10 @@ func TestGolden_IllegalOpcode(t *testing.T) {
 		}
 	}()
 	cycles := cpu.Step()
-	if cycles < 1 {
-		t.Errorf("opcode illégal: cycles = %d, want >= 1", cycles)
+	// Les opcodes illégaux retournent -opcode (convention dc6809emul.c
+	// "default: return -code") pour signaler un appel I/O à Machine.Step().
+	// 0x01 est illégal → cycles = -1.
+	if cycles != -1 {
+		t.Errorf("opcode illégal 0x01: cycles = %d, want -1 (signal I/O)", cycles)
 	}
 }

@@ -74,30 +74,30 @@ func TestIO_Printer_ReceivesByte(t *testing.T) {
 	}
 }
 
-func TestIO_StepDispatch_viaTrapTable(t *testing.T) {
-	// Vérifie que Step() dispatche l'I/O quand le PC atteint une adresse piège.
-	// ROM : NOP ; NOP ; [trap addr] NOP (3 octets, NOP=0x12=2cycles)
-	// On place le piège à l'adresse 0xC002.
-	// Après Step(6), le CPU a exécuté 3 NOPs, PC est passé par 0xC000/0xC001/0xC002.
+func TestIO_StepDispatch_viaIllegalOpcode(t *testing.T) {
+	// Vérifie que Step() dispatche l'I/O quand le CPU rencontre un opcode illégal.
+	// La ROM MO5 utilise des opcodes illégaux comme stubs I/O (ref: dc6809emul.c
+	// "default: return -code"). 0x51 est un opcode illégal du 6809 = code imprimante.
 	var buf bytes.Buffer
 	printer := impl.NewWriterPrinter(&buf)
 	rom := make([]byte, 0x4000)
-	for i := range rom {
-		rom[i] = 0x12 // NOP infini
-	}
 	rom[0x3FFE] = 0xC0
 	rom[0x3FFF] = 0x00
+	// Programme : NOP (2cy) ; 0x51 (opcode illégal = print) ; NOP...
+	rom[0x0000] = 0x12 // NOP
+	rom[0x0001] = 0x51 // opcode illégal → Entreesortie(0x51) = imprime
+	for i := 2; i < len(rom)-2; i++ {
+		rom[i] = 0x12 // NOP infini
+	}
 	m, _ := core.NewMachine(core.Options{ROMSys: rom, Printer: printer})
 	m.Reset()
-	m.Write8(0x2046, 0x7B) // valeur que l'imprimante va recevoir
-	// Enregistrer le piège à 0xC002 (PC après 1 NOP)
-	m.RegisterIOTrap(0xC002, 0x51) // code 0x51 = imprime
-	// Exécuter assez de cycles pour passer par 0xC002
-	m.Step(10)
+	m.Write8(0x2046, 0x7B) // octet à imprimer
+	// Exécuter au moins 2+64 cycles pour passer le NOP et le trap
+	m.Step(100)
 	if buf.Len() == 0 {
-		t.Error("Step() n'a pas dispatché l'I/O via la trap table")
+		t.Error("Step() n'a pas dispatché l'I/O via opcode illégal 0x51")
 	} else if buf.Bytes()[0] != 0x7B {
-		t.Errorf("imprimante via trap: reçu 0x%02X, want 0x7B", buf.Bytes()[0])
+		t.Errorf("imprimante via opcode illégal: reçu 0x%02X, want 0x7B", buf.Bytes()[0])
 	}
 }
 

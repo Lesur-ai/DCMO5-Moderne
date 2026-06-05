@@ -929,7 +929,9 @@ func (c *CPU) Step() int {
 		return c.stepPage2()
 
 	default:
-		return 2 // opcode inconnu : NOP
+		// Opcode illégal : retourner -opcode (convention dcmo5emulation.c).
+		// Permet à Machine.Step() de dispatcher l'I/O via entreesortie(-cycles).
+		return -int(opcode)
 	}
 }
 
@@ -1091,7 +1093,7 @@ func (c *CPU) stepPage1() int {
 		c.st16(r.Addr, c.s)
 		return 7
 	default:
-		return 2
+		return -int(op)
 	}
 }
 
@@ -1135,7 +1137,7 @@ func (c *CPU) stepPage2() int {
 		c.cmp16(c.s, c.read16(r.Addr))
 		return 8
 	default:
-		return 2
+		return -int(op)
 	}
 }
 
