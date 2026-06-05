@@ -61,6 +61,7 @@ func NewMachine(opts Options) (*Machine, error) {
 		copy(m.rom[:], opts.ROMSys)
 	}
 	m.hardReset()
+	m.loadCartridge() // charge opts.Cartridge dans car[] si présente
 	m.cpu = cpu6809.New(m)
 	return m, nil
 }
@@ -292,11 +293,14 @@ func (m *Machine) switchMemo5Bank(addr uint16) {
 // Reset réinitialise la machine.
 func (m *Machine) Reset() {
 	m.hardReset()
+	m.loadCartridge()
 	m.cpu.Reset()
 }
 
 // Step avance l'émulation d'au plus n cycles et retourne les cycles consommés.
-// Stub d'intégration CPU : sera complété en P3.4.
+// Convention I/O : si cpu.Step() retourne une valeur négative, c'est un appel
+// I/O (-valeur = code opération). On dispatch vers entreesortie() et on compte
+// 64 cycles (ref: dcmo5emulation.c Run()).
 func (m *Machine) Step(cycles int) int {
 	if cycles <= 0 {
 		return 0
@@ -304,7 +308,11 @@ func (m *Machine) Step(cycles int) int {
 	consumed := 0
 	for consumed < cycles {
 		c := m.cpu.Step()
-		if c <= 0 {
+		if c < 0 {
+			// Requête I/O du CPU (convention dcmo5emulation.c)
+			m.entreesortie(-c)
+			c = 64 // coût I/O fixe
+		} else if c == 0 {
 			c = 2 // sécurité anti-boucle infinie
 		}
 		consumed += c
