@@ -55,31 +55,28 @@ func (m *Machine) Framebuffer() []uint32 {
 
 // composeLine remplit 320 pixels (40 octets) dans fb à partir du décalage dst.
 // ramOffset est l'index dans ram[] des couleurs de cette ligne.
-// Les formes sont à ram[0x2000 | ramOffset..].
-// Ref: dcmo5video.c ComposeMO5line()
+//
+// Le rendu est TOUJOURS indépendant du bit de sélection de page CPU (port[0]&1).
+// Ce bit n'affecte que l'accès CPU via le bus (Read8/Write8), pas le rendu hardware.
+// Ref: dcmo5video.c ComposeMO5line() — ram[a]=couleurs, ram[0x2000|a]=formes.
+// Couleurs : toujours à ram[0x0000-0x1FFF], formes : toujours à ram[0x2000-0x3FFF].
 func (m *Machine) composeLine(fb []uint32, dst, ramOffset int) {
-	// RAM vidéo couleurs = ram[videoBase() .. videoBase()+0x1FFF]
-	// RAM vidéo formes  = ram[(videoBase() XOR 0x2000) .. ]
-	// En pratique, dans ram[] : couleurs à videoBase()+offset, formes à (videoBase()+offset) ^ 0x2000
-	// Mais selon la structure corrigée : page 0 = ram[0..], page 1 = ram[0x2000..]
-	// Les formes sont toujours dans l'AUTRE page vidéo par rapport aux couleurs.
-	// La ref C : ram[a] = couleurs, ram[0x2000 | a] = formes (indices bruts dans ram[])
-	// On lit directement ram[] sans passer par le bus (performance, pas de side-effect port).
-	colorBase := uint16(m.videoBase()) // 0 ou 0x2000
-	formsBase := colorBase ^ 0x2000    // l'autre page
+	const (
+		colorBase = 0x0000 // couleurs : ram[0x0000-0x1FFF] (invariant)
+		formsBase = 0x2000 // formes   : ram[0x2000-0x3FFF] (invariant)
+	)
 
 	for i := 0; i < activeCols; i++ {
-		colorByte := m.ram[colorBase+uint16(ramOffset+i)]
+		colorByte := m.ram[colorBase+ramOffset+i]
 		bg := int(colorByte & 0x0F)        // nibble bas = couleur fond (pixel=0)
 		fg := int((colorByte >> 4) & 0x0F) // nibble haut = couleur tracé (pixel=1)
-		formByte := m.ram[formsBase+uint16(ramOffset+i)]
+		formByte := m.ram[formsBase+ramOffset+i]
 
 		bgRGBA := m.paletteRGBA(bg)
 		fgRGBA := m.paletteRGBA(fg)
 
 		for bit := 7; bit >= 0; bit-- {
-			pixel := (formByte >> uint(bit)) & 1
-			if pixel == 1 {
+			if (formByte>>uint(bit))&1 == 1 {
 				fb[dst] = fgRGBA
 			} else {
 				fb[dst] = bgRGBA

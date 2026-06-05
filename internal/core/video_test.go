@@ -108,18 +108,17 @@ func TestFramebuffer_ForegroundColor(t *testing.T) {
 	// Forcer une ligne avec couleur fg=7 (blanc) et forme=0xFF (pixels tous à 1).
 	// Tous les pixels de la ligne doivent être de couleur 7 (blanc).
 	m := newMachine(t)
-	// Page 0 : écrire les couleurs (CPU 0x0000 → ram[0x0000], formes à ram[0x2000])
-	// Les formes sont accessibles via CPU 0x0000 en page 1.
+	// Écrire les couleurs (CPU 0x0000 → ram[0x0000], page 0).
 	for col := 0; col < 40; col++ {
-		m.Write8(uint16(col), 0x70) // couleurs : fg=7 (blanc), bg=0
+		m.Write8(uint16(col), 0x70) // fg=7 (blanc), bg=0
 	}
-	// Passer en page 1 pour écrire les formes (CPU 0x0000 → ram[0x2000])
+	// Écrire les formes via page 1 (CPU 0x0000 → ram[0x2000]).
+	// Le rendu lit toujours ram[0x2000] indépendamment de la page active.
 	m.Write8(0xA7C0, 0x01)
 	for col := 0; col < 40; col++ {
-		m.Write8(uint16(col), 0xFF) // formes : tous les pixels allumés
+		m.Write8(uint16(col), 0xFF) // tous pixels allumés
 	}
-	// Repasser en page 0 pour le rendu
-	m.Write8(0xA7C0, 0x00)
+	m.Write8(0xA7C0, 0x00) // repasser page 0
 	fb := m.Framebuffer()
 	// Couleur 7 (blanc) via spec : rgb = [15,15,15], gamma[15]=255
 	wantR := uint32(spec.GammaLookup(15))
