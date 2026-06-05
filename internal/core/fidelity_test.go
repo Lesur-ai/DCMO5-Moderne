@@ -8,7 +8,6 @@ package core_test
 // Invariant fondamental : même ROM + même nombre de cycles → même état machine.
 
 import (
-	"hash/fnv"
 	"testing"
 
 	"github.com/Lesur-ai/dcmo5/internal/core"
@@ -64,13 +63,10 @@ func makeCounterROM() []byte {
 	return rom
 }
 
-// checksumRAM calcule un hash FNV-32 de toute la RAM de la machine.
+// checksumRAM utilise PhysicalRAMChecksum pour couvrir TOUTE la RAM physique,
+// y compris la page vidéo inactive (non accessible via le bus CPU courant).
 func checksumRAM(m *core.Machine) uint32 {
-	h := fnv.New32a()
-	for addr := uint16(0); addr < 0xA000; addr++ {
-		h.Write([]byte{m.Read8(addr)})
-	}
-	return h.Sum32()
+	return m.PhysicalRAMChecksum()
 }
 
 // checksumFramebuffer calcule un hash FNV-32 du framebuffer.
@@ -201,10 +197,10 @@ func TestFidelity_Reset_ClearsState(t *testing.T) {
 	m.Reset()
 	m.Step(150) // 10 itérations → RAM[0x4000] = 10
 	m.Reset()   // reset complet
-	if v := m.Read8(0x4000); v != 0x00 && v != 0xFF {
-		// pattern init : alternance 0x00/0xFF selon bit7 index
-		// 0x4000 : 0x4000 & 0x80 = 0 → RAM[0x4000] = 0x00
-		t.Errorf("après Reset: RAM[0x4000] = 0x%02X, want 0x00 (pattern init)", v)
+	// Read8(0x4000) → physical RAM[0x6000] (offset +0x2000).
+	// 0x6000 & 0x80 = 0 → pattern init = 0x00.
+	if v := m.Read8(0x4000); v != 0x00 {
+		t.Errorf("après Reset: RAM[0x4000] = 0x%02X, want 0x00 (pattern init, offset physique 0x6000)", v)
 	}
 }
 

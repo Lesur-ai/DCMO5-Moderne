@@ -338,3 +338,17 @@ func (m *Machine) SetPen(x, y int, pressed bool) {
 	m.ypen = y
 	m.penbutton = pressed
 }
+
+// PhysicalRAMChecksum retourne le hash FNV-32 de la RAM physique complète
+// (les deux pages vidéo + RAM user), indépendamment de la page active.
+// Utilisé par la fidelity suite pour détecter les régressions sur toute la RAM.
+func (m *Machine) PhysicalRAMChecksum() uint32 {
+	const fnvOffset32 = 2166136261
+	const fnvPrime32 = 16777619
+	h := uint32(fnvOffset32)
+	for _, b := range m.ram {
+		h ^= uint32(b)
+		h *= fnvPrime32
+	}
+	return h
+}
