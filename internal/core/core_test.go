@@ -27,8 +27,21 @@ func TestFramebufferSize(t *testing.T) {
 }
 
 func TestNoDependencyLeak(t *testing.T) {
-	// Vérifie que Machine implémente cpu6809.Bus (nécessaire pour passer au CPU).
-	// Si le type ne satisfait pas l'interface, le build échoue.
 	m, _ := core.NewMachine(core.Options{})
-	_ = m // utilisé pour éviter "declared and not used"
+	_ = m
+}
+
+func TestNewMachineInvalidROMSize(t *testing.T) {
+	_, err := core.NewMachine(core.Options{ROMSys: make([]byte, 100)})
+	if err == nil {
+		t.Error("NewMachine avec ROM de mauvaise taille devrait retourner une erreur")
+	}
+}
+
+func TestNewMachineValidROMSize(t *testing.T) {
+	rom := make([]byte, 0x4000)
+	_, err := core.NewMachine(core.Options{ROMSys: rom})
+	if err != nil {
+		t.Errorf("NewMachine avec ROM 16 Ko valide : erreur inattendue : %v", err)
+	}
 }

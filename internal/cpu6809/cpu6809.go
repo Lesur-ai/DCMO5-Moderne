@@ -36,7 +36,7 @@ func (c *CPU) Reset() {
 	hi := c.bus.Read8(0xFFFE)
 	lo := c.bus.Read8(0xFFFF)
 	c.pc = uint16(hi)<<8 | uint16(lo)
-	c.cc = 0x10 // masque IRQ positionné au reset
+	c.cc = 0x50 // masques IRQ (0x10) et FIRQ (0x40) positionnés au reset
 }
 
 // Step exécute une instruction et retourne le nombre de cycles consommés.

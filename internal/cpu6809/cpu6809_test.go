@@ -32,9 +32,12 @@ func TestCPUReset(t *testing.T) {
 	if snap.PC != 0x1234 {
 		t.Errorf("PC après Reset = 0x%04X, want 0x1234", snap.PC)
 	}
-	// CC doit avoir le masque IRQ positionné (bit 4 = 0x10)
+	// CC doit avoir IRQ (0x10) et FIRQ (0x40) masqués au reset.
 	if snap.CC&0x10 == 0 {
-		t.Errorf("CC.I non positionné après Reset : CC = 0x%02X", snap.CC)
+		t.Errorf("CC.I (IRQ mask) non positionné après Reset : CC = 0x%02X", snap.CC)
+	}
+	if snap.CC&0x40 == 0 {
+		t.Errorf("CC.F (FIRQ mask) non positionné après Reset : CC = 0x%02X", snap.CC)
 	}
 }
 

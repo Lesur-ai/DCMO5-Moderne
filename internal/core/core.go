@@ -3,6 +3,8 @@
 package core
 
 import (
+	"fmt"
+
 	"github.com/Lesur-ai/dcmo5/internal/cpu6809"
 	"github.com/Lesur-ai/dcmo5/internal/media"
 	"github.com/Lesur-ai/dcmo5/internal/spec"
@@ -46,6 +48,9 @@ type Machine struct {
 // NewMachine crée une machine avec les options fournies.
 // Retourne une erreur si les options sont invalides (ex: ROM de mauvaise taille).
 func NewMachine(opts Options) (*Machine, error) {
+	if len(opts.ROMSys) != 0 && len(opts.ROMSys) != 0x4000 {
+		return nil, fmt.Errorf("core: ROMSys doit faire exactement 0x4000 octets, reçu %d", len(opts.ROMSys))
+	}
 	m := &Machine{opts: opts}
 	if len(opts.ROMSys) == 0x4000 {
 		copy(m.rom[:], opts.ROMSys)
