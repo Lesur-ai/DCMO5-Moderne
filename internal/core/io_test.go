@@ -74,6 +74,33 @@ func TestIO_Printer_ReceivesByte(t *testing.T) {
 	}
 }
 
+func TestIO_StepDispatch_viaTrapTable(t *testing.T) {
+	// Vérifie que Step() dispatche l'I/O quand le PC atteint une adresse piège.
+	// ROM : NOP ; NOP ; [trap addr] NOP (3 octets, NOP=0x12=2cycles)
+	// On place le piège à l'adresse 0xC002.
+	// Après Step(6), le CPU a exécuté 3 NOPs, PC est passé par 0xC000/0xC001/0xC002.
+	var buf bytes.Buffer
+	printer := impl.NewWriterPrinter(&buf)
+	rom := make([]byte, 0x4000)
+	for i := range rom {
+		rom[i] = 0x12 // NOP infini
+	}
+	rom[0x3FFE] = 0xC0
+	rom[0x3FFF] = 0x00
+	m, _ := core.NewMachine(core.Options{ROMSys: rom, Printer: printer})
+	m.Reset()
+	m.Write8(0x2046, 0x7B) // valeur que l'imprimante va recevoir
+	// Enregistrer le piège à 0xC002 (PC après 1 NOP)
+	m.RegisterIOTrap(0xC002, 0x51) // code 0x51 = imprime
+	// Exécuter assez de cycles pour passer par 0xC002
+	m.Step(10)
+	if buf.Len() == 0 {
+		t.Error("Step() n'a pas dispatché l'I/O via la trap table")
+	} else if buf.Bytes()[0] != 0x7B {
+		t.Errorf("imprimante via trap: reçu 0x%02X, want 0x7B", buf.Bytes()[0])
+	}
+}
+
 // ── Disquette ─────────────────────────────────────────────name────────────────
 
 func TestIO_Disk_ReadSectorDispatch(t *testing.T) {
