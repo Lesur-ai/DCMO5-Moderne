@@ -42,12 +42,10 @@ func (a *App) Update() error {
 	}
 
 	// 2. Souris → crayon optique
+	// ebiten.CursorPosition() retourne déjà des coordonnées logiques après Layout().
 	mx, my := ebiten.CursorPosition()
 	pressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
-	// Convertir coordonnées fenêtre → coordonnées logiques
-	lx := mx * spec.FrameWidth / (windowScaleX * spec.FrameWidth)
-	ly := my * spec.FrameHeight / (windowScaleY * spec.FrameHeight)
-	a.machine.SetPen(lx, ly, pressed)
+	a.machine.SetPen(mx, my, pressed)
 
 	// 3. Avancer l'émulation d'une frame (gestion de l'excès de cycles)
 	toRun := cyclesPerFrame - a.extraCycles
