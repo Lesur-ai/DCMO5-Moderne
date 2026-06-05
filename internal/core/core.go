@@ -49,6 +49,11 @@ type Machine struct {
 	joysAction   uint8              // boutons d'action
 	xpen, ypen   int
 	penbutton    bool
+
+	// Trap table I/O : adresse PC → code Entreesortie.
+	// Quand le CPU atterrit sur une adresse enregistrée après Step(),
+	// on dispatche l'I/O. Permet d'intercepter les stubs ROM MO5.
+	ioTraps map[uint16]int
 }
 
 // NewMachine crée une machine avec les options fournies.
@@ -56,11 +61,12 @@ func NewMachine(opts Options) (*Machine, error) {
 	if len(opts.ROMSys) != 0 && len(opts.ROMSys) != 0x4000 {
 		return nil, fmt.Errorf("core: ROMSys doit faire exactement 0x4000 octets, reçu %d", len(opts.ROMSys))
 	}
-	m := &Machine{opts: opts}
+	m := &Machine{opts: opts, ioTraps: make(map[uint16]int)}
 	if len(opts.ROMSys) == 0x4000 {
 		copy(m.rom[:], opts.ROMSys)
 	}
 	m.hardReset()
+	m.loadCartridge() // charge opts.Cartridge dans car[] si présente
 	m.cpu = cpu6809.New(m)
 	return m, nil
 }
@@ -292,11 +298,20 @@ func (m *Machine) switchMemo5Bank(addr uint16) {
 // Reset réinitialise la machine.
 func (m *Machine) Reset() {
 	m.hardReset()
+	m.loadCartridge()
 	m.cpu.Reset()
 }
 
+// RegisterIOTrap enregistre un piège I/O : quand le CPU atterrit à addr après
+// une instruction, entreesortie(code) est appelé automatiquement.
+// Permet d'intercepter les stubs ROM MO5 sans modifier l'interface cpu6809.
+// Ref: dcmo5emulation.c Run() — même mécanisme, mais via retour négatif du CPU C.
+func (m *Machine) RegisterIOTrap(addr uint16, code int) {
+	m.ioTraps[addr] = code
+}
+
 // Step avance l'émulation d'au plus n cycles et retourne les cycles consommés.
-// Stub d'intégration CPU : sera complété en P3.4.
+// Après chaque instruction, vérifie si le PC a atteint une adresse piège I/O.
 func (m *Machine) Step(cycles int) int {
 	if cycles <= 0 {
 		return 0
@@ -306,6 +321,11 @@ func (m *Machine) Step(cycles int) int {
 		c := m.cpu.Step()
 		if c <= 0 {
 			c = 2 // sécurité anti-boucle infinie
+		}
+		// Vérifier si le PC courant est une adresse I/O trappée.
+		if code, ok := m.ioTraps[m.cpu.Snapshot().PC]; ok {
+			m.entreesortie(code)
+			c += 64 // coût I/O fixe (ref C)
 		}
 		consumed += c
 		if consumed >= cycles {
