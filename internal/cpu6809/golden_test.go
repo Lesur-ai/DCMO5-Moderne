@@ -266,21 +266,20 @@ func TestGolden_CycleCount(t *testing.T) {
 func TestGolden_IllegalOpcode(t *testing.T) {
 	bus := &stubBus{}
 	bus.set16(0xFFFE, 0x1000)
-	bus.mem[0x1000] = 0x01 // opcode illégal sur 6809 (pas dans le set)
+	// 0x01 est un undoc BRN (retourne 3 cycles) depuis la ref C.
+	// 0x02 n'est pas dans le jeu d'instructions → vraiment illégal → -2.
+	bus.mem[0x1000] = 0x02
 
 	cpu := cpu6809.New(bus)
 	cpu.Reset()
 
 	defer func() {
 		if r := recover(); r != nil {
-			t.Errorf("opcode illégal 0x01 a causé une panique : %v", r)
+			t.Errorf("opcode illégal 0x02 a causé une panique : %v", r)
 		}
 	}()
 	cycles := cpu.Step()
-	// Les opcodes illégaux retournent -opcode (convention dc6809emul.c
-	// "default: return -code") pour signaler un appel I/O à Machine.Step().
-	// 0x01 est illégal → cycles = -1.
-	if cycles != -1 {
-		t.Errorf("opcode illégal 0x01: cycles = %d, want -1 (signal I/O)", cycles)
+	if cycles != -2 {
+		t.Errorf("opcode illégal 0x02: cycles = %d, want -2 (signal I/O)", cycles)
 	}
 }

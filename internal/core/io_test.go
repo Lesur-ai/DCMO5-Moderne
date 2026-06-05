@@ -61,11 +61,18 @@ func TestIO_Cartridge_Nil(t *testing.T) {
 func TestIO_Printer_ReceivesByte(t *testing.T) {
 	var buf bytes.Buffer
 	printer := impl.NewWriterPrinter(&buf)
-	m, _ := core.NewMachine(core.Options{Printer: printer})
+	// ROM : LDB #0x42 ; NOP…  puis Entreesortie(0x51) direct.
+	rom := make([]byte, 0x4000)
+	rom[0x3FFE] = 0xC0
+	rom[0x3FFF] = 0x00 // reset vector → 0xC000
+	rom[0x0000] = 0xC6 // LDB immediate
+	rom[0x0001] = 0x42 // valeur
+	for i := 2; i < len(rom)-2; i++ {
+		rom[i] = 0x12 // NOP
+	}
+	m, _ := core.NewMachine(core.Options{ROMSys: rom, Printer: printer})
 	m.Reset()
-	// Écrire 0x42 à l'adresse 0x2046 (lu par imprime())
-	m.Write8(0x2046, 0x42)
-	// Déclencher manuellement l'I/O imprimante (code 0x51)
+	m.Step(4) // exécute LDB #0x42 (2cy) + NOP (2cy) → B = 0x42
 	m.Entreesortie(0x51)
 	if buf.Len() == 0 {
 		t.Error("imprimante n'a reçu aucun octet")
@@ -83,16 +90,16 @@ func TestIO_StepDispatch_viaIllegalOpcode(t *testing.T) {
 	rom := make([]byte, 0x4000)
 	rom[0x3FFE] = 0xC0
 	rom[0x3FFF] = 0x00
-	// Programme : NOP (2cy) ; 0x51 (opcode illégal = print) ; NOP...
-	rom[0x0000] = 0x12 // NOP
-	rom[0x0001] = 0x51 // opcode illégal → Entreesortie(0x51) = imprime
-	for i := 2; i < len(rom)-2; i++ {
+	// Programme : LDB #0x7B ; 0x51 (opcode illégal = print) ; NOP...
+	rom[0x0000] = 0xC6 // LDB immediate
+	rom[0x0001] = 0x7B // valeur à imprimer
+	rom[0x0002] = 0x51 // opcode illégal → Entreesortie(0x51) = imprime
+	for i := 3; i < len(rom)-2; i++ {
 		rom[i] = 0x12 // NOP infini
 	}
 	m, _ := core.NewMachine(core.Options{ROMSys: rom, Printer: printer})
 	m.Reset()
-	m.Write8(0x2046, 0x7B) // octet à imprimer
-	// Exécuter au moins 2+64 cycles pour passer le NOP et le trap
+	// Exécuter au moins 2+64 cycles pour passer le LDB+trap
 	m.Step(100)
 	if buf.Len() == 0 {
 		t.Error("Step() n'a pas dispatché l'I/O via opcode illégal 0x51")

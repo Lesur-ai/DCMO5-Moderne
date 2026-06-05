@@ -62,19 +62,18 @@ func (m *Machine) entreesortie(io int) {
 
 // ── Cassette .k7 ─────────────────────────────────────────────────────────────
 
-// readOctetK7 lit un octet de la cassette dans A et 0x2045.
-// Ref: dcmo5devices.c Readoctetk7()
+// readOctetK7 lit un octet de la cassette, le place dans A et 0x2045.
+// Ref: dcmo5devices.c Readoctetk7() — *Ap = byte; Mputc(0x2045, byte)
 func (m *Machine) readOctetK7() {
 	if m.opts.Tape == nil {
 		return
 	}
 	b, err := m.opts.Tape.ReadByte()
 	if err != nil {
-		// Fin de bande : on repart du début (comme Initprog dans la ref)
 		m.opts.Tape.Rewind()
 		return
 	}
-	// Écrire l'octet en A (via bus à 0x2045 = RAM user)
+	m.cpu.SetRegA(b)
 	m.Write8(0x2045, b)
 }
 
@@ -86,15 +85,14 @@ func (m *Machine) readBitK7() {
 	m.readOctetK7()
 }
 
-// writeOctetK7 écrit l'octet de A sur la cassette.
-// Ref: dcmo5devices.c Writeoctetk7()
+// writeOctetK7 écrit le registre A sur la cassette, puis remet 0x2045 à 0.
+// Ref: dcmo5devices.c Writeoctetk7() — fputc(*Ap, fk7); Mputc(0x2045, 0)
 func (m *Machine) writeOctetK7() {
 	if m.opts.Tape == nil {
 		return
 	}
-	// A est à l'adresse RAM user 0x4045 (CPU 0x2045 → phys 0x4045)
-	a := m.Read8(0x2045)
-	m.opts.Tape.WriteByte(a)
+	m.opts.Tape.WriteByte(m.cpu.RegA())
+	m.Write8(0x2045, 0)
 }
 
 // ── Disquette .fd ─────────────────────────────────────────────────────────────
@@ -164,33 +162,29 @@ func (m *Machine) formatDisk() {
 
 // ── Crayon optique ────────────────────────────────────────────────────────────
 
-// readPenXY écrit les coordonnées du crayon sur la pile MO5.
-// Ref: dcmo5devices.c Readpenxy()
+// readPenXY écrit les coordonnées du crayon dans la pile CPU (S+6, S+8).
+// Ref: dcmo5devices.c Readpenxy() — Mputw(S+6, xpen); Mputw(S+8, ypen); CC &= 0xfe
 func (m *Machine) readPenXY() {
 	if m.xpen < 0 || m.xpen >= 320 || m.ypen < 0 || m.ypen >= 200 {
-		// Hors écran : positionner C dans CC (erreur)
-		// On accède au CPU via le bus — simplification : on ne modifie pas CC ici
+		m.cpu.SetRegCC(m.cpu.RegCC() | 0x01) // set carry = erreur
 		return
 	}
-	// La ref C écrit xpen/ypen dans la pile via S+6 et S+8.
-	// On ne peut pas accéder directement au registre S depuis le bus.
-	// Implémentation minimale : écrire dans des adresses conventionnelles.
-	m.Write8(0x2047, uint8(m.xpen>>8))
-	m.Write8(0x2048, uint8(m.xpen))
-	m.Write8(0x2049, uint8(m.ypen>>8))
-	m.Write8(0x204A, uint8(m.ypen))
+	s := m.cpu.RegS()
+	m.Write8(s+6, uint8(m.xpen>>8))
+	m.Write8(s+7, uint8(m.xpen))
+	m.Write8(s+8, uint8(m.ypen>>8))
+	m.Write8(s+9, uint8(m.ypen))
+	m.cpu.SetRegCC(m.cpu.RegCC() & 0xfe) // clear carry = succès
 }
 
 // ── Imprimante ────────────────────────────────────────────────────────────────
 
-// imprime envoie l'octet de B à l'imprimante.
-// Ref: dcmo5devices.c Imprime() — fputc(*Bp, fprn)
+// imprime envoie le registre B à l'imprimante et efface le carry.
+// Ref: dcmo5devices.c Imprime() — fputc(*Bp, fprn); CC &= 0xfe
 func (m *Machine) imprime() {
 	if m.opts.Printer == nil {
 		return
 	}
-	// B est accessible via le bus à l'adresse 0x2046 dans la ROM MO5.
-	// Simplification : on lit depuis la page user RAM où le ROM stub place B.
-	b := m.Read8(0x2046)
-	m.opts.Printer.WriteByte(b)
+	m.opts.Printer.WriteByte(m.cpu.RegB())
+	m.cpu.SetRegCC(m.cpu.RegCC() & 0xfe)
 }

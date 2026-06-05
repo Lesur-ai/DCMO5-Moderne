@@ -20,8 +20,9 @@ const (
 	FlagE uint8 = 0x80 // Entire state saved
 )
 
-// ResetCC est la valeur de CC après un reset matériel (IRQ + FIRQ masqués).
-const ResetCC = FlagI | FlagF
+// ResetCC est la valeur de CC après un reset matériel.
+// Ref C dc6809emul.c : CC = 0x10 (IRQ masqué, FIRQ démasqué).
+const ResetCC = FlagI
 
 // Snapshot capture l'état complet du CPU à un instant donné.
 type Snapshot struct {
@@ -223,9 +224,12 @@ func (c *CPU) AddrIndexed() AddrResult {
 	case 0x9F: // [word] indirect étendu
 		addr := c.fetchPC16()
 		return AddrResult{Addr: c.read16(addr), Extra: 5}
+	case 0x87, 0x8A, 0x8E, 0x8F:
+		// Post-bytes invalides non-indirect : ref C retourne *r sans déréférence.
+		return AddrResult{Addr: *reg}
 	default:
-		// Post-bytes invalides (0x90, 0x92, 0x97, 0x9a, 0x9e...) :
-		// la ref C dc6809emul.c les traite comme [,R] — déréférence read16(*reg).
+		// Post-bytes invalides indirect (0x90, 0x92, 0x97, 0x9a, 0x9e...) :
+		// ref C les traite comme [,R] — déréférence read16(*reg).
 		return AddrResult{Addr: c.read16(*reg), Extra: 3}
 	}
 }
@@ -239,6 +243,16 @@ func (c *CPU) Reset() {
 	c.pc = uint16(hi)<<8 | uint16(lo)
 	c.cc = ResetCC
 }
+
+// ── Accesseurs registres (pour I/O handlers) ─────────────────────────────────
+
+func (c *CPU) RegA() uint8      { return c.a }
+func (c *CPU) SetRegA(v uint8)  { c.a = v }
+func (c *CPU) RegB() uint8      { return c.b }
+func (c *CPU) SetRegB(v uint8)  { c.b = v }
+func (c *CPU) RegS() uint16     { return c.s }
+func (c *CPU) RegCC() uint8     { return c.cc }
+func (c *CPU) SetRegCC(v uint8) { c.cc = v }
 
 // Snapshot retourne une copie de l'état courant du CPU.
 func (c *CPU) Snapshot() Snapshot {
