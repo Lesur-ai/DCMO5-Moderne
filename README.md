@@ -67,12 +67,39 @@ le mécanisme d'import. Voir [`DESIGN/LICENSING.md`](DESIGN/LICENSING.md).
 
 ## Pré-requis
 
-> **Note (P0) :** le module Go et le squelette applicatif seront initialisés
-> dans le milestone P1. Les commandes ci-dessous seront disponibles à partir
-> de P1.
-
-- Go 1.22+ (voir `go.mod`)
+- Go 1.26+ (voir `go.mod`)
 - macOS arm64 / amd64 ou Linux amd64 (cibles de premier ordre)
+
+### Linux — dépendances système (Ebitengine)
+
+Ebitengine requiert des bibliothèques graphiques système absentes des
+environnements CI headless. Pour un build et des tests locaux sur Linux :
+
+```bash
+# Debian / Ubuntu
+sudo apt-get install -y \
+  libgl1-mesa-dev \
+  libx11-dev \
+  libxcursor-dev \
+  libxi-dev \
+  libxinerama-dev \
+  libxrandr-dev \
+  libxxf86vm-dev
+
+# Fedora / RHEL
+sudo dnf install -y \
+  mesa-libGL-devel \
+  libX11-devel \
+  libXcursor-devel \
+  libXi-devel \
+  libXinerama-devel \
+  libXrandr-devel \
+  libXxf86vm-devel
+```
+
+> **CI headless :** `go test -race ./...` est sûr car `internal/app` expose
+> uniquement des fonctions pures testables sans initialiser Ebitengine.
+> `go build ./...` requiert les libs ci-dessus sur Linux.
 
 ## Lancer l'application
 
