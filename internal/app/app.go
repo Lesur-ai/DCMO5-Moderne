@@ -31,6 +31,10 @@ type App struct {
 	fb          *ebiten.Image
 	extraCycles int
 
+	// Saisie clavier
+	keys       *keyInjector
+	inputChars []rune
+
 	// État desktop
 	paused     bool
 	romMissing bool
@@ -43,7 +47,11 @@ type App struct {
 func New(machine *core.Machine) *App {
 	fb := ebiten.NewImage(spec.FrameWidth, spec.FrameHeight)
 	fb.Fill(color.RGBA{R: 0, G: 0, B: 0, A: 0xFF})
-	return &App{machine: machine, fb: fb}
+	return &App{
+		machine: machine,
+		fb:      fb,
+		keys:    newKeyInjector(defaultKeyHoldFrames, defaultKeyGapFrames),
+	}
 }
 
 // SetROMStatus indique si la ROM est absente (affichage d'avertissement).
@@ -78,9 +86,44 @@ func (a *App) Update() error {
 		return nil
 	}
 
-	// Mapping input clavier → touches MO5
+	// Saisie clavier MO5 : caractères (layout OS + Shift) + touches spéciales.
+	//
+	// LIMITE connue : les touches imprimables (lettres/chiffres) sont jouées en
+	// impulsions par l'injecteur, pas maintenues en continu — adapté à la frappe
+	// de texte (BASIC) mais pas au maintien d'une touche dans un jeu. Un mode
+	// « gaming » positionnel (toggle) est prévu dans une étape ultérieure.
+	a.inputChars = ebiten.AppendInputChars(a.inputChars[:0])
+	for _, r := range a.inputChars {
+		a.keys.Enqueue(r)
+	}
+
+	// Touches caractère injectées (une frappe à la fois, maintenue puis relâchée).
+	tickKeys := a.keys.Tick()
+	// « injecting » : une frappe caractère est en cours de rejeu (hold ou gap).
+	// Pendant ce temps, le Shift physique ne doit PAS être propagé : l'OS a déjà
+	// produit le bon caractère, et l'injecteur pilote seul SHIFT MO5 (sinon
+	// double-Shift, ex. AZERTY « 1 » → « ! »). Hors saisie, Shift redevient une
+	// touche positionnelle maintenable (jeux, combinaisons MO5).
+	injecting := len(tickKeys) > 0 || a.keys.Pending() > 0
+
+	var active [spec.KeyMax]bool
+	// Touches spéciales en mode positionnel (état physique continu).
 	for eKey, mo5Key := range keyMapping {
-		a.machine.SetKey(core.Key(mo5Key), ebiten.IsKeyPressed(eKey))
+		if mo5Key == mo5KeyShift && injecting {
+			continue
+		}
+		if ebiten.IsKeyPressed(eKey) {
+			active[mo5Key] = true
+		}
+	}
+	for _, k := range tickKeys {
+		if k >= 0 && k < spec.KeyMax {
+			active[k] = true
+		}
+	}
+	// Appliquer l'état résultant à la matrice clavier de la machine.
+	for k := 0; k < spec.KeyMax; k++ {
+		a.machine.SetKey(core.Key(k), active[k])
 	}
 
 	// Souris → crayon optique (coords logiques directes après Layout)
@@ -175,32 +218,31 @@ func inputJustPressed(k ebiten.Key) bool {
 	return now && !was
 }
 
-// keyMapping mappe les touches Ebitengine vers les indices de touches MO5.
+// keyMapping mappe les touches spéciales Ebitengine vers les indices MO5.
+// Les touches « caractère » (lettres, chiffres, ponctuation) ne sont PAS ici :
+// elles passent par l'injecteur de caractères (voir keyboard.go), ce qui gère
+// le layout OS et les combinaisons Shift. Ce mapping ne couvre que les touches
+// dont l'état physique continu fait sens (déplacement, contrôle, édition).
 // Ref: dcmo5keyb.h mo5key[] (indices 0x00–0x39).
 var keyMapping = map[ebiten.Key]int{
-	ebiten.Key1: 0x2F, ebiten.Key2: 0x27, ebiten.Key3: 0x1F,
-	ebiten.Key4: 0x17, ebiten.Key5: 0x0F, ebiten.Key6: 0x07,
-	ebiten.Key7: 0x06, ebiten.Key8: 0x0E, ebiten.Key9: 0x16,
-	ebiten.Key0: 0x1E,
-	ebiten.KeyA: 0x2D, ebiten.KeyZ: 0x25, ebiten.KeyE: 0x1D,
-	ebiten.KeyR: 0x15, ebiten.KeyT: 0x0D, ebiten.KeyY: 0x05,
-	ebiten.KeyU: 0x04, ebiten.KeyI: 0x0C, ebiten.KeyO: 0x14,
-	ebiten.KeyP: 0x1C, ebiten.KeyQ: 0x2B, ebiten.KeyS: 0x23,
-	ebiten.KeyD: 0x1B, ebiten.KeyF: 0x13, ebiten.KeyG: 0x0B,
-	ebiten.KeyH: 0x03, ebiten.KeyJ: 0x02, ebiten.KeyK: 0x0A,
-	ebiten.KeyL: 0x12, ebiten.KeyW: 0x30, ebiten.KeyX: 0x28,
-	ebiten.KeyC: 0x32, ebiten.KeyV: 0x2A, ebiten.KeyB: 0x22,
-	ebiten.KeyN: 0x00, ebiten.KeyM: 0x1A,
-	ebiten.KeySpace: 0x20, ebiten.KeyEnter: 0x34,
-	ebiten.KeyBackspace: 0x01, ebiten.KeyInsert: 0x09,
-	ebiten.KeyArrowRight: 0x19, ebiten.KeyArrowLeft: 0x29,
-	ebiten.KeyArrowDown: 0x21, ebiten.KeyArrowUp: 0x31,
-	ebiten.KeyShiftLeft: 0x38, ebiten.KeyShiftRight: 0x38,
-	ebiten.KeyControlLeft: 0x35, ebiten.KeyControlRight: 0x35,
-	ebiten.KeyComma: 0x08, ebiten.KeyPeriod: 0x10,
-	ebiten.KeySlash: 0x24, ebiten.KeyMinus: 0x26,
-	ebiten.KeyEqual: 0x2E, ebiten.KeySemicolon: 0x2E,
-	ebiten.KeyApostrophe: 0x18,
+	ebiten.KeySpace:        0x20, // ESPACE
+	ebiten.KeyEnter:        0x34, // ENT
+	ebiten.KeyBackspace:    0x01, // EFF (effacement)
+	ebiten.KeyInsert:       0x09, // INS
+	ebiten.KeyDelete:       0x33, // RAZ
+	ebiten.KeyHome:         0x11, // [retour]
+	ebiten.KeyArrowRight:   0x19,
+	ebiten.KeyArrowLeft:    0x29,
+	ebiten.KeyArrowDown:    0x21,
+	ebiten.KeyArrowUp:      0x31,
+	ebiten.KeyShiftLeft:    0x38, // SHIFT (voir gestion conditionnelle dans Update)
+	ebiten.KeyShiftRight:   0x38,
+	ebiten.KeyControlLeft:  0x35, // CNT
+	ebiten.KeyControlRight: 0x35,
+	ebiten.KeyAltLeft:      0x36, // ACC (accent)
+	ebiten.KeyAltRight:     0x36,
+	ebiten.KeyTab:          0x39, // BASIC
+	ebiten.KeyEnd:          0x37, // STP (stop)
 }
 
 // titleForState retourne le titre de fenêtre pour un état donné.
