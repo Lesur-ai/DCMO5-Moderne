@@ -5,6 +5,9 @@
 /dist/
 /coverage.out
 *.test
+# Binaires compilés à la racine (go build sans -o → nom du module/dossier)
+/main
+/dcmo5
 
 # Legacy DCMO5 v11 reference tree.
 # Keep it local until the license/import audit decides what can be tracked.
