@@ -9,16 +9,21 @@ import (
 // ── TFR ──────────────────────────────────────────────────────────────────────
 
 func TestTFRDtoX(t *testing.T) {
+	// LDD #0x1234 ; TFR D,X (0x1F 0x01) → X=0x1234
 	bus := &stubBus{}
 	bus.set16(0xFFFE, 0x1000)
-	bus.mem[0x1000] = 0x1F // opcode TFR
-	bus.mem[0x1001] = 0x01 // D→X
+	bus.mem[0x1000] = 0xCC // LDD imm
+	bus.set16(0x1001, 0x1234)
+	bus.mem[0x1003] = 0x1F // TFR
+	bus.mem[0x1004] = 0x01 // D→X
 	cpu := cpu6809.New(bus)
 	cpu.Reset()
-	// Forcer D = 0xABCD via un LD stub : pas possible directement.
-	// On vérifie juste que TFRbyte est appellé correctement.
-	// Test minimal : appel sans panique, structure correcte.
-	_ = cpu.Snapshot()
+	cpu.Step() // LDD #0x1234
+	cpu.Step() // TFR D,X
+	s := cpu.Snapshot()
+	if s.X != 0x1234 {
+		t.Errorf("TFR D,X : X = 0x%04X, want 0x1234", s.X)
+	}
 }
 
 func TestTFRbyteAtoB(t *testing.T) {
@@ -78,33 +83,43 @@ func TestEXGbyteAB(t *testing.T) {
 
 // ── PSHS / PULS ──────────────────────────────────────────────────────────────
 
-func TestPSHSPULS_CC(t *testing.T) {
-	// PSHS #0x01 (CC), puis PULS #0x01 (CC)
-	// LDA #0x55 pour avoir CC non-nul (Z efface, N selon valeur)
+func TestPSHSPULS_CC_roundtrip(t *testing.T) {
+	// Vérifie que PSHS CC + LDA #0 (modifie CC) + PULS CC restitue l'original.
+	// LDS #0x0200 pour avoir une pile valide.
 	bus := &stubBus{}
 	bus.set16(0xFFFE, 0x1000)
-	// LDA #0xFF (N=1, Z=0, V=0, C=0)
-	bus.mem[0x1000] = 0x86
-	bus.mem[0x1001] = 0xFF
-	// PSHS #0x01 (push CC)
-	bus.mem[0x1002] = 0x34
-	bus.mem[0x1003] = 0x01
-	// LDA #0x00 (modifie CC : Z=1, N=0)
+	// LDS #0x0200
+	bus.mem[0x1000] = 0x10
+	bus.mem[0x1001] = 0xCE
+	bus.set16(0x1002, 0x0200)
+	// LDA #0xFF → CC : N=1, V=0, Z=0, C=0
 	bus.mem[0x1004] = 0x86
-	bus.mem[0x1005] = 0x00
-	// PULS #0x01 (pop CC)
-	bus.mem[0x1006] = 0x35
+	bus.mem[0x1005] = 0xFF
+	// PSHS #0x01 (push CC)
+	bus.mem[0x1006] = 0x34
 	bus.mem[0x1007] = 0x01
-	// S initial = 0x0200
-	bus.set16(0xFFFE, 0x1000)
+	// LDA #0x00 → CC : Z=1, N=0 (CC modifié)
+	bus.mem[0x1008] = 0x86
+	bus.mem[0x1009] = 0x00
+	// PULS #0x01 (pop CC → restitue CC original avec N=1, Z=0)
+	bus.mem[0x100A] = 0x35
+	bus.mem[0x100B] = 0x01
 	cpu := cpu6809.New(bus)
 	cpu.Reset()
-	// Mettre S = 0x0200 via un programme — on ne peut pas le forcer directement.
-	// Ce test vérifie la structure : PSHS/PULS s'exécutent sans panique.
-	for i := 0; i < 4; i++ {
-		cpu.Step()
+	cpu.Step() // LDS
+	cpu.Step() // LDA #0xFF
+	ccAfterFF := cpu.Snapshot().CC
+	cpu.Step() // PSHS CC
+	cpu.Step() // LDA #0x00
+	ccAfterZero := cpu.Snapshot().CC
+	cpu.Step() // PULS CC
+	s := cpu.Snapshot()
+	if s.CC != ccAfterFF {
+		t.Errorf("PSHS/PULS CC roundtrip: CC = 0x%02X, want 0x%02X (avant push)", s.CC, ccAfterFF)
 	}
-	_ = cpu.Snapshot()
+	if ccAfterZero == ccAfterFF {
+		t.Error("LDA #0 doit avoir modifié CC entre PSHS et PULS")
+	}
 }
 
 func TestPSHSAllRegisters(t *testing.T) {
