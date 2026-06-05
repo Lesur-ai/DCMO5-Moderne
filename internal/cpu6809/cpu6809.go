@@ -240,12 +240,6 @@ func (c *CPU) Reset() {
 	c.cc = ResetCC
 }
 
-// Step exécute une instruction et retourne le nombre de cycles consommés.
-// Stub : retourne 0 jusqu'à l'implémentation complète (P2.2+).
-func (c *CPU) Step() int {
-	return 0
-}
-
 // Snapshot retourne une copie de l'état courant du CPU.
 func (c *CPU) Snapshot() Snapshot {
 	return Snapshot{
