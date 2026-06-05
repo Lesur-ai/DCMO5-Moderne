@@ -407,9 +407,9 @@ func (c *CPU) Step() int {
 		r := c.AddrImmediate(1)
 		c.a = c.sbc8(c.a, c.bus.Read8(r.Addr))
 		return 2
-	case 0x83:
+	case 0x83: // SUBD imm
 		r := c.AddrImmediate(2)
-		c.cmp16(c.D(), c.read16(r.Addr))
+		c.setD(c.sub16(c.D(), c.read16(r.Addr)))
 		return 5
 	case 0x84:
 		r := c.AddrImmediate(1)
@@ -443,12 +443,12 @@ func (c *CPU) Step() int {
 		r := c.AddrImmediate(2)
 		c.cmp16(c.x, c.read16(r.Addr))
 		return 4
-	case 0x8D:
+	case 0x8D: // BSR
 		off := int8(c.fetchPC8())
 		retAddr := c.pc
 		c.s -= 2
 		c.write16(c.s, retAddr)
-		c.pc = uint16(int32(c.pc-1) + int32(off))
+		c.pc = uint16(int32(c.pc) + int32(off))
 		return 7
 	case 0x8E:
 		r := c.AddrImmediate(2)
@@ -469,9 +469,9 @@ func (c *CPU) Step() int {
 		r := c.AddrDirect()
 		c.a = c.sbc8(c.a, c.bus.Read8(r.Addr))
 		return 4
-	case 0x93:
+	case 0x93: // SUBD dir
 		r := c.AddrDirect()
-		c.cmp16(c.D(), c.read16(r.Addr))
+		c.setD(c.sub16(c.D(), c.read16(r.Addr)))
 		return 6
 	case 0x94:
 		r := c.AddrDirect()
@@ -539,9 +539,9 @@ func (c *CPU) Step() int {
 		r := c.AddrIndexed()
 		c.a = c.sbc8(c.a, c.bus.Read8(r.Addr))
 		return 4 + r.Extra
-	case 0xA3:
+	case 0xA3: // SUBD indexed
 		r := c.AddrIndexed()
-		c.cmp16(c.D(), c.read16(r.Addr))
+		c.setD(c.sub16(c.D(), c.read16(r.Addr)))
 		return 6 + r.Extra
 	case 0xA4:
 		r := c.AddrIndexed()
@@ -609,9 +609,9 @@ func (c *CPU) Step() int {
 		r := c.AddrExtended()
 		c.a = c.sbc8(c.a, c.bus.Read8(r.Addr))
 		return 5
-	case 0xB3:
+	case 0xB3: // SUBD ext
 		r := c.AddrExtended()
-		c.cmp16(c.D(), c.read16(r.Addr))
+		c.setD(c.sub16(c.D(), c.read16(r.Addr)))
 		return 7
 	case 0xB4:
 		r := c.AddrExtended()
@@ -679,14 +679,9 @@ func (c *CPU) Step() int {
 		r := c.AddrImmediate(1)
 		c.b = c.sbc8(c.b, c.bus.Read8(r.Addr))
 		return 2
-	case 0xC3:
+	case 0xC3: // ADDD imm
 		r := c.AddrImmediate(2)
-		d := c.D()
-		res := uint32(d) + uint32(c.read16(r.Addr))
-		c.setFlag(FlagC, res > 0xFFFF)
-		c.setFlag(FlagV, (^(d^c.read16(r.Addr)))&uint16(res>>16) != 0)
-		c.setD(uint16(res))
-		c.setNZ16(c.D())
+		c.setD(c.add16(c.D(), c.read16(r.Addr)))
 		return 6
 	case 0xC4:
 		r := c.AddrImmediate(1)
@@ -739,14 +734,9 @@ func (c *CPU) Step() int {
 		r := c.AddrDirect()
 		c.b = c.sbc8(c.b, c.bus.Read8(r.Addr))
 		return 4
-	case 0xD3:
+	case 0xD3: // ADDD dir
 		r := c.AddrDirect()
-		d := c.D()
-		op := c.read16(r.Addr)
-		res := uint32(d) + uint32(op)
-		c.setFlag(FlagC, res > 0xFFFF)
-		c.setD(uint16(res))
-		c.setNZ16(c.D())
+		c.setD(c.add16(c.D(), c.read16(r.Addr)))
 		return 6
 	case 0xD4:
 		r := c.AddrDirect()
@@ -811,6 +801,10 @@ func (c *CPU) Step() int {
 		r := c.AddrIndexed()
 		c.b = c.sbc8(c.b, c.bus.Read8(r.Addr))
 		return 4 + r.Extra
+	case 0xE3: // ADDD indexed
+		r := c.AddrIndexed()
+		c.setD(c.add16(c.D(), c.read16(r.Addr)))
+		return 6 + r.Extra
 	case 0xE4:
 		r := c.AddrIndexed()
 		c.b = c.and8(c.b, c.bus.Read8(r.Addr))
@@ -874,6 +868,10 @@ func (c *CPU) Step() int {
 		r := c.AddrExtended()
 		c.b = c.sbc8(c.b, c.bus.Read8(r.Addr))
 		return 5
+	case 0xF3: // ADDD ext
+		r := c.AddrExtended()
+		c.setD(c.add16(c.D(), c.read16(r.Addr)))
+		return 7
 	case 0xF4:
 		r := c.AddrExtended()
 		c.b = c.and8(c.b, c.bus.Read8(r.Addr))

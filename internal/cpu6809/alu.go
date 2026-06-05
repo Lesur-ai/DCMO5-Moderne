@@ -1,6 +1,28 @@
 // Fichier : alu.go — opérations arithmétiques et logiques du 6809.
 package cpu6809
 
+// ── ADD / SUB 16 bits ────────────────────────────────────────────────────────
+
+func (c *CPU) add16(a, b uint16) uint16 {
+	res := uint32(a) + uint32(b)
+	result := uint16(res)
+	c.setFlag(FlagN, result&0x8000 != 0)
+	c.setFlag(FlagZ, result == 0)
+	c.setFlag(FlagV, (a&0x8000 == b&0x8000) && (result&0x8000 != a&0x8000))
+	c.setFlag(FlagC, res > 0xFFFF)
+	return result
+}
+
+func (c *CPU) sub16(a, b uint16) uint16 {
+	res := uint32(a) - uint32(b)
+	result := uint16(res)
+	c.setFlag(FlagN, result&0x8000 != 0)
+	c.setFlag(FlagZ, result == 0)
+	c.setFlag(FlagV, (a&0x8000 != b&0x8000) && (result&0x8000 != a&0x8000))
+	c.setFlag(FlagC, a < b)
+	return result
+}
+
 // ── ADD / SUB 8 bits ─────────────────────────────────────────────────────────
 
 func (c *CPU) add8(a, b uint8, withCarry bool) uint8 {
@@ -21,16 +43,16 @@ func (c *CPU) add8(a, b uint8, withCarry bool) uint8 {
 func (c *CPU) adc8(a, b uint8) uint8 { return c.add8(a, b, true) }
 
 func (c *CPU) sub8(a, b uint8, withBorrow bool) uint8 {
-	bi := uint8(0)
+	bi := uint16(0)
 	if withBorrow && c.cc&FlagC != 0 {
 		bi = 1
 	}
-	res := uint16(a) - uint16(b) - uint16(bi)
+	res := uint16(a) - uint16(b) - bi
 	result := uint8(res)
 	c.setFlag(FlagN, result&0x80 != 0)
 	c.setFlag(FlagZ, result == 0)
 	c.setFlag(FlagV, (a&0x80 != b&0x80) && (result&0x80 != a&0x80))
-	c.setFlag(FlagC, a < b+bi)
+	c.setFlag(FlagC, uint16(a) < uint16(b)+bi)
 	return result
 }
 

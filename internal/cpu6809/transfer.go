@@ -178,17 +178,18 @@ func (c *CPU) execEXGbyte(postbyte uint8) {
 		c.u, c.pc = c.pc, c.u
 	case 0x45:
 		c.s, c.pc = c.pc, c.s
-	case 0x89:
+	// 8-bit registers — EXG est symétrique, les deux encodages doivent être gérés.
+	case 0x89, 0x98: // A↔B
 		c.a, c.b = c.b, c.a
-	case 0x8A:
+	case 0x8A, 0xA8: // A↔CC
 		c.a, c.cc = c.cc, c.a
-	case 0x8B:
+	case 0x8B, 0xB8: // A↔DP
 		c.a, c.dp = c.dp, c.a
-	case 0x9A:
+	case 0x9A, 0xA9: // B↔CC
 		c.b, c.cc = c.cc, c.b
-	case 0x9B:
+	case 0x9B, 0xB9: // B↔DP
 		c.b, c.dp = c.dp, c.b
-	case 0xAB:
+	case 0xAB, 0xBA: // CC↔DP
 		c.cc, c.dp = c.dp, c.cc
 	}
 }
