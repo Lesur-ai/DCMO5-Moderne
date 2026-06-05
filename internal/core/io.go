@@ -2,6 +2,8 @@
 // Ref: dcmo5devices.c Entreesortie(), Readsector(), Readoctetk7(), etc.
 package core
 
+import "github.com/Lesur-ai/dcmo5/internal/media"
+
 // ── Initialisation cartouche ──────────────────────────────────────────────────
 
 // loadCartridge charge opts.Cartridge dans car[] et configure cartype/carflags.
@@ -14,6 +16,12 @@ func (m *Machine) loadCartridge() {
 	if len(data) == 0 {
 		return
 	}
+	// Repartir d'un espace cartouche vierge : un remontage ne doit pas laisser
+	// de résidus d'une cartouche précédente plus grande.
+	for i := range m.car {
+		m.car[i] = 0
+	}
+
 	// Copier dans car[] (max 64 Ko)
 	n := len(data)
 	if n > len(m.car) {
@@ -27,6 +35,55 @@ func (m *Machine) loadCartridge() {
 		m.cartype = 1
 	}
 	m.carflags = 4 // cart active, write disabled, banque 0
+}
+
+// ── Montage / éjection des médias à chaud ─────────────────────────────────────
+//
+// Ces méthodes permettent de changer de support après la création de la machine
+// (cassette, disquette, cartouche), socle du menu de pilotage. La fermeture des
+// fichiers sous-jacents reste à la charge de l'appelant (couche application) :
+// le cœur ne connaît que les interfaces media, pas les fichiers OS.
+
+// MountTape insère une cassette et réamorce l'état de lecture bit-level.
+func (m *Machine) MountTape(t media.Tape) {
+	m.opts.Tape = t
+	m.k7bit = 0
+	m.k7octet = 0
+}
+
+// EjectTape retire la cassette courante.
+func (m *Machine) EjectTape() {
+	m.opts.Tape = nil
+	m.k7bit = 0
+	m.k7octet = 0
+}
+
+// MountDisk insère une disquette.
+func (m *Machine) MountDisk(d media.Disk) {
+	m.opts.Disk = d
+}
+
+// EjectDisk retire la disquette courante.
+func (m *Machine) EjectDisk() {
+	m.opts.Disk = nil
+}
+
+// MountCartridge insère une cartouche et relance la machine dans un état propre.
+// Ref C Loadmemo() : réinitialise la RAM puis Initprog(). On délègue à Reset()
+// (hardReset RAM/ports + loadCartridge + cpu.Reset) pour qu'une cartouche montée
+// à chaud ne démarre jamais avec la RAM/entrées d'une session précédente.
+func (m *Machine) MountCartridge(c media.Cartridge) {
+	m.opts.Cartridge = c
+	m.Reset()
+}
+
+// EjectCartridge retire la cartouche, désactive le banc cartouche et relance sur
+// la ROM système. Ref C Loadmemo(name="") : carflags = 0 puis Initprog().
+func (m *Machine) EjectCartridge() {
+	m.opts.Cartridge = nil
+	m.carflags = 0
+	m.cartype = 0
+	m.cpu.Reset()
 }
 
 // ── Dispatch I/O (Entreesortie) ───────────────────────────────────────────────
