@@ -8,6 +8,7 @@ package core_test
 // Invariant fondamental : même ROM + même nombre de cycles → même état machine.
 
 import (
+	"hash/fnv"
 	"testing"
 
 	"github.com/Lesur-ai/dcmo5/internal/core"
