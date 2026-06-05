@@ -91,6 +91,7 @@ func TestDisk_WriteReadSector(t *testing.T) {
 	for i := range sector {
 		sector[i] = uint8(i)
 	}
+	// Secteurs numérotés 1-based [1..spec.FDSectors], conforme au contrôleur MO5.
 	if err := disk.WriteSector(0, 5, 3, sector); err != nil {
 		t.Fatalf("WriteSector: %v", err)
 	}
@@ -116,11 +117,19 @@ func TestDisk_OutOfBounds(t *testing.T) {
 	f := filepath.Join(t.TempDir(), "test.fd")
 	disk, _ := impl.NewDisk(f)
 	defer disk.Close()
-	if _, err := disk.ReadSector(0, 999, 0); err == nil {
+	if _, err := disk.ReadSector(0, 999, 1); err == nil {
 		t.Error("ReadSector piste 999 : erreur attendue")
 	}
-	if _, err := disk.ReadSector(5, 0, 0); err == nil {
+	if _, err := disk.ReadSector(5, 0, 1); err == nil {
 		t.Error("ReadSector face 5 : erreur attendue")
+	}
+	// Secteur 0 invalide (1-based)
+	if _, err := disk.ReadSector(0, 0, 0); err == nil {
+		t.Error("ReadSector secteur 0 : erreur attendue (1-based)")
+	}
+	// Secteur 17 invalide (max = spec.FDSectors = 16)
+	if _, err := disk.ReadSector(0, 0, 17); err == nil {
+		t.Error("ReadSector secteur 17 : erreur attendue")
 	}
 }
 
@@ -132,11 +141,11 @@ func TestDisk_FormatUnit(t *testing.T) {
 	for i := range full {
 		full[i] = 0xFF
 	}
-	disk.WriteSector(0, 0, 0, full)
+	disk.WriteSector(0, 0, 1, full) // secteur 1 (1-based)
 	if err := disk.FormatUnit(0); err != nil {
 		t.Fatalf("FormatUnit: %v", err)
 	}
-	got, _ := disk.ReadSector(0, 0, 0)
+	got, _ := disk.ReadSector(0, 0, 1)
 	if got != [256]byte{} {
 		t.Error("FormatUnit : secteur devrait être effacé")
 	}

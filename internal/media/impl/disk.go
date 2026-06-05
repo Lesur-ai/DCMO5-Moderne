@@ -53,17 +53,22 @@ func NewDisk(path string) (*FileDisk, error) {
 func (d *FileDisk) Close() error { return d.f.Close() }
 
 // sectorOffset calcule l'offset d'un secteur dans le fichier.
+// Les secteurs sont numérotés en 1-based [1..spec.FDSectors] conformément
+// à la sémantique du contrôleur MO5 (ref: dcmo5devices.c Readsector(),
+// s=Mgetc(0x204c) avec s==0 → erreur, s>16 → erreur, offset=(s-1)<<8).
 func sectorOffset(unit, track, sector int) (int64, error) {
 	if unit < 0 || unit >= spec.FDFaces {
-		return 0, fmt.Errorf("disk: face %d hors-bornes", unit)
+		return 0, fmt.Errorf("disk: face %d hors-bornes [0,%d)", unit, spec.FDFaces)
 	}
 	if track < 0 || track >= spec.FDTracks {
-		return 0, fmt.Errorf("disk: piste %d hors-bornes", track)
+		return 0, fmt.Errorf("disk: piste %d hors-bornes [0,%d)", track, spec.FDTracks)
 	}
-	if sector < 0 || sector >= spec.FDSectors {
-		return 0, fmt.Errorf("disk: secteur %d hors-bornes", sector)
+	if sector < 1 || sector > spec.FDSectors {
+		return 0, fmt.Errorf("disk: secteur %d hors-bornes [1,%d]", sector, spec.FDSectors)
 	}
-	off := int64(unit*spec.FDTracks*spec.FDSectors+track*spec.FDSectors+sector) * spec.FDSectorSize
+	// Formule conforme au contrôleur CD90-640 : s += 16*p + 1280*u, puis (s-1)<<8
+	s := sector + spec.FDSectors*track + spec.FDSectors*spec.FDTracks*unit
+	off := int64(s-1) * spec.FDSectorSize
 	return off, nil
 }
 
