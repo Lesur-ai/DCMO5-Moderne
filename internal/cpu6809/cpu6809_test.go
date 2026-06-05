@@ -227,6 +227,22 @@ func TestAddrIndexedExtendedIndirect(t *testing.T) {
 	}
 }
 
+func TestAddrIndexedInvalidPostbyte(t *testing.T) {
+	// Post-bytes invalides (ex: 0x90) : comportement = [,R] (déréférence read16(*X))
+	// Ref: dc6809emul.c case 0x90 → W = Mgetw(*r), n=3
+	bus := &stubBus{}
+	bus.mem[0x1000] = 0x90    // post-byte invalide, registre X (bits 6:5 = 00)
+	bus.set16(0x0000, 0x9ABC) // *X=0 → lit 0x9ABC
+	cpu := newCPUAt(bus, 0x1000)
+	r := cpu.AddrIndexed()
+	if r.Addr != 0x9ABC {
+		t.Errorf("AddrIndexed invalide 0x90 addr = 0x%04X, want 0x9ABC (déréférence [,X])", r.Addr)
+	}
+	if r.Extra != 3 {
+		t.Errorf("AddrIndexed invalide 0x90 Extra = %d, want 3", r.Extra)
+	}
+}
+
 func TestAddrIndexedRdirect(t *testing.T) {
 	// Post-byte 0x94 : [,R] — déréférence *R
 	bus := &stubBus{}

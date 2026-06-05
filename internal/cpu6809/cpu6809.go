@@ -224,8 +224,9 @@ func (c *CPU) AddrIndexed() AddrResult {
 		addr := c.fetchPC16()
 		return AddrResult{Addr: c.read16(addr), Extra: 5}
 	default:
-		// Invalides : comportement identique à ,R (ref C)
-		return AddrResult{Addr: *reg, Extra: 3}
+		// Post-bytes invalides (0x90, 0x92, 0x97, 0x9a, 0x9e...) :
+		// la ref C dc6809emul.c les traite comme [,R] — déréférence read16(*reg).
+		return AddrResult{Addr: c.read16(*reg), Extra: 3}
 	}
 }
 
