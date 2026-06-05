@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Lesur-ai/dcmo5/internal/app"
@@ -10,8 +11,7 @@ import (
 func TestLogicalSizeMatchesSpec(t *testing.T) {
 	w, h := app.LogicalSize()
 	if w != spec.FrameWidth || h != spec.FrameHeight {
-		t.Errorf("LogicalSize() = (%d,%d), want (%d,%d)",
-			w, h, spec.FrameWidth, spec.FrameHeight)
+		t.Errorf("LogicalSize() = (%d,%d), want (%d,%d)", w, h, spec.FrameWidth, spec.FrameHeight)
 	}
 }
 
@@ -19,36 +19,68 @@ func TestLogicalSizeStable(t *testing.T) {
 	w1, h1 := app.LogicalSize()
 	w2, h2 := app.LogicalSize()
 	if w1 != w2 || h1 != h2 {
-		t.Errorf("LogicalSize() instable: (%d,%d) != (%d,%d)", w1, h1, w2, h2)
+		t.Errorf("LogicalSize() instable")
 	}
 }
 
 func TestKeyMappingNoDuplicates(t *testing.T) {
-	// Vérifie qu'aucun index MO5 n'est mappé deux fois sauf les cas légitimes
-	// (ex: SHIFT gauche/droite → même touche MO5, CNT idem).
 	seen := map[int]string{}
-	// On accepte les doublons légitimes sur ces indices
-	legit := map[int]bool{
-		0x38: true, // SHIFT L et R → même touche MO5
-		0x35: true, // CNT L et R → même touche MO5
-		0x2E: true, // + ; et ; alt → même touche MO5
-	}
+	legit := map[int]bool{0x38: true, 0x35: true, 0x2E: true}
 	for eKey, mo5Key := range app.KeyMapping() {
 		if legit[mo5Key] {
 			continue
 		}
 		if prev, dup := seen[mo5Key]; dup {
-			t.Errorf("doublon MO5 0x%02X : touche Ebitengine %v et %v", mo5Key, prev, eKey)
+			t.Errorf("doublon MO5 0x%02X: %v et %v", mo5Key, prev, eKey)
 		}
 		seen[mo5Key] = eKey.String()
 	}
 }
 
 func TestKeyMappingValidRange(t *testing.T) {
-	// Chaque index MO5 doit être dans [0, spec.KeyMax).
 	for eKey, mo5Key := range app.KeyMapping() {
 		if mo5Key < 0 || mo5Key >= spec.KeyMax {
-			t.Errorf("touche Ebitengine %v → index MO5 %d hors-bornes [0,%d)", eKey, mo5Key, spec.KeyMax)
+			t.Errorf("touche %v → index MO5 %d hors-bornes [0,%d)", eKey, mo5Key, spec.KeyMax)
 		}
+	}
+}
+
+// ── TitleForState ─────────────────────────────────────────────────────────────
+
+func TestTitle_Normal(t *testing.T) {
+	got := app.TitleForState(false, false, "mo5.rom", "", "")
+	if !strings.Contains(got, "mo5.rom") {
+		t.Errorf("titre normal: %q ne contient pas 'mo5.rom'", got)
+	}
+	if strings.Contains(got, "PAUSE") || strings.Contains(got, "manquante") {
+		t.Errorf("titre normal ne doit pas contenir PAUSE/manquante: %q", got)
+	}
+}
+
+func TestTitle_ROMmissing(t *testing.T) {
+	got := app.TitleForState(true, false, "", "", "")
+	if !strings.Contains(got, "manquante") {
+		t.Errorf("ROM manquante: %q ne contient pas 'manquante'", got)
+	}
+}
+
+func TestTitle_Paused(t *testing.T) {
+	got := app.TitleForState(false, true, "mo5.rom", "", "")
+	if !strings.Contains(got, "[PAUSE]") {
+		t.Errorf("pause: %q ne contient pas '[PAUSE]'", got)
+	}
+}
+
+func TestTitle_WithTape(t *testing.T) {
+	got := app.TitleForState(false, false, "mo5.rom", "jeu.k7", "")
+	if !strings.Contains(got, "jeu.k7") {
+		t.Errorf("avec tape: %q ne contient pas 'jeu.k7'", got)
+	}
+}
+
+func TestTitle_PausedROMmissing(t *testing.T) {
+	got := app.TitleForState(true, true, "", "", "")
+	if !strings.Contains(got, "manquante") || !strings.Contains(got, "[PAUSE]") {
+		t.Errorf("pause+ROM manquante: %q", got)
 	}
 }
