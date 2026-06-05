@@ -1,5 +1,8 @@
 package core_test
 
+// framebuffer_export_test.go — export PNG du framebuffer (tests de débogage visuel).
+// Nécessite DCMO5_LONG_TESTS=1 ET la ROM MO5.
+
 import (
 	"image"
 	"image/color"
@@ -10,18 +13,12 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/spec"
 )
 
-func TestROM_ExportFramebuffer(t *testing.T) {
+func TestROM_Long_ExportFramebuffer_3s(t *testing.T) {
+	skipIfNotLong(t)
 	rom := loadROM(t)
 	m, _ := newMachineWithROM(t, rom)
 	m.Step(3_000_000)
 	saveFramebuffer(t, m, "/tmp/dcmo5_framebuffer_3s.png")
-}
-
-func TestROM_ExportFramebuffer_10s(t *testing.T) {
-	rom := loadROM(t)
-	m, _ := newMachineWithROM(t, rom)
-	m.Step(10_000_000)
-	saveFramebuffer(t, m, "/tmp/dcmo5_framebuffer_10s.png")
 }
 
 func saveFramebuffer(t *testing.T, m interface {
