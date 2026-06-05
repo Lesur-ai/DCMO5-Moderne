@@ -1,4 +1,4 @@
-// Package core représente la machine MO5 complète.
+// Package core représente la machine Thomson MO5 complète.
 // Il ne dépend d'aucune bibliothèque graphique, audio ni de chemins fichiers.
 package core
 
@@ -15,24 +15,17 @@ type Key int
 
 // JoystickInput décrit l'état instantané des deux manettes.
 type JoystickInput struct {
-	// Position encodes les axes des deux manettes (4 bits par manette).
-	Position uint8
-	// Action encodes les boutons d'action.
-	Action uint8
+	Position uint8 // axes des deux manettes (4 bits par manette)
+	Action   uint8 // boutons d'action
 }
 
 // Options configure la machine au démarrage.
 type Options struct {
-	// ROMSys est le contenu de la ROM système (16 Ko). Nil = ROM absente.
-	ROMSys []byte
-	// Tape est la cassette à monter, ou nil.
-	Tape media.Tape
-	// Disk est la disquette à monter, ou nil.
-	Disk media.Disk
-	// Cartridge est la cartouche à monter, ou nil.
-	Cartridge media.Cartridge
-	// Printer reçoit les octets imprimante, ou nil.
-	Printer media.PrinterSink
+	ROMSys    []byte            // ROM système 16 Ko (nil = ROM absente)
+	Tape      media.Tape        // cassette montée, ou nil
+	Disk      media.Disk        // disquette montée, ou nil
+	Cartridge media.Cartridge   // cartouche montée, ou nil
+	Printer   media.PrinterSink // imprimante, ou nil
 }
 
 // Machine représente le Thomson MO5 complet.
@@ -40,13 +33,25 @@ type Machine struct {
 	cpu  *cpu6809.CPU
 	opts Options
 
-	ram  [spec.RAMTotalSize]uint8
-	rom  [0x4000]uint8 // 16 Ko ROM système
-	port [spec.PortSize]uint8
+	// Mémoire physique
+	ram  [spec.RAMTotalSize]uint8 // 48 Ko RAM (vidéo + utilisateur)
+	rom  [0x4000]uint8            // 16 Ko ROM système (0xC000–0xFFFF)
+	car  [0x10000]uint8           // 4 banques × 16 Ko cartouche
+	port [spec.PortSize]uint8     // 64 octets ports E/S
+
+	// État mémoire banked
+	cartype  int   // 0=simple 1=MEMO5 switch 2=OS-9
+	carflags uint8 // bits0-1=banque bits2=cart-active bit3=write-en bits4=OS9bank
+
+	// Entrées
+	touche       [spec.KeyMax]uint8 // 0x00=pressée 0x80=relâchée
+	joysPosition uint8              // axes manettes
+	joysAction   uint8              // boutons d'action
+	xpen, ypen   int
+	penbutton    bool
 }
 
 // NewMachine crée une machine avec les options fournies.
-// Retourne une erreur si les options sont invalides (ex: ROM de mauvaise taille).
 func NewMachine(opts Options) (*Machine, error) {
 	if len(opts.ROMSys) != 0 && len(opts.ROMSys) != 0x4000 {
 		return nil, fmt.Errorf("core: ROMSys doit faire exactement 0x4000 octets, reçu %d", len(opts.ROMSys))
@@ -55,19 +60,257 @@ func NewMachine(opts Options) (*Machine, error) {
 	if len(opts.ROMSys) == 0x4000 {
 		copy(m.rom[:], opts.ROMSys)
 	}
+	m.hardReset()
 	m.cpu = cpu6809.New(m)
 	return m, nil
 }
 
-// Reset réinitialise la machine (CPU + état MO5).
+// hardReset initialise la RAM, les ports et l'état interne.
+// Ref: dcmo5emulation.c Hardreset()
+func (m *Machine) hardReset() {
+	for i := range m.ram {
+		// Pattern d'init : alternance 0x00/0xFF selon bit 7 de l'index
+		if i&0x80 != 0 {
+			m.ram[i] = 0xFF
+		} else {
+			m.ram[i] = 0x00
+		}
+	}
+	for i := range m.port {
+		m.port[i] = 0
+	}
+	for i := range m.car {
+		m.car[i] = 0
+	}
+	for i := range m.touche {
+		m.touche[i] = 0x80 // touches relâchées
+	}
+	m.joysPosition = 0xFF // manettes au centre
+	m.joysAction = 0xC0   // boutons relâchés
+	m.carflags = 0
+	m.cartype = 0
+	m.xpen, m.ypen = 0, 0
+	m.penbutton = false
+	m.mo5VideoRAM()
+}
+
+// ── Sélection de banques ──────────────────────────────────────────────────────
+
+// mo5VideoRAM actualise ramVideoOffset selon port[0]&1.
+// Retourne l'offset dans ram[] pour l'adresse 0x0000.
+// - bit0=0 : RAM vidéo couleurs à 0x0000 (offset 0)
+// - bit0=1 : RAM vidéo couleurs à 0x2000 (offset 0x2000)
+func (m *Machine) mo5VideoRAM() {
+	// pas d'offset explicite nécessaire : on encode dans Read8/Write8
+}
+
+// videoBase retourne l'offset de la page vidéo active dans ram[].
+func (m *Machine) videoBase() uint16 {
+	if m.port[0]&1 != 0 {
+		return 0x2000
+	}
+	return 0x0000
+}
+
+// romBankBase retourne le pointeur de base de la ROM banque active.
+// Ref: dcmo5emulation.c MO5rombank()
+func (m *Machine) romBankBase() uint32 {
+	if m.carflags&4 == 0 {
+		// pas de cartouche : on lit dans rom[]
+		return 0 // indicateur "utiliser ROM sys" — géré dans Read8
+	}
+	// cartouche active : base dans car[]
+	base := uint32((m.carflags & 0x03)) << 14
+	if m.cartype == 2 && m.carflags&0x10 != 0 {
+		base += 0x10000
+	}
+	return base
+}
+
+// ── Bus mémoire MO5 ─────────────────────────────────────────────────────────
+
+// Read8 implémente cpu6809.Bus — lecture d'un octet sur le bus MO5.
+// Ref: dcmo5emulation.c MgetMO5()
+func (m *Machine) Read8(addr uint16) uint8 {
+	switch addr >> 12 {
+	case 0x0, 0x1: // RAM vidéo (couleurs ou formes selon page active)
+		return m.ram[m.videoBase()+addr]
+	case 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9:
+		// RAM vidéo formes (0x2000-0x3FFF) et RAM utilisateur (0x4000-0x9FFF)
+		// Dans ram[], ces zones sont à leur adresse directe (adresse = index RAM)
+		return m.ram[addr]
+	case 0xA:
+		return m.readPort(addr)
+	case 0xB:
+		m.switchMemo5Bank(addr)
+		return m.readROMBank(addr)
+	case 0xC, 0xD, 0xE:
+		return m.readROMBank(addr)
+	case 0xF:
+		return m.rom[addr-0xC000]
+	default:
+		return m.ram[addr]
+	}
+}
+
+// Write8 implémente cpu6809.Bus — écriture d'un octet sur le bus MO5.
+// Ref: dcmo5emulation.c MputMO5()
+func (m *Machine) Write8(addr uint16, v uint8) {
+	switch addr >> 12 {
+	case 0x0, 0x1:
+		m.ram[m.videoBase()+addr] = v
+	case 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9:
+		m.ram[addr] = v
+	case 0xA:
+		m.writePort(addr, v)
+	case 0xB, 0xC, 0xD, 0xE:
+		if m.carflags&8 != 0 && m.cartype == 0 {
+			base := m.romBankBase()
+			if base != 0 {
+				m.car[base+(uint32(addr)-0xB000)] = v
+			}
+		}
+	case 0xF:
+		// ROM sys read-only : écriture ignorée
+	default:
+		m.ram[addr] = v
+	}
+}
+
+// ── Ports E/S ────────────────────────────────────────────────────────────────
+
+// readPort lit un port d'E/S MO5.
+// Ref: dcmo5emulation.c MgetMO5() case 0xa
+func (m *Machine) readPort(addr uint16) uint8 {
+	switch addr {
+	case 0xA7C0:
+		penBit := uint8(0)
+		if m.penbutton {
+			penBit = 0x20
+		}
+		return m.port[0] | 0x80 | penBit
+	case 0xA7C1:
+		col := (m.port[1] & 0xFE) >> 1
+		return m.port[1] | m.touche[col]
+	case 0xA7C2:
+		return m.port[2]
+	case 0xA7C3:
+		return m.port[3]
+	case 0xA7CB:
+		return (m.carflags & 0x3F) | ((m.carflags & 0x80) >> 1) | ((m.carflags & 0x40) << 1)
+	case 0xA7CC:
+		if m.port[0x0E]&4 != 0 {
+			return m.joysPosition
+		}
+		return m.port[0x0C]
+	case 0xA7CD:
+		if m.port[0x0F]&4 != 0 {
+			return m.joysAction
+		}
+		return m.port[0x0D]
+	case 0xA7CE:
+		return 4
+	case 0xA7E1:
+		return 0xFF
+	default:
+		if addr < 0xA7C0 {
+			return 0 // CD90-640 ROM (hors périmètre v1)
+		}
+		if addr < 0xA800 {
+			return m.port[addr&0x3F]
+		}
+		return 0
+	}
+}
+
+// writePort écrit dans un port d'E/S MO5.
+// Ref: dcmo5emulation.c MputMO5() case 0xa
+func (m *Machine) writePort(addr uint16, v uint8) {
+	switch addr {
+	case 0xA7C0:
+		m.port[0] = v & 0x5F
+		m.mo5VideoRAM()
+	case 0xA7C1:
+		m.port[1] = v & 0x7F
+	case 0xA7C2:
+		m.port[2] = v & 0x3F
+	case 0xA7C3:
+		m.port[3] = v & 0x3F
+	case 0xA7CB:
+		m.carflags = v
+	case 0xA7CC:
+		m.port[0x0C] = v
+	case 0xA7CD:
+		m.port[0x0D] = v
+	case 0xA7CE:
+		m.port[0x0E] = v
+	case 0xA7CF:
+		m.port[0x0F] = v
+	default:
+		if addr >= 0xA7C0 && addr < 0xA800 {
+			m.port[addr&0x3F] = v
+		}
+	}
+}
+
+// ── ROM banque ────────────────────────────────────────────────────────────────
+
+func (m *Machine) readROMBank(addr uint16) uint8 {
+	if m.carflags&4 == 0 {
+		// Pas de cartouche : rombank = mo5rom - 0xC000 (ref C MO5rombank).
+		// 0xC000-0xEFFF lisent dans m.rom[], 0xB000-0xBFFF = hors ROM → 0.
+		if addr >= 0xC000 {
+			return m.rom[addr-0xC000]
+		}
+		return 0
+	}
+	base := m.romBankBase()
+	offset := uint32(addr) - 0xB000
+	idx := base + offset
+	if int(idx) < len(m.car) {
+		return m.car[idx]
+	}
+	return 0
+}
+
+// switchMemo5Bank gère la commutation de banque MEMO5.
+// Ref: dcmo5emulation.c Switchmemo5bank()
+func (m *Machine) switchMemo5Bank(addr uint16) {
+	if m.cartype != 1 {
+		return
+	}
+	if addr&0xFFFC != 0xBFFC {
+		return
+	}
+	m.carflags = (m.carflags & 0xFC) | (uint8(addr) & 3)
+}
+
+// ── Interface publique ────────────────────────────────────────────────────────
+
+// Reset réinitialise la machine.
 func (m *Machine) Reset() {
+	m.hardReset()
 	m.cpu.Reset()
 }
 
 // Step avance l'émulation d'au plus n cycles et retourne les cycles consommés.
-// Stub : retourne 0 jusqu'à l'implémentation complète (P3).
+// Stub d'intégration CPU : sera complété en P3.4.
 func (m *Machine) Step(cycles int) int {
-	return 0
+	if cycles <= 0 {
+		return 0
+	}
+	consumed := 0
+	for consumed < cycles {
+		c := m.cpu.Step()
+		if c <= 0 {
+			c = 2 // sécurité anti-boucle infinie
+		}
+		consumed += c
+		if consumed >= cycles {
+			break
+		}
+	}
+	return consumed
 }
 
 // Framebuffer retourne le framebuffer logique courant (336×216 pixels RGBA).
@@ -77,20 +320,25 @@ func (m *Machine) Framebuffer() []uint32 {
 }
 
 // SetKey met à jour l'état d'une touche MO5.
-func (m *Machine) SetKey(key Key, pressed bool) {}
-
-// SetJoystick met à jour l'état des manettes.
-func (m *Machine) SetJoystick(input JoystickInput) {}
-
-// SetPen met à jour la position et l'état du crayon optique.
-func (m *Machine) SetPen(x, y int, pressed bool) {}
-
-// Read8 implémente cpu6809.Bus — lecture d'un octet sur le bus MO5.
-// Stub : renvoie 0xFF (bus flottant) jusqu'à P3.
-func (m *Machine) Read8(addr uint16) uint8 {
-	return 0xFF
+func (m *Machine) SetKey(key Key, pressed bool) {
+	if int(key) >= 0 && int(key) < len(m.touche) {
+		if pressed {
+			m.touche[key] = 0x00
+		} else {
+			m.touche[key] = 0x80
+		}
+	}
 }
 
-// Write8 implémente cpu6809.Bus — écriture d'un octet sur le bus MO5.
-// Stub : sans effet jusqu'à P3.
-func (m *Machine) Write8(addr uint16, value uint8) {}
+// SetJoystick met à jour l'état des manettes.
+func (m *Machine) SetJoystick(input JoystickInput) {
+	m.joysPosition = input.Position
+	m.joysAction = input.Action
+}
+
+// SetPen met à jour la position et l'état du crayon optique.
+func (m *Machine) SetPen(x, y int, pressed bool) {
+	m.xpen = x
+	m.ypen = y
+	m.penbutton = pressed
+}
