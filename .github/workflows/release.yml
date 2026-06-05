@@ -48,10 +48,12 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: 1
+          # Le tag est passé par env pour éviter l'interpolation shell directe.
+          RELEASE_VERSION: ${{ github.ref_name }}
         run: |
           mkdir -p dist
           BINARY="dist/dcmo5-${{ matrix.os }}-${{ matrix.arch }}"
-          go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+          go build -ldflags="-s -w -X main.version=${RELEASE_VERSION}" \
             -o "$BINARY" ./cmd/dcmo5
 
       - name: archive

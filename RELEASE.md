@@ -32,13 +32,17 @@ Vérifier aussi manuellement :
 ### 3. Build local de vérification
 
 ```bash
-# macOS arm64
+# macOS arm64 (natif)
 GOOS=darwin GOARCH=arm64 go build ./cmd/dcmo5
 
-# Linux amd64 (cross-compile depuis macOS)
-# Nécessite CGO_ENABLED=0 pour cross-compile simple, ou environnement Linux natif
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build ./cmd/dcmo5
+# macOS amd64 (natif ou cross depuis arm64)
+GOOS=darwin GOARCH=amd64 go build ./cmd/dcmo5
 ```
+
+> **Linux :** Ebitengine requiert CGO (GLFW) et ne se compile pas en cross-compile
+> simple depuis macOS (`CGO_ENABLED=0` échoue sur les symboles OpenGL).
+> La vérification du build Linux se fait via la CI GitHub Actions ou sur un
+> environnement Linux natif avec les libs X11/GL installées (voir README).
 
 ### 4. Créer le tag
 
