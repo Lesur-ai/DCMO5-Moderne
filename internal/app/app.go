@@ -46,11 +46,17 @@ func (a *App) Draw(screen *ebiten.Image) {
 	screen.DrawImage(a.fb, op)
 }
 
+// LogicalSize retourne les dimensions logiques fixes du framebuffer MO5.
+// Fonction pure, utilisable sans initialiser Ebitengine (testable en CI headless).
+func LogicalSize() (int, int) {
+	return spec.FrameWidth, spec.FrameHeight
+}
+
 // Layout retourne les dimensions logiques fixes du framebuffer MO5.
 // Ebitengine gère le scaling physique vers la fenêtre ; la surface de rendu
 // a toujours exactement spec.FrameWidth × spec.FrameHeight pixels logiques.
 func (a *App) Layout(_, _ int) (int, int) {
-	return spec.FrameWidth, spec.FrameHeight
+	return LogicalSize()
 }
 
 // Run configure et lance la boucle Ebitengine.

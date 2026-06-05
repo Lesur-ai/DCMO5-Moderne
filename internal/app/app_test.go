@@ -7,21 +7,22 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/spec"
 )
 
-func TestLayoutReturnsMO5Dimensions(t *testing.T) {
-	a := app.New()
-	w, h := a.Layout(1920, 1080)
+// Les tests de internal/app doivent éviter d'instancier App ou tout type
+// Ebitengine : leur construction initialise GLFW/Metal et plante en CI headless.
+// On teste uniquement les fonctions pures qui n'initialisent pas Ebitengine.
+
+func TestLogicalSizeMatchesSpec(t *testing.T) {
+	w, h := app.LogicalSize()
 	if w != spec.FrameWidth || h != spec.FrameHeight {
-		t.Errorf("Layout(1920,1080) = (%d,%d), want (%d,%d)",
+		t.Errorf("LogicalSize() = (%d,%d), want (%d,%d)",
 			w, h, spec.FrameWidth, spec.FrameHeight)
 	}
 }
 
-func TestLayoutIndependentOfWindowSize(t *testing.T) {
-	a := app.New()
-	w1, h1 := a.Layout(640, 480)
-	w2, h2 := a.Layout(1280, 960)
+func TestLogicalSizeStable(t *testing.T) {
+	w1, h1 := app.LogicalSize()
+	w2, h2 := app.LogicalSize()
 	if w1 != w2 || h1 != h2 {
-		t.Errorf("Layout doit retourner des dimensions fixes quelle que soit la fenêtre : "+
-			"(%d,%d) != (%d,%d)", w1, h1, w2, h2)
+		t.Errorf("LogicalSize() instable entre deux appels : (%d,%d) != (%d,%d)", w1, h1, w2, h2)
 	}
 }
