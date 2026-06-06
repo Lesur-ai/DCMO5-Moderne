@@ -22,6 +22,18 @@ const (
 //	Colonnes 328..335    : bordure droite
 func (m *Machine) Framebuffer() []uint32 {
 	fb := make([]uint32, spec.FrameWidth*spec.FrameHeight)
+	m.FramebufferInto(fb)
+	return fb
+}
+
+// FramebufferInto rend le framebuffer dans dst (taille exacte
+// spec.FrameWidth*spec.FrameHeight) sans allocation, pour éviter la pression GC
+// à 60 Hz (les allocations par frame provoquent des pauses GC qui glitchent
+// l'audio). dst trop petit est ignoré.
+func (m *Machine) FramebufferInto(fb []uint32) {
+	if len(fb) < spec.FrameWidth*spec.FrameHeight {
+		return
+	}
 	borderRGBA := m.paletteRGBA(int(m.port[0]>>1) & 0x0F)
 
 	// Bordure haute (lignes 0–7)
@@ -49,8 +61,6 @@ func (m *Machine) Framebuffer() []uint32 {
 	for y := borderPx + activeLines; y < spec.FrameHeight; y++ {
 		fillRow(fb, y, borderRGBA)
 	}
-
-	return fb
 }
 
 // composeLine remplit 320 pixels (40 octets) dans fb à partir du décalage dst.

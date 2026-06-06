@@ -173,6 +173,29 @@ func TestMountCartridge_ResetsRAM(t *testing.T) {
 	}
 }
 
+// TestInitprog_KeepsRAM vérifie que Initprog (reset doux) PRÉSERVE la RAM et
+// recharge le vecteur reset, contrairement à Reset (qui efface la RAM).
+func TestInitprog_KeepsRAM(t *testing.T) {
+	m, _ := core.NewMachine(core.Options{ROMSys: romWithReset(0xE000)})
+	m.Reset()
+	m.Write8(0x5000, 0x42) // valeur en RAM utilisateur
+
+	m.Initprog()
+	if v := m.Read8(0x5000); v != 0x42 {
+		t.Errorf("Initprog: RAM[0x5000] = 0x%02X, want 0x42 (RAM préservée)", v)
+	}
+	if pc := m.CPUSnapshot().PC; pc != 0xE000 {
+		t.Errorf("Initprog: PC = 0x%04X, want 0xE000 (vecteur reset rechargé)", pc)
+	}
+
+	// Contraste : Reset efface bien la RAM.
+	m.Write8(0x5000, 0x42)
+	m.Reset()
+	if v := m.Read8(0x5000); v == 0x42 {
+		t.Error("Reset devrait effacer la RAM (RAM[0x5000] inchangée)")
+	}
+}
+
 // ── Disquette ─────────────────────────────────────────────────────────────────
 
 func TestMountDisk_ReadsNewMedia(t *testing.T) {

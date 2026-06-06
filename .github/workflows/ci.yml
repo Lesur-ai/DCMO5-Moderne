@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: deps Linux (Ebitengine)
+      - name: deps Linux (Ebitengine + audio)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -q
@@ -28,7 +28,8 @@ jobs:
             libxi-dev \
             libxinerama-dev \
             libxrandr-dev \
-            libxxf86vm-dev
+            libxxf86vm-dev \
+            libasound2-dev
 
       - uses: actions/setup-go@v5
         with:

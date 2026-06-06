@@ -99,6 +99,19 @@ func TestModel_EjectProducesAction(t *testing.T) {
 	}
 }
 
+func TestModel_InitprogAction(t *testing.T) {
+	m := NewModel(nil)
+	m.Toggle()
+	idx := findMainIndex(m, "Init prog")
+	if idx < 0 {
+		t.Fatal("item 'Init prog' introuvable")
+	}
+	m.mainIndex = idx
+	if act := m.Activate("/"); act != ActInitprog {
+		t.Errorf("Activate sur Init prog: %v, want ActInitprog", act)
+	}
+}
+
 func TestModel_ResumeClosesMenu(t *testing.T) {
 	m := NewModel(nil)
 	m.Toggle()

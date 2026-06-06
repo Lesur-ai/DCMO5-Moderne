@@ -25,7 +25,7 @@ const (
 	menuCharW    = 7  // largeur d'un glyphe basicfont
 	menuAscent   = 11 // haut-de-ligne → baseline (text v1)
 	menuLineH    = 14 // pas vertical entre items
-	menuGroupGap = 5  // espace supplémentaire entre groupes d'items
+	menuGroupGap = 4  // espace supplémentaire entre groupes d'items
 	menuPadding  = 10 // marge interne du panneau
 )
 
@@ -54,7 +54,8 @@ func panelRect(state menu.State) (x, y, w, h int) {
 	if state == menu.StateBrowse {
 		return 28, 10, 280, 196
 	}
-	return 48, 10, 240, 196
+	// Menu principal : panneau un peu plus haut pour loger les 10 entrées.
+	return 48, 6, 240, 204
 }
 
 // contentRect retourne la zone de contenu interne (padding appliqué).

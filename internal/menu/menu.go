@@ -27,7 +27,8 @@ type Action int
 const (
 	ActNone        Action = iota
 	ActResume             // fermer le menu, reprendre l'émulation
-	ActReset              // reset machine
+	ActReset              // reset matériel (efface la RAM)
+	ActInitprog           // reset doux (relance le programme, garde la RAM)
 	ActQuit               // quitter l'application
 	ActEjectTape          // éjecter la cassette
 	ActEjectDisk          // éjecter la disquette
@@ -68,6 +69,7 @@ var mainMenu = []mainEntry{
 	{"Ejecter cassette", ActEjectTape, KindNone},
 	{"Ejecter disquette", ActEjectDisk, KindNone},
 	{"Ejecter cartouche", ActEjectCart, KindNone},
+	{"Init prog", ActInitprog, KindNone},
 	{"Reset machine", ActReset, KindNone},
 	{"Reprendre", ActResume, KindNone},
 	{"Quitter", ActQuit, KindNone},

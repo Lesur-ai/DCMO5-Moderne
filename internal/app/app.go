@@ -1,5 +1,10 @@
 // Package app adapte le cœur MO5 au desktop via Ebitengine.
 // Il est le seul package autorisé à importer Ebitengine.
+//
+// L'émulation tourne dans une goroutine dédiée (internal/emu.Host) ; l'UI ne
+// fait que publier les entrées (Update), lire un instantané du framebuffer
+// (Draw) et envoyer des commandes média. Le cœur n'est jamais touché
+// directement depuis l'UI : pas de verrou partagé, UI réactive.
 package app
 
 import (
@@ -11,11 +16,13 @@ import (
 	"path/filepath"
 
 	"github.com/Lesur-ai/dcmo5/internal/core"
+	"github.com/Lesur-ai/dcmo5/internal/emu"
 	"github.com/Lesur-ai/dcmo5/internal/media"
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
 	"github.com/Lesur-ai/dcmo5/internal/menu"
 	"github.com/Lesur-ai/dcmo5/internal/spec"
 	"github.com/hajimehoshi/ebiten/v2"
+	ebaudio "github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
@@ -28,14 +35,12 @@ const (
 	windowScaleY = 2
 )
 
-// cyclesPerFrame est le nombre de cycles CPU par frame à 60 Hz.
-const cyclesPerFrame = spec.CPUClockHz / 60
-
-// App implémente ebiten.Game et orchestre la boucle principale.
+// App implémente ebiten.Game et orchestre l'UI autour d'un emu.Host.
 type App struct {
-	machine     *core.Machine
-	fb          *ebiten.Image
-	extraCycles int
+	host     *emu.Host
+	fb       *ebiten.Image
+	fbPixels []uint32 // tampon framebuffer réutilisé (anti-alloc/GC)
+	fbBytes  []byte   // tampon RGBA réutilisé pour WritePixels
 
 	// Saisie clavier
 	keys       *keyInjector
@@ -45,10 +50,13 @@ type App struct {
 	menu     *menu.Model
 	mediaDir string // répertoire de départ du navigateur de fichiers
 
-	// Médias montés : on garde les Closer pour fermer les fichiers à l'éjection
-	// ou avant un remplacement (éviter les fuites de descripteurs).
+	// Médias montés : Closer des fichiers ouverts (fermeture à l'éjection/remplacement)
 	tapeCloser io.Closer
 	diskCloser io.Closer
+
+	// Audio (le lecteur consomme la ring du Host ; il ne touche jamais le cœur)
+	audioPlayer   *ebaudio.Player
+	audioDisabled bool
 
 	// État desktop
 	paused     bool
@@ -59,7 +67,7 @@ type App struct {
 	cartName   string
 }
 
-// New crée une application avec la machine donnée.
+// New crée une application pilotant la machine donnée via un emu.Host.
 func New(machine *core.Machine) *App {
 	fb := ebiten.NewImage(spec.FrameWidth, spec.FrameHeight)
 	fb.Fill(color.RGBA{R: 0, G: 0, B: 0, A: 0xFF})
@@ -68,8 +76,10 @@ func New(machine *core.Machine) *App {
 		home = "."
 	}
 	a := &App{
-		machine:  machine,
+		host:     emu.New(machine, defaultAudioGain),
 		fb:       fb,
+		fbPixels: make([]uint32, spec.FrameWidth*spec.FrameHeight),
+		fbBytes:  make([]byte, spec.FrameWidth*spec.FrameHeight*4),
 		keys:     newKeyInjector(defaultKeyHoldFrames, defaultKeyGapFrames),
 		mediaDir: home,
 	}
@@ -109,7 +119,8 @@ func (a *App) SetStartupMediaClosers(tape, disk io.Closer) {
 	a.diskCloser = disk
 }
 
-// Update est appelé à chaque tick (60 Hz) : entrées + émulation CPU.
+// Update est appelé à chaque tick (60 Hz) : il publie les entrées vers le Host
+// et pilote le menu. L'émulation, elle, avance dans la goroutine du Host.
 func (a *App) Update() error {
 	// ÉCHAP pilote le menu : ouvre s'il est fermé, remonte d'un niveau sinon.
 	if inputJustPressed(ebiten.KeyEscape) {
@@ -118,12 +129,15 @@ func (a *App) Update() error {
 		} else {
 			a.menu.Toggle()
 		}
+		a.syncPause()
 		a.updateTitle()
 	}
 
 	// Menu ouvert : il capte toutes les entrées et suspend l'émulation.
 	if a.menu.IsOpen() {
-		if err := a.updateMenu(); err != nil {
+		err := a.updateMenu()
+		a.syncPause() // une action a pu fermer le menu
+		if err != nil {
 			return err
 		}
 		return nil
@@ -131,96 +145,67 @@ func (a *App) Update() error {
 
 	// F5 = reset machine
 	if inputJustPressed(ebiten.KeyF5) {
-		a.machine.Reset()
+		a.host.Reset()
 	}
 
 	// F3 = pause / resume (KeyP est la touche MO5 P=0x1C, on évite le conflit)
 	if inputJustPressed(ebiten.KeyF3) {
 		a.paused = !a.paused
+		a.syncPause()
 		a.updateTitle()
 	}
-
 	if a.paused {
 		return nil
 	}
 
 	// Saisie clavier MO5 : caractères (layout OS + Shift) + touches spéciales.
-	//
-	// LIMITE connue : les touches imprimables (lettres/chiffres) sont jouées en
-	// impulsions par l'injecteur, pas maintenues en continu — adapté à la frappe
-	// de texte (BASIC) mais pas au maintien d'une touche dans un jeu. Un mode
-	// « gaming » positionnel (toggle) est prévu dans une étape ultérieure.
+	// LIMITE connue : les touches imprimables sont jouées en impulsions par
+	// l'injecteur (adapté à la frappe de texte), pas maintenues en continu.
 	a.inputChars = ebiten.AppendInputChars(a.inputChars[:0])
 	for _, r := range a.inputChars {
 		a.keys.Enqueue(r)
 	}
-
-	// Touches caractère injectées (une frappe à la fois, maintenue puis relâchée).
 	tickKeys := a.keys.Tick()
-	// « injecting » : une frappe caractère est en cours de rejeu (hold ou gap).
-	// Pendant ce temps, le Shift physique ne doit PAS être propagé : l'OS a déjà
-	// produit le bon caractère, et l'injecteur pilote seul SHIFT MO5 (sinon
-	// double-Shift, ex. AZERTY « 1 » → « ! »). Hors saisie, Shift redevient une
-	// touche positionnelle maintenable (jeux, combinaisons MO5).
+	// Pendant une saisie caractère, le Shift physique n'est pas propagé (l'OS a
+	// déjà produit le bon caractère ; sinon double-Shift AZERTY « 1 » → « ! »).
 	injecting := len(tickKeys) > 0 || a.keys.Pending() > 0
 
-	var active [spec.KeyMax]bool
-	// Touches spéciales en mode positionnel (état physique continu).
+	var in emu.InputState
 	for eKey, mo5Key := range keyMapping {
 		if mo5Key == mo5KeyShift && injecting {
 			continue
 		}
 		if ebiten.IsKeyPressed(eKey) {
-			active[mo5Key] = true
+			in.Keys[mo5Key] = true
 		}
 	}
 	for _, k := range tickKeys {
 		if k >= 0 && k < spec.KeyMax {
-			active[k] = true
+			in.Keys[k] = true
 		}
 	}
-	// Appliquer l'état résultant à la matrice clavier de la machine.
-	for k := 0; k < spec.KeyMax; k++ {
-		a.machine.SetKey(core.Key(k), active[k])
-	}
-
-	// Souris → crayon optique (coords logiques directes après Layout)
-	mx, my := ebiten.CursorPosition()
-	a.machine.SetPen(mx, my, ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft))
-
-	// Avancer l'émulation d'une frame
-	toRun := cyclesPerFrame - a.extraCycles
-	if toRun < 0 {
-		toRun = 0
-	}
-	consumed := a.machine.Step(toRun)
-	a.extraCycles = consumed - toRun
-	if a.extraCycles < 0 {
-		a.extraCycles = 0
-	}
+	in.PenX, in.PenY = ebiten.CursorPosition()
+	in.PenDown = ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+	a.host.SetInput(in)
 	return nil
 }
 
-// updateMenu traite les entrées (clavier ET souris) quand le menu est ouvert et
-// exécute l'action sélectionnée. L'émulation est suspendue tant que le menu est
-// affiché.
+// syncPause répercute l'état pause/menu sur le Host (suspend l'émulation).
+func (a *App) syncPause() { a.host.SetPaused(a.paused || a.menu.IsOpen()) }
+
+// updateMenu traite les entrées (clavier ET souris) quand le menu est ouvert.
 func (a *App) updateMenu() error {
-	// Clavier : flèches.
 	if inputJustPressed(ebiten.KeyArrowUp) {
 		a.menu.MoveUp()
 	}
 	if inputJustPressed(ebiten.KeyArrowDown) {
 		a.menu.MoveDown()
 	}
-
-	// Souris : le survol surligne l'item pointé.
 	mx, my := ebiten.CursorPosition()
 	hovered := menuItemAt(a.menu, mx, my)
 	if hovered >= 0 {
 		a.selectMenuIndex(hovered)
 	}
-
-	// Molette : défile le navigateur de fichiers.
 	if _, wy := ebiten.Wheel(); wy != 0 && a.menu.State() == menu.StateBrowse {
 		if wy < 0 {
 			a.menu.MoveDown()
@@ -228,16 +213,13 @@ func (a *App) updateMenu() error {
 			a.menu.MoveUp()
 		}
 	}
-
-	// Validation : ENTRÉE, ou clic gauche sur un item.
 	activate := inputJustPressed(ebiten.KeyEnter)
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && hovered >= 0 {
 		a.selectMenuIndex(hovered)
 		activate = true
 	}
 	if activate {
-		act := a.menu.Activate(a.mediaDir)
-		return a.handleMenuAction(act)
+		return a.handleMenuAction(a.menu.Activate(a.mediaDir))
 	}
 	return nil
 }
@@ -252,26 +234,30 @@ func (a *App) selectMenuIndex(i int) {
 	}
 }
 
-// handleMenuAction exécute l'intention produite par le menu.
+// handleMenuAction exécute l'intention produite par le menu via le Host
+// (commandes asynchrones traitées par la goroutine propriétaire de la machine).
 func (a *App) handleMenuAction(act menu.Action) error {
 	switch act {
 	case menu.ActResume:
 		// Le modèle a déjà fermé le menu.
 	case menu.ActReset:
-		a.machine.Reset()
+		a.host.Reset()
+		a.menu.Close()
+	case menu.ActInitprog:
+		a.host.Initprog()
 		a.menu.Close()
 	case menu.ActQuit:
 		return ErrUserQuit
 	case menu.ActEjectTape:
-		a.machine.EjectTape()
+		a.host.EjectTape()
 		a.closeTape()
 		a.tapeName = ""
 	case menu.ActEjectDisk:
-		a.machine.EjectDisk()
+		a.host.EjectDisk()
 		a.closeDisk()
 		a.diskName = ""
 	case menu.ActEjectCart:
-		a.machine.EjectCartridge()
+		a.host.EjectCartridge()
 		a.cartName = ""
 	case menu.ActMountChosen:
 		a.mountChosen()
@@ -280,16 +266,14 @@ func (a *App) handleMenuAction(act menu.Action) error {
 	return nil
 }
 
-// mountChosen ouvre le fichier choisi dans le navigateur et le monte sur la
-// machine, en remplaçant proprement le média précédent du même type.
+// mountChosen ouvre le fichier choisi et le monte via le Host, en fermant
+// proprement le média précédent du même type.
 func (a *App) mountChosen() {
 	path, kind := a.menu.Chosen()
 	if path == "" {
 		return
 	}
-	// Mémoriser le répertoire pour rouvrir le navigateur au même endroit.
 	a.mediaDir = filepath.Dir(path)
-
 	switch kind {
 	case menu.KindTape:
 		t, err := impl.OpenTape(path, false)
@@ -297,7 +281,7 @@ func (a *App) mountChosen() {
 			return
 		}
 		a.closeTape()
-		a.machine.MountTape(t)
+		a.host.MountTape(t)
 		a.tapeCloser = t
 		a.tapeName = filepath.Base(path)
 	case menu.KindDisk:
@@ -306,7 +290,7 @@ func (a *App) mountChosen() {
 			return
 		}
 		a.closeDisk()
-		a.machine.MountDisk(d)
+		a.host.MountDisk(d)
 		a.diskCloser = d
 		a.diskName = filepath.Base(path)
 	case menu.KindCart:
@@ -314,7 +298,7 @@ func (a *App) mountChosen() {
 		if err != nil {
 			return
 		}
-		a.machine.MountCartridge(c)
+		a.host.MountCartridge(c)
 		a.cartName = filepath.Base(path)
 	}
 }
@@ -340,28 +324,27 @@ var (
 	_ io.Closer  = (*impl.FileTape)(nil)
 )
 
-// Draw rend le framebuffer machine dans la surface Ebitengine.
+// Draw rend l'instantané du framebuffer du Host dans la surface Ebitengine.
 func (a *App) Draw(screen *ebiten.Image) {
 	if a.romMissing {
 		screen.Fill(color.RGBA{R: 20, G: 0, B: 0, A: 0xFF})
 		return
 	}
-	pixels := a.machine.Framebuffer()
-	buf := make([]byte, len(pixels)*4)
-	for i, px := range pixels {
-		buf[i*4+0] = byte(px)
-		buf[i*4+1] = byte(px >> 8)
-		buf[i*4+2] = byte(px >> 16)
-		buf[i*4+3] = byte(px >> 24)
+	a.host.Framebuffer(a.fbPixels) // copie de l'instantané (pas d'accès au cœur)
+	for i, px := range a.fbPixels {
+		a.fbBytes[i*4+0] = byte(px)
+		a.fbBytes[i*4+1] = byte(px >> 8)
+		a.fbBytes[i*4+2] = byte(px >> 16)
+		a.fbBytes[i*4+3] = byte(px >> 24)
 	}
-	a.fb.WritePixels(buf)
+	a.fb.WritePixels(a.fbBytes)
 	op := &ebiten.DrawImageOptions{}
-	scaleX := float64(screen.Bounds().Dx()) / float64(spec.FrameWidth)
-	scaleY := float64(screen.Bounds().Dy()) / float64(spec.FrameHeight)
-	op.GeoM.Scale(scaleX, scaleY)
+	op.GeoM.Scale(
+		float64(screen.Bounds().Dx())/float64(spec.FrameWidth),
+		float64(screen.Bounds().Dy())/float64(spec.FrameHeight),
+	)
 	screen.DrawImage(a.fb, op)
 
-	// Overlay du menu de pilotage par-dessus l'écran émulé.
 	drawMenu(screen, a.menu)
 }
 
@@ -401,6 +384,9 @@ func (a *App) updateTitle() {
 func Run(a *App) error {
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	ebiten.SetWindowSize(windowScaleX*spec.FrameWidth, windowScaleY*spec.FrameHeight)
+	a.initAudio()  // après que main a pu désactiver l'audio (--no-audio)
+	a.host.Start() // lance la goroutine d'émulation
+	defer a.host.Stop()
 	a.updateTitle()
 	err := ebiten.RunGame(a)
 	if errors.Is(err, ErrUserQuit) {
@@ -452,7 +438,7 @@ var keyMapping = map[ebiten.Key]int{
 	ebiten.KeyEnd:          0x37, // STP (stop)
 }
 
-// titleForState retourne le titre de fenêtre pour un état donné.
+// TitleForState retourne le titre de fenêtre pour un état donné.
 // Fonction pure testable sans Ebitengine.
 func TitleForState(romMissing, paused bool, romName, tapeName, diskName string) string {
 	title := windowTitle

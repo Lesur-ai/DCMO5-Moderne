@@ -17,5 +17,13 @@
 /dcmo5.ini
 /dcmo5-printer.txt
 
+# Enregistrements audio de diagnostic (ne pas versionner)
+*.m4a
+*.wav
+
+# ROM système et logiciels MO5 (sous copyright — ne pas versionner)
+/rom/
+/software/
+
 # Règles projet Claude Code (non versionnées)
 .clinerules/
