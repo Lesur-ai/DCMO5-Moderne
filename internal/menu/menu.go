@@ -118,6 +118,44 @@ func (m *Model) Toggle() {
 // Close ferme le menu sans produire d'action.
 func (m *Model) Close() { m.state = StateClosed }
 
+// SetMainIndex positionne la sélection du menu principal (clamp, ignore hors
+// bornes). Utilisé par le survol souris.
+func (m *Model) SetMainIndex(i int) {
+	if i >= 0 && i < len(mainMenu) {
+		m.mainIndex = i
+	}
+}
+
+// SetBrowseIndex positionne la sélection du navigateur (clamp, ignore hors
+// bornes). Utilisé par le survol et la molette souris.
+func (m *Model) SetBrowseIndex(i int) {
+	if i >= 0 && i < len(m.entries) {
+		m.browseIndex = i
+	}
+}
+
+// VisibleWindow calcule la tranche d'entrées affichable dans le navigateur pour
+// une hauteur de maxVisible lignes, centrée sur la sélection. Retourne l'index
+// de la première entrée visible et le nombre d'entrées visibles. Logique pure,
+// partagée par le rendu et le hit-test souris pour rester cohérents.
+func (m *Model) VisibleWindow(maxVisible int) (first, count int) {
+	n := len(m.entries)
+	if maxVisible <= 0 || n == 0 {
+		return 0, 0
+	}
+	if n <= maxVisible {
+		return 0, n
+	}
+	first = m.browseIndex - maxVisible/2
+	if first < 0 {
+		first = 0
+	}
+	if first > n-maxVisible {
+		first = n - maxVisible
+	}
+	return first, maxVisible
+}
+
 // MoveUp déplace la sélection vers le haut (avec bouclage).
 func (m *Model) MoveUp() {
 	switch m.state {

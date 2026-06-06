@@ -41,6 +41,31 @@ const (
 	menuPadding = 10 // marge interne
 )
 
+// menuContentRect retourne la zone de contenu interne du panneau (en coords
+// logiques 336×216). Partagé par le rendu et le hit-test souris.
+func menuContentRect() (x, y, w, h int) {
+	x = menuMargin + menuPadding
+	y = menuMargin + menuPadding
+	w = spec.FrameWidth - 2*menuMargin - 2*menuPadding
+	h = spec.FrameHeight - 2*menuMargin - 2*menuPadding
+	return
+}
+
+// mainStartY / browseStartY : ordonnée de la première ligne d'item, selon la
+// hauteur du ou des titres au-dessus.
+func mainStartY(contentY int) int   { return contentY + menuLineH + 6 }
+func browseStartY(contentY int) int { return contentY + 2*menuLineH + 6 }
+
+// browseMaxVisible calcule le nombre de lignes visibles dans le navigateur.
+func browseMaxVisible(contentY, contentH int) int {
+	footerY := contentY + contentH - menuLineH
+	n := (footerY - browseStartY(contentY)) / menuLineH
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
 // drawMenu dessine l'overlay du menu si celui-ci est ouvert.
 func drawMenu(screen *ebiten.Image, m *menu.Model) {
 	if !m.IsOpen() {
@@ -65,15 +90,14 @@ func drawMenu(screen *ebiten.Image, m *menu.Model) {
 
 func drawMainMenu(screen *ebiten.Image, m *menu.Model, x, y, w, _ int) {
 	drawText(screen, "D C M O 5   -   M E N U", x, y, menuTitle)
-	startY := y + menuLineH + 6
+	startY := mainStartY(y)
 	for i, label := range m.MainLabels() {
 		ly := startY + i*menuLineH
 		drawItem(screen, label, x, ly, w, i == m.MainIndex())
 	}
-	footer := "fleches: naviguer   ENTREE: valider   ECHAP: fermer"
+	footer := "souris/fleches: naviguer   clic/ENTREE: valider   ECHAP: fermer"
 	footerY := startY + (len(m.MainLabels())+1)*menuLineH
 	drawText(screen, footer, x, footerY, menuFooterCol)
-	_ = w
 }
 
 func drawBrowser(screen *ebiten.Image, m *menu.Model, x, y, w, h int) {
@@ -81,32 +105,16 @@ func drawBrowser(screen *ebiten.Image, m *menu.Model, x, y, w, h int) {
 	drawText(screen, title, x, y, menuTitle)
 	drawText(screen, truncPath(m.CurrentDir(), w), x, y+menuLineH, menuDimText)
 
-	startY := y + 2*menuLineH + 6
+	startY := browseStartY(y)
 	footerY := y + h - menuLineH
-	maxVisible := (footerY - startY) / menuLineH
-	if maxVisible < 1 {
-		maxVisible = 1
-	}
+	maxVisible := browseMaxVisible(y, h)
 
 	entries := m.Entries()
 	sel := m.BrowseIndex()
-	// Fenêtre de scroll centrée sur la sélection.
-	first := 0
-	if len(entries) > maxVisible {
-		first = sel - maxVisible/2
-		if first < 0 {
-			first = 0
-		}
-		if first > len(entries)-maxVisible {
-			first = len(entries) - maxVisible
-		}
-	}
-	last := first + maxVisible
-	if last > len(entries) {
-		last = len(entries)
-	}
-	for i := first; i < last; i++ {
-		ly := startY + (i-first)*menuLineH
+	first, count := m.VisibleWindow(maxVisible)
+	for row := 0; row < count; row++ {
+		i := first + row
+		ly := startY + row*menuLineH
 		label := entries[i].Name
 		if entries[i].IsDir {
 			if label == ".." {
@@ -120,10 +128,10 @@ func drawBrowser(screen *ebiten.Image, m *menu.Model, x, y, w, h int) {
 	if first > 0 {
 		drawText(screen, "^", x+w-10, startY, menuDimText)
 	}
-	if last < len(entries) {
+	if first+count < len(entries) {
 		drawText(screen, "v", x+w-10, footerY-menuLineH, menuDimText)
 	}
-	drawText(screen, "ENTREE: ouvrir/charger   ECHAP: retour", x, footerY, menuFooterCol)
+	drawText(screen, "souris/molette + clic   ECHAP: retour", x, footerY, menuFooterCol)
 }
 
 // drawItem dessine une ligne de menu, surlignée si sélectionnée.

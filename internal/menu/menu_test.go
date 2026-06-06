@@ -234,6 +234,50 @@ func TestModel_BackFromBrowseReturnsToMain(t *testing.T) {
 	}
 }
 
+// TestModel_SetIndexClamps vérifie que les setters d'index (survol souris)
+// ignorent les valeurs hors bornes sans corrompre l'état.
+func TestModel_SetIndexClamps(t *testing.T) {
+	m := NewModel(nil)
+	m.Toggle()
+	n := len(m.MainLabels())
+	m.SetMainIndex(2)
+	if m.MainIndex() != 2 {
+		t.Errorf("SetMainIndex(2): index=%d, want 2", m.MainIndex())
+	}
+	m.SetMainIndex(-1) // ignoré
+	m.SetMainIndex(n)  // ignoré (hors borne)
+	if m.MainIndex() != 2 {
+		t.Errorf("SetMainIndex hors borne a modifié l'index: %d, want 2", m.MainIndex())
+	}
+}
+
+// TestModel_VisibleWindow vérifie le calcul de la fenêtre de scroll partagée
+// entre rendu et hit-test souris.
+func TestModel_VisibleWindow(t *testing.T) {
+	fs := map[string][]Entry{"/d": {
+		{Name: "a.k7"}, {Name: "b.k7"}, {Name: "c.k7"},
+		{Name: "e.k7"}, {Name: "f.k7"}, {Name: "g.k7"},
+	}}
+	m := NewModel(fakeLister(fs))
+	m.Toggle()
+	m.mainIndex = findMainIndex(m, "Charger cassette")
+	m.Activate("/d") // 7 entrées : ".." + 6 fichiers
+
+	// Tout visible si maxVisible >= n.
+	if first, count := m.VisibleWindow(10); first != 0 || count != 7 {
+		t.Errorf("VisibleWindow(10) = (%d,%d), want (0,7)", first, count)
+	}
+	// Fenêtre de 3 centrée sur la sélection en fin de liste : doit coller au bas.
+	m.SetBrowseIndex(6)
+	first, count := m.VisibleWindow(3)
+	if count != 3 || first != 4 {
+		t.Errorf("VisibleWindow(3) sel=6 = (%d,%d), want (4,3)", first, count)
+	}
+	if first+count > len(m.Entries()) {
+		t.Errorf("fenêtre déborde: first=%d count=%d n=%d", first, count, len(m.Entries()))
+	}
+}
+
 // TestModel_CartExtensions vérifie que les trois extensions cartouche passent.
 func TestModel_CartExtensions(t *testing.T) {
 	fs := map[string][]Entry{

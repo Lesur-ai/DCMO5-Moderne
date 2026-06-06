@@ -16,6 +16,7 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/menu"
 	"github.com/Lesur-ai/dcmo5/internal/spec"
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
 // ErrUserQuit est retourné par Run quand l'utilisateur ferme la fenêtre.
@@ -200,20 +201,55 @@ func (a *App) Update() error {
 	return nil
 }
 
-// updateMenu traite les entrées quand le menu est ouvert et exécute l'action
-// sélectionnée. L'émulation est suspendue tant que le menu est affiché.
+// updateMenu traite les entrées (clavier ET souris) quand le menu est ouvert et
+// exécute l'action sélectionnée. L'émulation est suspendue tant que le menu est
+// affiché.
 func (a *App) updateMenu() error {
+	// Clavier : flèches.
 	if inputJustPressed(ebiten.KeyArrowUp) {
 		a.menu.MoveUp()
 	}
 	if inputJustPressed(ebiten.KeyArrowDown) {
 		a.menu.MoveDown()
 	}
-	if inputJustPressed(ebiten.KeyEnter) {
+
+	// Souris : le survol surligne l'item pointé.
+	mx, my := ebiten.CursorPosition()
+	hovered := menuItemAt(a.menu, mx, my)
+	if hovered >= 0 {
+		a.selectMenuIndex(hovered)
+	}
+
+	// Molette : défile le navigateur de fichiers.
+	if _, wy := ebiten.Wheel(); wy != 0 && a.menu.State() == menu.StateBrowse {
+		if wy < 0 {
+			a.menu.MoveDown()
+		} else {
+			a.menu.MoveUp()
+		}
+	}
+
+	// Validation : ENTRÉE, ou clic gauche sur un item.
+	activate := inputJustPressed(ebiten.KeyEnter)
+	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && hovered >= 0 {
+		a.selectMenuIndex(hovered)
+		activate = true
+	}
+	if activate {
 		act := a.menu.Activate(a.mediaDir)
 		return a.handleMenuAction(act)
 	}
 	return nil
+}
+
+// selectMenuIndex positionne la sélection selon l'état courant du menu.
+func (a *App) selectMenuIndex(i int) {
+	switch a.menu.State() {
+	case menu.StateMain:
+		a.menu.SetMainIndex(i)
+	case menu.StateBrowse:
+		a.menu.SetBrowseIndex(i)
+	}
 }
 
 // handleMenuAction exécute l'intention produite par le menu.
