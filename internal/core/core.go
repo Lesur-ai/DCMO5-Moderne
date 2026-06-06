@@ -40,6 +40,12 @@ type Options struct {
 	// Équivaut à la boîte de dialogue Erreur(n) de la réf C (dcmo5main.c).
 	// nil = aucune notification. Le cœur reste sans dépendance UI.
 	OnError func(code int)
+
+	// DiskControllerROM est la ROM du contrôleur de disquette CD90-640, mappée en
+	// lecture sur 0xA000..0xA7BF (le code DOS appelé par BASIC). Sans elle, cette
+	// zone renvoie 0 et la disquette est inexploitable. ≤ 0x7C0 octets ; nil =
+	// pas de contrôleur. Ref C: dcmo5emulation.c MgetMO5() — cd90640rom[a&0x7ff].
+	DiskControllerROM []byte
 }
 
 // Machine représente le Thomson MO5 complet.
@@ -83,6 +89,11 @@ type Machine struct {
 
 	// Instrumentation E/S optionnelle (nil = désactivée, coût nul). Voir iotrace.go.
 	ioTrace *ioTrace
+
+	// ROM contrôleur de disquette CD90-640 (0xA000..0xA7BF). diskRomLen == 0 si
+	// aucun contrôleur monté. Voir Options.DiskControllerROM.
+	diskRom    [0x800]uint8
+	diskRomLen int
 }
 
 // NewMachine crée une machine avec les options fournies.
@@ -100,6 +111,13 @@ func NewMachine(opts Options) (*Machine, error) {
 		if opts.PatchSystemROM {
 			m.applySystemRomPatches() // alignement trap en mémoire (cf. rompatch.go)
 		}
+	}
+	if n := len(opts.DiskControllerROM); n > 0 {
+		if n > len(m.diskRom) {
+			n = len(m.diskRom)
+		}
+		copy(m.diskRom[:n], opts.DiskControllerROM[:n])
+		m.diskRomLen = n
 	}
 	m.hardReset()
 	m.loadCartridge() // charge opts.Cartridge dans car[] si présente
@@ -279,7 +297,12 @@ func (m *Machine) readPort(addr uint16) uint8 {
 		return uint8(m.initn())
 	default:
 		if addr < 0xA7C0 {
-			return 0 // CD90-640 ROM (hors périmètre v1)
+			// ROM du contrôleur de disquette CD90-640 (0xA000..0xA7BF).
+			// Ref C: dcmo5emulation.c — cd90640rom[a & 0x7ff].
+			if m.diskRomLen > 0 {
+				return m.diskRom[addr&0x7FF]
+			}
+			return 0
 		}
 		if addr < 0xA800 {
 			return m.port[addr&0x3F]

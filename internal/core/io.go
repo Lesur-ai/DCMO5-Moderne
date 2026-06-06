@@ -3,6 +3,8 @@
 package core
 
 import (
+	"errors"
+
 	"github.com/Lesur-ai/dcmo5/internal/media"
 	"github.com/Lesur-ai/dcmo5/internal/spec"
 )
@@ -218,25 +220,39 @@ func (m *Machine) writeOctetK7() {
 
 // ── Disquette .fd ─────────────────────────────────────────────────────────────
 
+// diskError reproduit Diskerror(n) de la réf C : écrit le code d'erreur en
+// 0x204E (n-1) et positionne le carry. Codes : 53 = E/S (paramètres/secteur
+// invalide), 71 = lecteur non prêt (pas de disquette), 72 = protection écriture.
+// Ref: dcmo5devices.c Diskerror() — Mputc(0x204e, n-1) ; CC |= 0x01.
+func (m *Machine) diskError(n int) {
+	m.Write8(0x204E, uint8(n-1))
+	m.cpu.SetRegCC(m.cpu.RegCC() | 0x01)
+}
+
 // readSector lit un secteur disque et le copie en RAM.
-// Ref: dcmo5devices.c Readsector()
+// Ref: dcmo5devices.c Readsector() — u(0x2049)≤3, 0x204a==0, p(0x204b)≤79,
+// s(0x204c)∈[1,16] ; sinon Diskerror(53). Pas de disquette → Diskerror(71).
 func (m *Machine) readSector() {
 	if m.opts.Disk == nil {
+		m.diskError(71)
 		return
 	}
-	unit := int(m.Read8(0x2049))   // face (0-3)
-	track := int(m.Read8(0x204B))  // piste (0-79)
-	sector := int(m.Read8(0x204C)) // secteur (1-16, 1-based)
-	destHi := m.Read8(0x204F)
-	destLo := m.Read8(0x2050)
-	dest := uint16(destHi)<<8 | uint16(destLo)
-
-	if unit > 3 || track > 79 || sector == 0 || sector > 16 {
-		return // erreur 53 : paramètres invalides
+	unit := int(m.Read8(0x2049))
+	if m.Read8(0x204A) != 0 || unit > 3 {
+		m.diskError(53)
+		return
 	}
+	track := int(m.Read8(0x204B))
+	sector := int(m.Read8(0x204C))
+	if track > 79 || sector == 0 || sector > 16 {
+		m.diskError(53)
+		return
+	}
+	dest := uint16(m.Read8(0x204F))<<8 | uint16(m.Read8(0x2050))
 
 	buf, err := m.opts.Disk.ReadSector(unit, track, sector)
 	if err != nil {
+		m.diskError(53) // secteur hors capacité du fichier ou E/S
 		return
 	}
 	for i, b := range buf {
@@ -245,40 +261,59 @@ func (m *Machine) readSector() {
 }
 
 // writeSector écrit un secteur disque depuis la RAM.
-// Ref: dcmo5devices.c Writesector()
+// Ref: dcmo5devices.c Writesector() — mêmes contrôles ; échec d'écriture
+// (lecture seule / hors capacité) → Diskerror(72/53).
 func (m *Machine) writeSector() {
 	if m.opts.Disk == nil {
+		m.diskError(71)
 		return
 	}
 	unit := int(m.Read8(0x2049))
-	track := int(m.Read8(0x204B))
-	sector := int(m.Read8(0x204C))
-	srcHi := m.Read8(0x204F)
-	srcLo := m.Read8(0x2050)
-	src := uint16(srcHi)<<8 | uint16(srcLo)
-
-	if unit > 3 || track > 79 || sector == 0 || sector > 16 {
+	if m.Read8(0x204A) != 0 || unit > 3 {
+		m.diskError(53)
 		return
 	}
+	track := int(m.Read8(0x204B))
+	sector := int(m.Read8(0x204C))
+	if track > 79 || sector == 0 || sector > 16 {
+		m.diskError(53)
+		return
+	}
+	src := uint16(m.Read8(0x204F))<<8 | uint16(m.Read8(0x2050))
 
 	var buf [256]byte
 	for i := range buf {
 		buf[i] = m.Read8(src + uint16(i))
 	}
-	m.opts.Disk.WriteSector(unit, track, sector, buf)
+	if err := m.opts.Disk.WriteSector(unit, track, sector, buf); err != nil {
+		m.diskError(diskErrCodeFor(err))
+	}
 }
 
-// formatDisk formate une face disque.
-// Ref: dcmo5devices.c Formatdisk()
+// diskErrCodeFor distingue la protection en écriture (72) d'une erreur d'E/S
+// générique (53), conformément à la réf C. Ref: dcmo5devices.c Writesector().
+func diskErrCodeFor(err error) int {
+	if errors.Is(err, media.ErrWriteProtected) {
+		return 72
+	}
+	return 53
+}
+
+// formatDisk formate une unité disque.
+// Ref: dcmo5devices.c Formatdisk() — pas de disquette → Diskerror(71) ;
+// unité > 3 → retour silencieux (comme la réf C).
 func (m *Machine) formatDisk() {
 	if m.opts.Disk == nil {
+		m.diskError(71)
 		return
 	}
 	unit := int(m.Read8(0x2049))
 	if unit > 3 {
 		return
 	}
-	m.opts.Disk.FormatUnit(unit)
+	if err := m.opts.Disk.FormatUnit(unit); err != nil {
+		m.diskError(diskErrCodeFor(err))
+	}
 }
 
 // ── Crayon optique ────────────────────────────────────────────────────────────

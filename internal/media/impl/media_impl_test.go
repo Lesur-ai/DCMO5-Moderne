@@ -139,15 +139,20 @@ func TestDisk_FormatUnit(t *testing.T) {
 	defer disk.Close()
 	var full [256]byte
 	for i := range full {
-		full[i] = 0xFF
+		full[i] = 0x00
 	}
 	disk.WriteSector(0, 0, 1, full) // secteur 1 (1-based)
 	if err := disk.FormatUnit(0); err != nil {
 		t.Fatalf("FormatUnit: %v", err)
 	}
+	// La réf C remplit le disque formaté avec 0xE5 (motif « vierge »), pas 0x00.
+	var wantE5 [256]byte
+	for i := range wantE5 {
+		wantE5[i] = 0xE5
+	}
 	got, _ := disk.ReadSector(0, 0, 1)
-	if got != [256]byte{} {
-		t.Error("FormatUnit : secteur devrait être effacé")
+	if got != wantE5 {
+		t.Errorf("FormatUnit : secteur devrait être rempli de 0xE5, got [0]=0x%02X", got[0])
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/Lesur-ai/dcmo5/internal/app"
@@ -19,6 +20,7 @@ func main() {
 	tapePath := flag.String("tape", "", "fichier cassette .k7 à monter")
 	diskPath := flag.String("disk", "", "fichier disquette .fd à monter")
 	cartPath := flag.String("cart", "", "fichier cartouche .rom à monter")
+	diskRomPath := flag.String("disk-rom", "", "ROM du contrôleur de disquette CD90-640 (~2 Ko ; auto-détectée à côté de la ROM système si absente)")
 	noAudio := flag.Bool("no-audio", false, "désactiver la sortie audio")
 	execSeq := flag.String("exec", "", "séquence de touches tapée au démarrage (\\n = ENTRÉE), ex: '10 CLS\\nRUN\\n'")
 	execDelay := flag.Float64("exec-delay", 3, "délai en secondes avant de taper --exec (le temps que l'invite BASIC apparaisse)")
@@ -107,6 +109,26 @@ func main() {
 			os.Exit(1)
 		}
 		opts.Cartridge = cart
+	}
+
+	// ROM du contrôleur de disquette CD90-640 : flag explicite, sinon auto-détection
+	// d'un « cd90-640.rom » à côté de la ROM système. Indispensable pour la disquette.
+	dcRomPath := *diskRomPath
+	if dcRomPath == "" && *romPath != "" {
+		candidate := filepath.Join(filepath.Dir(*romPath), "cd90-640.rom")
+		if _, err := os.Stat(candidate); err == nil {
+			dcRomPath = candidate
+		}
+	}
+	if dcRomPath != "" {
+		if data, err := os.ReadFile(dcRomPath); err != nil {
+			fmt.Fprintln(os.Stderr, "dcmo5: ROM contrôleur disquette:", err)
+		} else {
+			opts.DiskControllerROM = data
+		}
+	} else if *diskPath != "" {
+		fmt.Fprintln(os.Stderr, "dcmo5: disquette montée sans ROM contrôleur CD90-640 "+
+			"(-disk-rom) — le DOS sera inopérant")
 	}
 
 	machine, err := core.NewMachine(opts)
