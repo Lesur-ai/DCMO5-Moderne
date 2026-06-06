@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/Lesur-ai/dcmo5/internal/app"
 	"github.com/Lesur-ai/dcmo5/internal/app/config"
@@ -19,6 +20,8 @@ func main() {
 	diskPath := flag.String("disk", "", "fichier disquette .fd à monter")
 	cartPath := flag.String("cart", "", "fichier cartouche .rom à monter")
 	noAudio := flag.Bool("no-audio", false, "désactiver la sortie audio")
+	execSeq := flag.String("exec", "", "séquence de touches tapée au démarrage (\\n = ENTRÉE), ex: '10 CLS\\nRUN\\n'")
+	execDelay := flag.Float64("exec-delay", 3, "délai en secondes avant de taper --exec (le temps que BASIC démarre)")
 	flag.Parse()
 
 	// Charger les préférences pour fallback
@@ -121,6 +124,14 @@ func main() {
 	a.SetStartupMediaClosers(tapeCloser, diskCloser)
 	if *noAudio {
 		a.DisableAudio()
+	}
+	if *execSeq != "" {
+		// Le shell passe « \n » littéral (deux caractères) ; on le convertit en
+		// vrai retour-chariot (de même pour \t). Les guillemets du programme
+		// BASIC sont préservés (pas d'unquote global).
+		seq := strings.ReplaceAll(*execSeq, `\n`, "\n")
+		seq = strings.ReplaceAll(seq, `\t`, "\t")
+		a.SetExec(seq, *execDelay)
 	}
 
 	if err := app.Run(a); err != nil && !errors.Is(err, app.ErrUserQuit) {

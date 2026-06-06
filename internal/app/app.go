@@ -47,6 +47,10 @@ type App struct {
 	keys       *keyboard.Injector
 	inputChars []rune
 
+	// Séquence --exec : tapée automatiquement après un délai (laisse booter).
+	execSeq         string
+	execDelayFrames int
+
 	// Menu de pilotage
 	menu     *menu.Model
 	mediaDir string // répertoire de départ du navigateur de fichiers
@@ -112,6 +116,14 @@ func (a *App) SetMediaNames(rom, tape, disk, cart string) {
 	a.cartName = filepath.Base(cart)
 }
 
+// SetExec programme une séquence de touches tapée automatiquement après
+// delaySeconds (le temps que la ROM atteigne l'invite BASIC). Les « \n » de la
+// séquence ont déjà été convertis en retours-chariot par l'appelant.
+func (a *App) SetExec(seq string, delaySeconds float64) {
+	a.execSeq = seq
+	a.execDelayFrames = int(delaySeconds * 60) // 60 ticks/s
+}
+
 // SetStartupMediaClosers confie à l'App les descripteurs des médias ouverts au
 // démarrage (CLI), pour qu'ils soient fermés proprement si on les remplace
 // depuis le menu (évite une fuite du descripteur initial). nil est accepté.
@@ -157,6 +169,16 @@ func (a *App) Update() error {
 	}
 	if a.paused {
 		return nil
+	}
+
+	// Séquence --exec : décompte le délai de boot puis l'injecte une fois.
+	if a.execSeq != "" {
+		if a.execDelayFrames > 0 {
+			a.execDelayFrames--
+		} else {
+			a.keys.EnqueueString(a.execSeq)
+			a.execSeq = ""
+		}
 	}
 
 	// Saisie clavier MO5 : caractères (layout OS + Shift) + touches spéciales.
