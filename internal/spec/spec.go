@@ -8,9 +8,13 @@ const (
 )
 
 // Audio — le MO5 produit un son via un registre de niveau (6 bits) échantillonné
-// périodiquement. Ref: dcmo5main.c (callback à 22050 Hz, stream[i] = sound).
+// périodiquement (ref dcmo5main.c : stream[i] = sound). On échantillonne par
+// défaut à 48000 Hz, taux natif des périphériques modernes, pour éviter le
+// rééchantillonnage du backend (source d'artefacts). Le taux est configurable
+// par machine (core.Options.AudioSampleRate) ; 22050 reste utilisable pour la
+// fidélité/tests.
 const (
-	AudioSampleRate = 22050 // fréquence d'échantillonnage audio (Hz)
+	AudioSampleRate = 48000 // fréquence d'échantillonnage audio par défaut (Hz)
 	AudioLevelMax   = 0x3F  // niveau sonore maximal (6 bits)
 )
 

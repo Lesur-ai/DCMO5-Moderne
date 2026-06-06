@@ -21,11 +21,12 @@ type JoystickInput struct {
 
 // Options configure la machine au démarrage.
 type Options struct {
-	ROMSys    []byte            // ROM système 16 Ko (nil = ROM absente)
-	Tape      media.Tape        // cassette montée, ou nil
-	Disk      media.Disk        // disquette montée, ou nil
-	Cartridge media.Cartridge   // cartouche montée, ou nil
-	Printer   media.PrinterSink // imprimante, ou nil
+	ROMSys          []byte            // ROM système 16 Ko (nil = ROM absente)
+	Tape            media.Tape        // cassette montée, ou nil
+	Disk            media.Disk        // disquette montée, ou nil
+	Cartridge       media.Cartridge   // cartouche montée, ou nil
+	Printer         media.PrinterSink // imprimante, ou nil
+	AudioSampleRate int               // taux d'échantillonnage audio (0 = spec.AudioSampleRate)
 }
 
 // Machine représente le Thomson MO5 complet.
@@ -57,9 +58,10 @@ type Machine struct {
 	// Son (ref: dcmo5main.c). sound = niveau courant du haut-parleur (0..0x3F),
 	// mis à jour par les ports 0xA7C1/0xA7CD. Échantillonné dans Step() à
 	// spec.AudioSampleRate via un accumulateur de cycles, dans samples.
-	sound       uint8   // niveau sonore courant (6 bits)
-	sampleAccum int64   // accumulateur cycles×SampleRate pour l'échantillonnage
-	samples     []uint8 // tampon d'échantillons audio (niveau 0..0x3F)
+	sound           uint8   // niveau sonore courant (6 bits)
+	sampleAccum     int64   // accumulateur cycles×SampleRate pour l'échantillonnage
+	samples         []uint8 // tampon d'échantillons audio (niveau 0..0x3F)
+	audioSampleRate int     // taux d'échantillonnage effectif
 
 	// Timing vidéo (ref: dcmo5emulation.c Run())
 	// 64 cycles par ligne, 312 lignes par trame (50 Hz)
@@ -73,6 +75,10 @@ func NewMachine(opts Options) (*Machine, error) {
 		return nil, fmt.Errorf("core: ROMSys doit faire exactement 0x4000 octets, reçu %d", len(opts.ROMSys))
 	}
 	m := &Machine{opts: opts}
+	m.audioSampleRate = opts.AudioSampleRate
+	if m.audioSampleRate <= 0 {
+		m.audioSampleRate = spec.AudioSampleRate
+	}
 	if len(opts.ROMSys) == 0x4000 {
 		copy(m.rom[:], opts.ROMSys)
 	}
@@ -361,9 +367,9 @@ func (m *Machine) Step(cycles int) int {
 		}
 		consumed += c
 
-		// Échantillonnage audio : produit spec.AudioSampleRate échantillons par
+		// Échantillonnage audio : produit m.audioSampleRate échantillons par
 		// spec.CPUClockHz cycles, en capturant le niveau sonore courant.
-		m.sampleAccum += int64(c) * int64(spec.AudioSampleRate)
+		m.sampleAccum += int64(c) * int64(m.audioSampleRate)
 		for m.sampleAccum >= int64(spec.CPUClockHz) {
 			m.sampleAccum -= int64(spec.CPUClockHz)
 			m.appendSample(m.sound)
@@ -422,6 +428,9 @@ func (m *Machine) DrainAudio(dst []uint8) int {
 
 // AudioBacklog retourne le nombre d'échantillons en attente (observabilité).
 func (m *Machine) AudioBacklog() int { return len(m.samples) }
+
+// AudioSampleRate retourne le taux d'échantillonnage audio effectif.
+func (m *Machine) AudioSampleRate() int { return m.audioSampleRate }
 
 // SetKey met à jour l'état d'une touche MO5.
 func (m *Machine) SetKey(key Key, pressed bool) {
