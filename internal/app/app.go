@@ -196,8 +196,15 @@ func (a *App) Update() error {
 	mx, my := ebiten.CursorPosition()
 	a.machine.SetPen(mx, my, ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft))
 
-	// Avancer l'émulation d'une frame
+	// Avancer l'émulation. Par défaut une frame de cycles ; mais si l'audio est
+	// actif, on asservit la cadence sur le tampon audio (dynamic rate control) :
+	// on produit juste ce qu'il faut pour maintenir ~audioTargetSamples en
+	// réserve. Cela évite la dérive du tampon — donc les coupures (« tac »
+	// périodiques) — et borne la latence du son aux frappes.
 	toRun := cyclesPerFrame - a.extraCycles
+	if a.audioStream != nil {
+		toRun = a.audioPacedCycles() - a.extraCycles
+	}
 	if toRun < 0 {
 		toRun = 0
 	}

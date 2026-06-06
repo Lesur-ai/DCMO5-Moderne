@@ -18,8 +18,34 @@ const (
 	// audioBufferDuration : taille du tampon du lecteur. Court pour limiter la
 	// latence (sinon le pré-remplissage de silence d'Oto retarde le son), mais
 	// assez grand pour éviter les coupures entre deux frames (60 Hz ≈ 16 ms).
-	audioBufferDuration = 50 * time.Millisecond
+	audioBufferDuration = 40 * time.Millisecond
 )
+
+// Cadence audio (dynamic rate control). On vise une petite réserve constante
+// d'échantillons dans le flux : assez pour ne pas se vider entre deux frames
+// (sinon « tac » périodique), assez peu pour que le son des frappes reste
+// synchrone (faible latence).
+const (
+	audioSamplesPerFrame = spec.AudioSampleRate / 60 // production nominale/frame
+	audioTargetSamples   = audioSamplesPerFrame * 2  // réserve cible (~33 ms)
+	audioMinFrameSamples = audioSamplesPerFrame / 2  // plancher (anti-emballement)
+	audioMaxFrameSamples = audioSamplesPerFrame * 3  // plafond (anti-emballement)
+)
+
+// audioPacedCycles retourne le nombre de cycles CPU à exécuter cette frame pour
+// maintenir le tampon audio autour de audioTargetSamples. Asservit la vitesse
+// d'émulation sur l'horloge audio (plus stable que le vsync).
+func (a *App) audioPacedCycles() int {
+	backlog := a.audioStream.BufferedSamples()
+	// Échantillons à produire = combler l'écart à la cible + une frame nominale.
+	want := audioTargetSamples - backlog + audioSamplesPerFrame
+	if want < audioMinFrameSamples {
+		want = audioMinFrameSamples
+	} else if want > audioMaxFrameSamples {
+		want = audioMaxFrameSamples
+	}
+	return want * spec.CPUClockHz / spec.AudioSampleRate
+}
 
 // DisableAudio coupe la sortie audio (à appeler avant Run). Utile sur une
 // machine sans backend audio fonctionnel, ou via le flag CLI --no-audio.

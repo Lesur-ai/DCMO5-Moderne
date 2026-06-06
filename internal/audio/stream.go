@@ -79,3 +79,11 @@ func (s *Stream) Buffered() int {
 	defer s.mu.Unlock()
 	return len(s.buf)
 }
+
+// BufferedSamples retourne le nombre d'échantillons (paires L/R) en attente.
+// Sert à asservir la cadence d'émulation sur la consommation audio.
+func (s *Stream) BufferedSamples() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.buf) / BytesPerSample
+}
