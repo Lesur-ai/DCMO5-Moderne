@@ -9,13 +9,12 @@ package audio
 
 import "sync"
 
-const (
-	// BytesPerSample : 2 octets (s16) × 2 canaux (stéréo).
-	BytesPerSample = 4
-	// centerLevel : milieu du registre 6 bits, ramené à 0 en PCM signé pour
-	// éviter une composante continue (le 0 PCM correspond au silence).
-	centerLevel = 0x20
-)
+// BytesPerSample : 2 octets (s16) × 2 canaux (stéréo).
+const BytesPerSample = 4
+
+// Le niveau de repos du MO5 est sound=0 (ref dcmo5main.c : stream = sound+128,
+// soit le silence en U8 centré). La conversion est donc unipolaire : level=0
+// produit le silence (0 en PCM signé), évitant tout offset continu au repos.
 
 // Stream est une file FIFO thread-safe de PCM. L'émulation y écrit des niveaux
 // (Write, thread du jeu) ; la couche audio y lit du PCM (Read, thread audio).
@@ -42,11 +41,9 @@ func (s *Stream) Write(levels []uint8) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, lv := range levels {
-		v := (int(lv) - centerLevel) * s.gain
+		v := int(lv) * s.gain // unipolaire : repos (0) = silence
 		if v > 32767 {
 			v = 32767
-		} else if v < -32768 {
-			v = -32768
 		}
 		lo, hi := byte(v), byte(v>>8)
 		s.buf = append(s.buf, lo, hi, lo, hi) // L puis R, identiques

@@ -2,6 +2,7 @@ package audio
 
 // stream_test.go — conversion niveau→PCM et FIFO (purs, headless).
 // Non complaisants : on vérifie les octets PCM produits, le silence, le bornage.
+// Mapping unipolaire : level 0 = silence, amplitude = level*gain.
 
 import "testing"
 
@@ -10,26 +11,26 @@ func s16(lo, hi byte) int16 {
 	return int16(uint16(lo) | uint16(hi)<<8)
 }
 
-func TestStream_CenterLevelIsSilence(t *testing.T) {
+func TestStream_RestLevelIsSilence(t *testing.T) {
 	s := NewStream(100, 1000)
-	s.Write([]uint8{centerLevel}) // niveau central → 0
+	s.Write([]uint8{0}) // niveau de repos → silence
 	if s.Buffered() != BytesPerSample {
 		t.Fatalf("Buffered = %d, want %d", s.Buffered(), BytesPerSample)
 	}
 	p := make([]byte, BytesPerSample)
 	s.Read(p)
 	if v := s16(p[0], p[1]); v != 0 {
-		t.Errorf("niveau central → %d, want 0 (silence)", v)
+		t.Errorf("niveau 0 → %d, want 0 (silence)", v)
 	}
 }
 
 func TestStream_LevelToAmplitude(t *testing.T) {
 	const gain = 100
 	s := NewStream(gain, 1000)
-	s.Write([]uint8{0x3F}) // max → (63-32)*gain = 3100
+	s.Write([]uint8{0x3F}) // max → 63*gain = 6300
 	p := make([]byte, BytesPerSample)
 	s.Read(p)
-	wantL := int16((0x3F - centerLevel) * gain)
+	wantL := int16(0x3F * gain)
 	if v := s16(p[0], p[1]); v != wantL {
 		t.Errorf("niveau 0x3F → %d, want %d", v, wantL)
 	}
@@ -39,14 +40,19 @@ func TestStream_LevelToAmplitude(t *testing.T) {
 	}
 }
 
-func TestStream_NegativeBelowCenter(t *testing.T) {
+func TestStream_AmplitudeMonotonic(t *testing.T) {
 	const gain = 100
 	s := NewStream(gain, 1000)
-	s.Write([]uint8{0}) // 0 → (0-32)*100 = -3200
-	p := make([]byte, BytesPerSample)
+	s.Write([]uint8{10, 20}) // amplitudes croissantes, toutes positives
+	p := make([]byte, 2*BytesPerSample)
 	s.Read(p)
-	if v := s16(p[0], p[1]); v != -3200 {
-		t.Errorf("niveau 0 → %d, want -3200", v)
+	a := s16(p[0], p[1])
+	b := s16(p[4], p[5])
+	if a != 1000 || b != 2000 {
+		t.Errorf("amplitudes = %d,%d, want 1000,2000", a, b)
+	}
+	if a < 0 || b < 0 {
+		t.Errorf("le signal doit rester positif (unipolaire): %d,%d", a, b)
 	}
 }
 
@@ -65,7 +71,7 @@ func TestStream_ReadEmptyIsSilenceNoEOF(t *testing.T) {
 	}
 	for i, b := range p {
 		if b != 0 {
-			t.Fatalf("octet %d = 0x%02X, want 0 (silence)", i, b)
+			t.Fatalf("octet %d = 0x%02X, want 0 (silence, jamais écrit)", i, b)
 		}
 	}
 }
@@ -75,8 +81,7 @@ func TestStream_ReadEmptyIsSilenceNoEOF(t *testing.T) {
 func TestStream_HoldsLastSampleOnUnderrun(t *testing.T) {
 	const gain = 1
 	s := NewStream(gain, 1000)
-	s.Write([]uint8{centerLevel + 25}) // dernier échantillon = +25
-	// Lire bien plus que disponible : 1 échantillon réel puis maintien.
+	s.Write([]uint8{25}) // dernier échantillon = 25
 	p := make([]byte, 3*BytesPerSample)
 	s.Read(p)
 	for k := 0; k < 3; k++ {
@@ -89,7 +94,7 @@ func TestStream_HoldsLastSampleOnUnderrun(t *testing.T) {
 func TestStream_FIFOOrder(t *testing.T) {
 	const gain = 1
 	s := NewStream(gain, 1000)
-	s.Write([]uint8{centerLevel + 10, centerLevel + 20}) // +10, +20
+	s.Write([]uint8{10, 20})
 	p := make([]byte, 2*BytesPerSample)
 	s.Read(p)
 	if v := s16(p[0], p[1]); v != 10 {
@@ -112,15 +117,12 @@ func TestStream_Bounded(t *testing.T) {
 }
 
 func TestStream_ClampsToInt16(t *testing.T) {
-	// gain élevé → doit être clampé à [-32768, 32767], pas déborder.
+	// gain élevé → doit être clampé à 32767, sans déborder ni passer négatif.
 	s := NewStream(100000, 10)
-	s.Write([]uint8{0x3F, 0x00}) // +31*100000 et -32*100000
-	p := make([]byte, 2*BytesPerSample)
+	s.Write([]uint8{0x3F}) // 63*100000 → clamp 32767
+	p := make([]byte, BytesPerSample)
 	s.Read(p)
 	if v := s16(p[0], p[1]); v != 32767 {
 		t.Errorf("clamp haut = %d, want 32767", v)
-	}
-	if v := s16(p[4], p[5]); v != -32768 {
-		t.Errorf("clamp bas = %d, want -32768", v)
 	}
 }

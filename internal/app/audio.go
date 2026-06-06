@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	// defaultAudioGain amplifie l'écart au niveau central (registre 6 bits →
-	// PCM s16). 31 (amplitude max) × gain reste sous 32767. Réglage du volume.
-	defaultAudioGain = 600
+	// defaultAudioGain convertit le niveau (0..63) en amplitude PCM s16.
+	// 63 × gain reste sous 32767 (pas d'écrêtage). Réglage du volume.
+	defaultAudioGain = 480
 	// audioBufferDuration : taille du tampon du lecteur. Court pour limiter la
 	// latence (sinon le pré-remplissage de silence d'Oto retarde le son), mais
 	// assez grand pour éviter les coupures entre deux frames (60 Hz ≈ 16 ms).
