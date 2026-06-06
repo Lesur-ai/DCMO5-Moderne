@@ -110,6 +110,13 @@ func (m *Machine) hardReset() {
 	m.penbutton = false
 	m.videolinecycle = 0
 	m.videolinenumber = 0
+	// État audio : repartir silencieux, sans échantillons périmés ni reliquat
+	// d'accumulateur (sinon DrainAudio rejouerait du son d'avant le reset).
+	m.sound = 0
+	m.sampleAccum = 0
+	m.samples = m.samples[:0]
+	m.k7bit = 0
+	m.k7octet = 0
 	m.mo5VideoRAM()
 }
 
@@ -226,8 +233,10 @@ func (m *Machine) readPort(addr uint16) uint8 {
 		}
 		return m.port[0x0C]
 	case 0xA7CD:
+		// Ref C : (port[0x0F]&4) ? joysaction | sound : port[0x0d].
+		// Le niveau son courant est reflété dans la lecture (registre musique).
 		if m.port[0x0F]&4 != 0 {
-			return m.joysAction
+			return m.joysAction | m.sound
 		}
 		return m.port[0x0D]
 	case 0xA7CE:

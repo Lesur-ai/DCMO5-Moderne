@@ -113,6 +113,41 @@ func TestSound_DrainEmptiesBuffer(t *testing.T) {
 	}
 }
 
+// TestSound_ResetClearsAudio vérifie que Reset() purge l'état audio (pas de son
+// périmé après F5 ou montage cartouche).
+func TestSound_ResetClearsAudio(t *testing.T) {
+	m := makeNOPMachine(t)
+	m.Write8(0xA7CD, 0x3F) // niveau max
+	m.Step(spec.CPUClockHz / 100)
+	if m.AudioBacklog() == 0 {
+		t.Fatal("préparation: le tampon devrait contenir des échantillons")
+	}
+	m.Reset()
+	if m.AudioBacklog() != 0 {
+		t.Errorf("après Reset: backlog = %d, want 0 (audio périmé)", m.AudioBacklog())
+	}
+	// Après reset, le niveau doit être retombé à 0 (silence) tant qu'aucun port
+	// audio n'est réécrit.
+	m.Step(spec.CPUClockHz / 100)
+	buf := make([]uint8, spec.AudioSampleRate)
+	n := m.DrainAudio(buf)
+	if n == 0 || buf[0] != 0 {
+		t.Errorf("après Reset: échantillon[0] = %d (n=%d), want 0 (silence)", buf[0], n)
+	}
+}
+
+// TestSound_ReadA7CDIncludesLevel vérifie que la lecture de 0xA7CD reflète le
+// niveau son quand le chemin musique est sélectionné (port[0x0F]&4).
+func TestSound_ReadA7CDIncludesLevel(t *testing.T) {
+	m := makeNOPMachine(t)
+	m.Write8(0xA7CF, 0x04) // sélectionne le chemin action/musique en lecture
+	m.Write8(0xA7CD, 0x15) // niveau son
+	got := m.Read8(0xA7CD)
+	if got&spec.AudioLevelMax != 0x15 {
+		t.Errorf("Read 0xA7CD = 0x%02X, bits son attendus 0x15", got)
+	}
+}
+
 // TestSound_BacklogBounded vérifie que sans drainage, le tampon reste borné.
 func TestSound_BacklogBounded(t *testing.T) {
 	m := makeNOPMachine(t)
