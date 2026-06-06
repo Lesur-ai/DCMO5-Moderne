@@ -15,10 +15,11 @@ const (
 	// defaultAudioGain convertit le niveau (0..63) en amplitude PCM s16.
 	// 63 × gain reste sous 32767 (pas d'écrêtage). Réglage du volume.
 	defaultAudioGain = 480
-	// audioBufferDuration : taille du tampon du lecteur. Court pour limiter la
-	// latence (sinon le pré-remplissage de silence d'Oto retarde le son), mais
-	// assez grand pour éviter les coupures entre deux frames (60 Hz ≈ 16 ms).
-	audioBufferDuration = 40 * time.Millisecond
+	// audioBufferDuration : taille du tampon du lecteur. Doit être assez grand
+	// pour absorber le jitter d'ordonnancement entre le thread de jeu (60 Hz)
+	// et le thread audio, sinon le backend se vide périodiquement et glitche
+	// (« tac » à la cadence des frames). 120 ms = marge confortable.
+	audioBufferDuration = 120 * time.Millisecond
 )
 
 // Cadence audio (dynamic rate control). On vise une petite réserve constante
@@ -27,7 +28,7 @@ const (
 // synchrone (faible latence).
 const (
 	audioSamplesPerFrame = spec.AudioSampleRate / 60 // production nominale/frame
-	audioTargetSamples   = audioSamplesPerFrame * 3  // réserve cible (~50 ms)
+	audioTargetSamples   = audioSamplesPerFrame * 7  // réserve cible (~117 ms)
 	audioMinFrameSamples = audioSamplesPerFrame / 2  // plancher (anti-emballement)
 	audioMaxFrameSamples = audioSamplesPerFrame * 4  // plafond (anti-emballement)
 )
