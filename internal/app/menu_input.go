@@ -8,36 +8,32 @@ import "github.com/Lesur-ai/dcmo5/internal/menu"
 // menuItemAt retourne l'index de l'item sous le curseur (mx,my) en coordonnées
 // logiques, ou -1 si le curseur n'est sur aucun item.
 func menuItemAt(m *menu.Model, mx, my int) int {
-	x, y, w, h := menuContentRect()
-	// Tolérance horizontale = largeur de la barre de sélection.
-	if mx < x-4 || mx > x+w+4 {
+	x, y, w, h := contentRect(m.State())
+	// Tolérance horizontale = largeur du fond de sélection.
+	if mx < x-6 || mx > x+w+6 {
 		return -1
 	}
 	switch m.State() {
 	case menu.StateMain:
 		startY := mainStartY(y)
-		row := rowAt(my, startY)
-		if row < 0 || row >= len(m.MainLabels()) {
-			return -1
+		for i := range m.MainLabels() {
+			top := mainItemTop(i, startY)
+			if my >= top && my < top+menuLineH {
+				return i
+			}
 		}
-		return row
+		return -1
 	case menu.StateBrowse:
 		startY := browseStartY(y)
 		first, count := m.VisibleWindow(browseMaxVisible(y, h))
-		row := rowAt(my, startY)
+		if my < startY {
+			return -1
+		}
+		row := (my - startY) / menuLineH
 		if row < 0 || row >= count {
 			return -1
 		}
 		return first + row
 	}
 	return -1
-}
-
-// rowAt retourne l'indice de ligne pour l'ordonnée my à partir de startY, ou -1
-// si my est au-dessus de la première ligne.
-func rowAt(my, startY int) int {
-	if my < startY {
-		return -1
-	}
-	return (my - startY) / menuLineH
 }
