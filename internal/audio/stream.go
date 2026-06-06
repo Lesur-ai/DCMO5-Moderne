@@ -8,11 +8,12 @@ import "sync"
 // retourne jamais io.EOF. Le tampon est borné : au-delà, les plus anciens
 // échantillons sont abandonnés pour préserver la latence.
 type Stream struct {
-	mu   sync.Mutex
-	buf  []byte
-	gain int
-	max  int     // capacité max en octets (0 = illimité)
-	last [4]byte // dernier échantillon stéréo écrit (maintenu si vide)
+	mu    sync.Mutex
+	buf   []byte
+	gain  int
+	max   int     // capacité max en octets (0 = illimité)
+	last  [4]byte // dernier échantillon stéréo écrit (maintenu si vide)
+	phase int     // octets déjà émis modulo BytesPerSample (alignement du flux)
 }
 
 // NewStream crée un flux. gain règle le volume ; maxSamples borne le tampon.
@@ -47,13 +48,14 @@ func (s *Stream) Read(p []byte) (int, error) {
 	n := copy(p, s.buf)
 	rest := copy(s.buf, s.buf[n:])
 	s.buf = s.buf[:rest]
-	// Compléter octet par octet en répétant le dernier échantillon. n est un
-	// multiple de BytesPerSample (la file ne contient que des frames complètes,
-	// et n vaut soit tout p, soit toute la file), donc i%BytesPerSample garde la
-	// phase L/R correcte même si len(p) n'est pas un multiple de la frame.
+	// Compléter octet par octet en répétant le dernier échantillon, en suivant la
+	// phase du FLUX de sortie (s.phase = octets déjà émis mod frame). Cela reste
+	// correct même si des lectures précédentes de taille non multiple de la frame
+	// ont désaligné le flux.
 	for i := n; i < len(p); i++ {
-		p[i] = s.last[i%BytesPerSample]
+		p[i] = s.last[(s.phase+i)%BytesPerSample]
 	}
+	s.phase = (s.phase + len(p)) % BytesPerSample
 	return len(p), nil
 }
 
@@ -64,6 +66,7 @@ func (s *Stream) Silence() {
 	s.mu.Lock()
 	s.buf = s.buf[:0]
 	s.last = [4]byte{}
+	s.phase = 0
 	s.mu.Unlock()
 }
 
