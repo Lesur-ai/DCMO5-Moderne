@@ -23,7 +23,8 @@ type Stream struct {
 	mu   sync.Mutex
 	buf  []byte
 	gain int
-	max  int // capacité maximale en octets (0 = illimité)
+	max  int     // capacité maximale en octets (0 = illimité)
+	last [4]byte // dernier échantillon stéréo écrit (maintenu en sous-alimentation)
 }
 
 // NewStream crée un flux. gain amplifie l'écart au niveau central ; maxSamples
@@ -49,6 +50,7 @@ func (s *Stream) Write(levels []uint8) {
 		}
 		lo, hi := byte(v), byte(v>>8)
 		s.buf = append(s.buf, lo, hi, lo, hi) // L puis R, identiques
+		s.last = [4]byte{lo, hi, lo, hi}      // mémoriser pour le maintien
 	}
 	// Borne : si le tampon dépasse, abandonner les plus anciens (multiple de 4).
 	if s.max > 0 && len(s.buf) > s.max {
@@ -59,16 +61,19 @@ func (s *Stream) Write(levels []uint8) {
 }
 
 // Read fournit du PCM à la couche audio. Le flux doit être continu : si le
-// tampon est insuffisant, on complète avec du silence (zéros) et on ne retourne
-// jamais io.EOF (sinon le lecteur s'arrêterait définitivement).
+// tampon est insuffisant, on MAINTIENT le dernier échantillon (au lieu d'un
+// silence brutal qui produirait un clic à chaque sous-alimentation), et on ne
+// retourne jamais io.EOF (sinon le lecteur s'arrêterait définitivement).
 func (s *Stream) Read(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	n := copy(p, s.buf)
 	rest := copy(s.buf, s.buf[n:]) // compacter le reliquat au début
 	s.buf = s.buf[:rest]
-	for i := n; i < len(p); i++ {
-		p[i] = 0 // silence
+	// Compléter par maintien du dernier échantillon (anti-clic). p et n sont
+	// alignés sur BytesPerSample (le lecteur lit du PCM s16 stéréo).
+	for i := n; i+BytesPerSample <= len(p); i += BytesPerSample {
+		copy(p[i:i+BytesPerSample], s.last[:])
 	}
 	return len(p), nil
 }

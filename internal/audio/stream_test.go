@@ -70,6 +70,22 @@ func TestStream_ReadEmptyIsSilenceNoEOF(t *testing.T) {
 	}
 }
 
+// TestStream_HoldsLastSampleOnUnderrun vérifie qu'en sous-alimentation, Read
+// répète le dernier échantillon (anti-clic) au lieu d'un silence brutal.
+func TestStream_HoldsLastSampleOnUnderrun(t *testing.T) {
+	const gain = 1
+	s := NewStream(gain, 1000)
+	s.Write([]uint8{centerLevel + 25}) // dernier échantillon = +25
+	// Lire bien plus que disponible : 1 échantillon réel puis maintien.
+	p := make([]byte, 3*BytesPerSample)
+	s.Read(p)
+	for k := 0; k < 3; k++ {
+		if v := s16(p[k*BytesPerSample], p[k*BytesPerSample+1]); v != 25 {
+			t.Errorf("échantillon %d = %d, want 25 (maintien du dernier, pas silence)", k, v)
+		}
+	}
+}
+
 func TestStream_FIFOOrder(t *testing.T) {
 	const gain = 1
 	s := NewStream(gain, 1000)

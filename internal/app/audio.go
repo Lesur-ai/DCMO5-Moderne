@@ -27,9 +27,9 @@ const (
 // synchrone (faible latence).
 const (
 	audioSamplesPerFrame = spec.AudioSampleRate / 60 // production nominale/frame
-	audioTargetSamples   = audioSamplesPerFrame * 2  // réserve cible (~33 ms)
+	audioTargetSamples   = audioSamplesPerFrame * 3  // réserve cible (~50 ms)
 	audioMinFrameSamples = audioSamplesPerFrame / 2  // plancher (anti-emballement)
-	audioMaxFrameSamples = audioSamplesPerFrame * 3  // plafond (anti-emballement)
+	audioMaxFrameSamples = audioSamplesPerFrame * 4  // plafond (anti-emballement)
 )
 
 // audioPacedCycles retourne le nombre de cycles CPU à exécuter cette frame pour
