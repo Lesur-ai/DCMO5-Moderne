@@ -17,5 +17,9 @@
 /dcmo5.ini
 /dcmo5-printer.txt
 
+# Enregistrements audio de diagnostic (ne pas versionner)
+*.m4a
+*.wav
+
 # Règles projet Claude Code (non versionnées)
 .clinerules/
