@@ -17,6 +17,7 @@ import (
 
 	"github.com/Lesur-ai/dcmo5/internal/core"
 	"github.com/Lesur-ai/dcmo5/internal/emu"
+	"github.com/Lesur-ai/dcmo5/internal/keyboard"
 	"github.com/Lesur-ai/dcmo5/internal/media"
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
 	"github.com/Lesur-ai/dcmo5/internal/menu"
@@ -43,7 +44,7 @@ type App struct {
 	fbBytes  []byte   // tampon RGBA réutilisé pour WritePixels
 
 	// Saisie clavier
-	keys       *keyInjector
+	keys       *keyboard.Injector
 	inputChars []rune
 
 	// Menu de pilotage
@@ -80,7 +81,7 @@ func New(machine *core.Machine) *App {
 		fb:       fb,
 		fbPixels: make([]uint32, spec.FrameWidth*spec.FrameHeight),
 		fbBytes:  make([]byte, spec.FrameWidth*spec.FrameHeight*4),
-		keys:     newKeyInjector(defaultKeyHoldFrames, defaultKeyGapFrames),
+		keys:     keyboard.NewInjector(keyboard.DefaultHoldFrames, keyboard.DefaultGapFrames),
 		mediaDir: home,
 	}
 	a.menu = menu.NewModel(osLister)
@@ -172,7 +173,7 @@ func (a *App) Update() error {
 
 	var in emu.InputState
 	for eKey, mo5Key := range keyMapping {
-		if mo5Key == mo5KeyShift && injecting {
+		if mo5Key == keyboard.Mo5KeyShift && injecting {
 			continue
 		}
 		if ebiten.IsKeyPressed(eKey) {
