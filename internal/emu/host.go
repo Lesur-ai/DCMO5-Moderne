@@ -193,6 +193,7 @@ func (h *Host) run() {
 	defer close(h.done)
 	last := time.Now()
 	fbAccum := 0
+	overshoot := 0                   // cycles consommés en trop au quantum précédent (Step finit l'instruction/trap)
 	fbPeriod := spec.CPUClockHz / 60 // publier le framebuffer ~60 fois/s
 	maxCatchup := spec.CPUClockHz / maxCatchupCyclesDiv
 	for {
@@ -209,17 +210,28 @@ func (h *Host) run() {
 		last = now
 
 		if h.paused.Load() {
+			overshoot = 0 // ne pas reporter de dette de temps à travers la pause
 			time.Sleep(emuTickSleep)
 			continue
 		}
 
-		cycles := int(elapsed.Nanoseconds() * int64(spec.CPUClockHz) / int64(time.Second))
+		// Cycles dus pour le temps écoulé, moins ce qui a déjà été consommé en
+		// trop au quantum précédent (évite la dérive : l'émulation et l'audio
+		// suivent l'horloge murale).
+		cycles := int(elapsed.Nanoseconds()*int64(spec.CPUClockHz)/int64(time.Second)) - overshoot
+		if cycles < 0 {
+			cycles = 0
+		}
 		if cycles > maxCatchup {
 			cycles = maxCatchup
 		}
 		if cycles > 0 {
-			h.tick(cycles)
-			fbAccum += cycles
+			consumed := h.tick(cycles)
+			overshoot = consumed - cycles // Step peut dépasser (instruction/trap entamés)
+			if overshoot < 0 {
+				overshoot = 0
+			}
+			fbAccum += consumed
 			if fbAccum >= fbPeriod {
 				fbAccum = 0
 				h.publishFrame()
@@ -230,14 +242,16 @@ func (h *Host) run() {
 }
 
 // tick applique les entrées, avance l'émulation de cycles cycles et pousse le son
-// produit dans la ring. Séparé de run() pour être testable de façon déterministe.
-func (h *Host) tick(cycles int) {
+// produit dans la ring. Retourne le nombre de cycles réellement consommés (Step
+// peut dépasser la demande). Séparé de run() pour être testable de façon
+// déterministe.
+func (h *Host) tick(cycles int) int {
 	in := h.snapshotInput()
 	for k := 0; k < spec.KeyMax; k++ {
 		h.machine.SetKey(core.Key(k), in.Keys[k])
 	}
 	h.machine.SetPen(in.PenX, in.PenY, in.PenDown)
-	h.machine.Step(cycles)
+	consumed := h.machine.Step(cycles)
 	for {
 		n := h.machine.DrainAudio(h.drainBuf)
 		if n == 0 {
@@ -248,6 +262,7 @@ func (h *Host) tick(cycles int) {
 			break
 		}
 	}
+	return consumed
 }
 
 // publishFrame rend le framebuffer courant et l'échange avec l'instantané lu par
