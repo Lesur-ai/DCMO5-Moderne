@@ -67,6 +67,9 @@ type Machine struct {
 	// 64 cycles par ligne, 312 lignes par trame (50 Hz)
 	videolinecycle  int // cycles dans la ligne courante [0,63]
 	videolinenumber int // numéro de ligne courante [0,311]
+
+	// Instrumentation E/S optionnelle (nil = désactivée, coût nul). Voir iotrace.go.
+	ioTrace *ioTrace
 }
 
 // NewMachine crée une machine avec les options fournies.
