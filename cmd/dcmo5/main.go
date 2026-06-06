@@ -49,7 +49,15 @@ func main() {
 		*cartPath = cfg.LastCart
 	}
 
-	opts := core.Options{}
+	opts := core.Options{
+		// Aligne la vraie ROM MO5 sur le modèle trap (cassette/crayon/imprimante),
+		// comme la ROM patchée de dcmo5 v11. Patch en mémoire ; fichier ROM intact.
+		PatchSystemROM: true,
+		// Remonte les erreurs d'E/S MO5 (équiv. boîte Erreur(n) réf C) sur stderr.
+		OnError: func(code int) {
+			fmt.Fprintf(os.Stderr, "dcmo5: erreur E/S MO5 %d (%s)\n", code, core.IOErrorLabel(code))
+		},
+	}
 	romMissing := false
 	// Descripteurs des médias ouverts au démarrage, confiés ensuite à l'App
 	// pour fermeture propre en cas de remplacement via le menu.

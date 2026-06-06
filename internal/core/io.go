@@ -120,21 +120,51 @@ func (m *Machine) entreesortie(io int) {
 // ── Cassette .k7 ─────────────────────────────────────────────────────────────
 
 // readOctetK7 lit un octet de la cassette, le place dans A et 0x2045 et
-// réamorce l'état bit-level.
+// réamorce l'état bit-level. Sémantique d'erreur alignée sur la réf C :
+//   - cassette absente : Initprog() + Erreur 11 ;
+//   - fin de bande (EOF) : rembobinage + Initprog() + Erreur 12.
+//
 // Ref: dcmo5devices.c Readoctetk7() — *Ap = k7octet = byte; Mputc(0x2045, byte); k7bit = 0
 func (m *Machine) readOctetK7() {
 	if m.opts.Tape == nil {
+		m.Initprog()
+		m.signalError(11) // cassette absente
 		return
 	}
 	b, err := m.opts.Tape.ReadByte()
 	if err != nil {
 		m.opts.Tape.Rewind()
+		m.Initprog()
+		m.signalError(12) // fin de bande / EOF
 		return
 	}
 	m.k7octet = b
 	m.k7bit = 0
 	m.cpu.SetRegA(b)
 	m.Write8(0x2045, b)
+}
+
+// signalError notifie la couche hôte d'une erreur d'E/S MO5 si un sink est
+// configuré (équivalent de Erreur(n) côté réf C). Sans dépendance UI dans le cœur.
+func (m *Machine) signalError(code int) {
+	if m.opts.OnError != nil {
+		m.opts.OnError(code)
+	}
+}
+
+// IOErrorLabel donne un libellé court pour un code d'erreur d'E/S MO5
+// (codes BASIC, cf. réf C). Sert aux notifications hôte.
+func IOErrorLabel(code int) string {
+	switch code {
+	case 11:
+		return "cassette absente"
+	case 12:
+		return "fin de bande"
+	case 13:
+		return "écriture protégée / échec"
+	default:
+		return "erreur E/S"
+	}
 }
 
 // readBitK7 lit un bit de la cassette : A=0xFF si le bit vaut 1, 0x00 sinon, et
@@ -160,12 +190,22 @@ func (m *Machine) readBitK7() {
 }
 
 // writeOctetK7 écrit le registre A sur la cassette, puis remet 0x2045 à 0.
+// Sémantique d'erreur alignée sur la réf C :
+//   - cassette absente : Initprog() + Erreur 11 ;
+//   - échec/protection en écriture : Initprog() + Erreur 13.
+//
 // Ref: dcmo5devices.c Writeoctetk7() — fputc(*Ap, fk7); Mputc(0x2045, 0)
 func (m *Machine) writeOctetK7() {
 	if m.opts.Tape == nil {
+		m.Initprog()
+		m.signalError(11) // cassette absente
 		return
 	}
-	m.opts.Tape.WriteByte(m.cpu.RegA())
+	if err := m.opts.Tape.WriteByte(m.cpu.RegA()); err != nil {
+		m.Initprog()
+		m.signalError(13) // protection / échec d'écriture
+		return
+	}
 	m.Write8(0x2045, 0)
 }
 

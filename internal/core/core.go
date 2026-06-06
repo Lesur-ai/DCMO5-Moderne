@@ -27,6 +27,19 @@ type Options struct {
 	Cartridge       media.Cartridge   // cartouche montée, ou nil
 	Printer         media.PrinterSink // imprimante, ou nil
 	AudioSampleRate int               // taux d'échantillonnage audio (0 = spec.AudioSampleRate)
+
+	// PatchSystemROM aligne en mémoire les routines d'E/S de la vraie ROM MO5
+	// (cassette, crayon, imprimante) sur le modèle trap de l'émulateur, comme la
+	// ROM patchée de dcmo5 v11 (cf. rompatch.go). Sans ce patch, un LOAD" boucle
+	// indéfiniment (lecture cassette par bit-bang matériel non émulé). Le fichier
+	// ROM n'est jamais modifié. Sans effet sur une ROM non reconnue.
+	PatchSystemROM bool
+
+	// OnError notifie la couche hôte d'une erreur d'E/S MO5 (codes BASIC : 11 =
+	// cassette absente, 12 = fin de bande/EOF, 13 = protection/écriture).
+	// Équivaut à la boîte de dialogue Erreur(n) de la réf C (dcmo5main.c).
+	// nil = aucune notification. Le cœur reste sans dépendance UI.
+	OnError func(code int)
 }
 
 // Machine représente le Thomson MO5 complet.
@@ -81,6 +94,9 @@ func NewMachine(opts Options) (*Machine, error) {
 	}
 	if len(opts.ROMSys) == 0x4000 {
 		copy(m.rom[:], opts.ROMSys)
+		if opts.PatchSystemROM {
+			m.applySystemRomPatches() // alignement trap en mémoire (cf. rompatch.go)
+		}
 	}
 	m.hardReset()
 	m.loadCartridge() // charge opts.Cartridge dans car[] si présente
