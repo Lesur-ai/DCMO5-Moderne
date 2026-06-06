@@ -200,6 +200,9 @@ func (a *App) Update() error {
 	// l'injecteur (adapté à la frappe de texte), pas maintenues en continu.
 	a.inputChars = ebiten.AppendInputChars(a.inputChars[:0])
 	for _, r := range a.inputChars {
+		if r == ' ' {
+			continue // l'espace live est géré en positionnel (KeySpace), pas via l'injecteur
+		}
 		a.keys.Enqueue(r)
 	}
 	tickKeys := a.keys.Tick()
