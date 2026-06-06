@@ -23,6 +23,7 @@ import (
 // romPath cherche la ROM MO5 dans les emplacements locaux connus.
 func romPath() string {
 	candidates := []string{
+		"../../rom/mo5-v1.1.rom", // ROM système versionnée dans le dépôt
 		"/tmp/mo5rom/mo5-v1.1.rom",
 		"/tmp/mo5rom/mo5-v1.0.rom",
 		"../../dcmo5v11.0/include/mo5rom.h", // header C (non utilisable directement)

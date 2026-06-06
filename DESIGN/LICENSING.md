@@ -44,24 +44,45 @@ compatible GPLv3+).
 
 ## 3. Classification des assets
 
+> **Mise a jour (2026-06-06).** Decision du mainteneur : `rom/` et `software/`
+> sont desormais **inclus dans le depot** pour rendre l'emulateur utilisable
+> immediatement. Voir l'appreciation de redistribuabilite et la procedure de
+> retrait ci-dessous (§3.1).
+
 | Categorie | Exemples | Statut | Regle |
 |---|---|---|---|
-| **Exclu** | ROM MO5, ROM CD90-640, logiciels MO5 commerciaux (`software/*.k7`, `*.fd`, `*.rom`) | Copyright tiers | **Jamais embarque, jamais commite, jamais distribue.** Import utilisateur uniquement. |
+| **Inclus (sous reserve)** | ROM MO5 (`rom/mo5-v1.1.rom`), ROM CD90-640 (`rom/cd90-640.rom`), logiciels MO5 historiques (`software/*.k7`, `*.fd`, `*.rom`) | Materiel/logiciels Thomson MO5 (1984+), preservation communautaire | **Versionnes** sous l'appreciation du §3.1. Retrait sur demande d'un ayant droit. |
 | **Reference** | Code C `dcmo5v11.0/source`, documentation historique | GPLv3+ (D. Coulom) | Consultable comme reference. L'arborescence `dcmo5v11.0/` reste hors versioning (`.gitignore`) jusqu'a decision explicite. |
-| **Importable** | Donnees de test libres ou **generees** dans le repo moderne | Libre / produit par le projet | Autorise. Aucune capture issue d'un asset copyright. |
+| **Produit par le projet** | Donnees de test generees, ROM factices de test | Libre / produit par le projet | Autorise sans reserve. |
+
+### 3.1 ROM et logiciels MO5 — appreciation et retrait
+
+- **Provenance.** Materiel et ecosysteme Thomson MO5 (commercialise en 1984) ;
+  contenus issus de la communaute de preservation/emulation, notamment la
+  distribution [DCMO5 v11](http://dcmo5.free.fr/) de Daniel Coulom.
+- **Appreciation.** Compte tenu de l'anciennete du materiel (obsolete depuis des
+  decennies) et de la diffusion etablie de ces contenus a des fins de
+  preservation, le mainteneur les considere comme raisonnablement
+  redistribuables et les inclut dans le depot.
+- **Reserve explicite.** Cette appreciation **n'est pas un avis juridique** et
+  **n'affirme pas** un statut de domaine public etabli. Le statut exact de
+  certains titres `software/` (logiciels potentiellement commerciaux) peut
+  rester incertain ; ils sont inclus sous la meme reserve.
+- **Procedure de retrait.** Tout ayant droit souhaitant le retrait d'un contenu
+  peut **ouvrir une issue** sur le depot ; le contenu sera retire sans delai.
 
 ## 4. Garde-fous (IMPERATIF)
 
-1. **Aucune ROM ni logiciel MO5 copyright** n'est embarque dans l'application
-   ou ses paquets sans validation ecrite des ayants droit.
-2. L'application demarre **sans ROM** avec un etat explicite
-   (« ROM manquante, importer une ROM ») — cf. `DESIGN/ARCHITECTURE.md`.
-3. Un **mecanisme d'import utilisateur** fournit ROM et medias ; les chemins
-   attendus sont documentes.
-4. Les **donnees de test** du repo moderne sont libres ou generees ; aucune ne
-   derive d'un asset copyright.
-5. `dcmo5v11.0/` (code, ROM, software) reste **non suivi par Git** tant qu'une
-   decision explicite d'import (avec verification de licence) n'a pas ete prise.
+1. Le **code moderne** reste sous GPLv3+ ; les dependances tierces doivent rester
+   compatibles GPLv3+.
+2. Les ROM/logiciels inclus le sont **sous l'appreciation et la reserve du §3.1**,
+   avec procedure de retrait sur demande des ayants droit.
+3. L'application sait demarrer **sans ROM** (etat explicite « ROM manquante »)
+   et accepte l'**import utilisateur** de ROM et medias.
+4. Aucun asset n'est **embarque en dur dans le binaire** : les ROM/medias sont
+   charges depuis des fichiers (le binaire ne contient pas les octets ROM).
+5. `dcmo5v11.0/` (arborescence de reference C) reste **non suivi par Git**
+   (`.gitignore`) jusqu'a une decision explicite distincte.
 
 ## 5. References
 

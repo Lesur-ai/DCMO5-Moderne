@@ -56,12 +56,23 @@ structurantes.
 
 ## ROM et médias
 
-> **La ROM MO5 et la ROM CD90-640 sont des contenus soumis à copyright.
-> Elles ne sont jamais embarquées dans cette application.**
+Pour que l'émulateur soit **utilisable immédiatement**, ce dépôt inclut :
 
-L'application démarre sans ROM avec un message explicite
-(« ROM manquante, importer une ROM »). L'utilisateur fournit sa propre ROM via
-le mécanisme d'import. Voir [`DESIGN/LICENSING.md`](DESIGN/LICENSING.md).
+- `rom/` — ROM système **MO5** (`mo5-v1.1.rom`) et ROM du contrôleur de disquette
+  **CD90-640** (`cd90-640.rom`) ;
+- `software/` — une sélection de **logiciels MO5 historiques** (`.k7`, `.fd`, `.rom`).
+
+> **Provenance & droits.** Ces contenus proviennent du matériel et de l'écosystème
+> Thomson MO5 (commercialisé en 1984) et de la communauté de préservation/émulation
+> (notamment la distribution [DCMO5 v11](http://dcmo5.free.fr/) de Daniel Coulom).
+> Compte tenu de l'ancienneté du matériel et de sa diffusion établie à des fins de
+> préservation, le mainteneur les inclut comme raisonnablement redistribuables.
+> **Ce n'est pas un avis juridique** et cela n'affirme pas un statut de domaine
+> public établi. Tout ayant droit peut demander le retrait d'un contenu en
+> **ouvrant une issue** sur le dépôt ; il sera retiré sans délai.
+
+L'application peut aussi démarrer **sans ROM** (message « ROM manquante ») et
+accepte l'import de vos propres fichiers. Détails : [`DESIGN/LICENSING.md`](DESIGN/LICENSING.md).
 
 ---
 
