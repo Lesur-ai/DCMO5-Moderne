@@ -94,6 +94,28 @@ func TestHost_Paused(t *testing.T) {
 	}
 }
 
+// TestHost_PausedReaderSilence vérifie qu'en pause, le lecteur audio renvoie du
+// silence (et non un ton figé), même si du son était en cours.
+func TestHost_PausedReaderSilence(t *testing.T) {
+	m := nopMachine(t)
+	m.Write8(0xA7CD, 0x3F) // niveau max
+	h := New(m, 480)
+	h.tick(spec.CPUClockHz / 100) // produit du son non nul dans la ring
+
+	h.SetPaused(true)
+	r := h.AudioReader()
+	p := make([]byte, 64)
+	for i := range p {
+		p[i] = 0xAB
+	}
+	r.Read(p)
+	for i, b := range p {
+		if b != 0 {
+			t.Fatalf("octet %d = 0x%02X, want 0 (silence en pause)", i, b)
+		}
+	}
+}
+
 // TestHost_ConcurrentAccessNoRace lance la goroutine d'émulation et sollicite
 // toutes les surfaces partagées en parallèle. À exécuter avec -race.
 func TestHost_ConcurrentAccessNoRace(t *testing.T) {
@@ -120,8 +142,9 @@ func TestHost_ConcurrentAccessNoRace(t *testing.T) {
 	}
 
 	worker(func() { h.SetInput(InputState{PenX: 1}) })
+	audioR := h.AudioReader()
 	pcm := make([]byte, 512)
-	worker(func() { h.AudioStream().Read(pcm) })
+	worker(func() { audioR.Read(pcm) })
 	fb := make([]uint32, spec.FrameWidth*spec.FrameHeight)
 	worker(func() { h.Framebuffer(fb) })
 	worker(func() { h.Reset(); time.Sleep(5 * time.Millisecond) })

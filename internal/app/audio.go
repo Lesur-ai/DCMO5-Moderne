@@ -32,7 +32,7 @@ func (a *App) initAudio() {
 		return
 	}
 	ctx := ebaudio.NewContext(spec.AudioSampleRate)
-	player, err := ctx.NewPlayer(a.host.AudioStream())
+	player, err := ctx.NewPlayer(a.host.AudioReader())
 	if err != nil {
 		return
 	}

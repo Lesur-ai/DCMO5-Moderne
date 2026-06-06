@@ -53,6 +53,16 @@ func (s *Stream) Read(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// Silence vide la file et réinitialise le maintien : Read renverra du vrai
+// silence (et non le dernier échantillon) jusqu'à la prochaine écriture. Utilisé
+// à l'entrée en pause pour couper net le son sans laisser un ton figé.
+func (s *Stream) Silence() {
+	s.mu.Lock()
+	s.buf = s.buf[:0]
+	s.last = [4]byte{}
+	s.mu.Unlock()
+}
+
 // Buffered retourne le nombre d'octets PCM en attente (observabilité).
 func (s *Stream) Buffered() int {
 	s.mu.Lock()

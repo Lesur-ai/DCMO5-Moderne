@@ -14,6 +14,7 @@
 package emu
 
 import (
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -103,9 +104,22 @@ func New(m *core.Machine, gain int) *Host {
 	return h
 }
 
-// AudioStream retourne la ring audio à passer au lecteur (io.Reader). Le lecteur
-// n'y lit que du PCM : il ne touche jamais la Machine.
-func (h *Host) AudioStream() *audio.Stream { return h.stream }
+// AudioReader retourne l'io.Reader à passer au lecteur audio. Il ne touche
+// jamais la Machine : en pause il renvoie du silence, sinon il lit la ring.
+func (h *Host) AudioReader() io.Reader { return hostAudio{h} }
+
+// hostAudio adapte le Host en source PCM consciente de la pause.
+type hostAudio struct{ h *Host }
+
+func (r hostAudio) Read(p []byte) (int, error) {
+	if r.h.paused.Load() {
+		for i := range p {
+			p[i] = 0
+		}
+		return len(p), nil
+	}
+	return r.h.stream.Read(p)
+}
 
 // Start lance la goroutine d'émulation. Idempotent.
 func (h *Host) Start() {
@@ -132,8 +146,16 @@ func (h *Host) SetInput(in InputState) {
 	h.inputMu.Unlock()
 }
 
-// SetPaused suspend/relance l'émulation (l'audio se vide → silence).
-func (h *Host) SetPaused(p bool) { h.paused.Store(p) }
+// SetPaused suspend/relance l'émulation. À l'entrée en pause, on vide la ring
+// pour couper le son immédiatement (sinon le maintien anti-clic figerait le
+// dernier niveau pendant toute la pause).
+func (h *Host) SetPaused(p bool) {
+	if p && !h.paused.Swap(true) {
+		h.stream.Silence()
+	} else if !p {
+		h.paused.Store(false)
+	}
+}
 
 // Paused indique l'état de pause.
 func (h *Host) Paused() bool { return h.paused.Load() }
