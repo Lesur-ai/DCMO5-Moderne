@@ -394,14 +394,14 @@ func (m *Machine) Step(cycles int) int {
 	return consumed
 }
 
-// maxAudioBacklog borne le tampon d'échantillons : si l'application ne draine
-// pas (fenêtre inactive, pause), on évite une croissance mémoire illimitée en
-// abandonnant les échantillons les plus anciens (~0,5 s de retard maximum).
-const maxAudioBacklog = spec.AudioSampleRate / 2
+// maxAudioBacklog borne le tampon d'échantillons à ~0,5 s, indépendamment du
+// taux : si l'application ne draine pas (fenêtre inactive, pause), on évite une
+// croissance mémoire illimitée en abandonnant les échantillons les plus anciens.
+func (m *Machine) maxAudioBacklog() int { return m.audioSampleRate / 2 }
 
 // appendSample ajoute un échantillon au tampon audio en respectant le plafond.
 func (m *Machine) appendSample(level uint8) {
-	if len(m.samples) >= maxAudioBacklog {
+	if len(m.samples) >= m.maxAudioBacklog() {
 		// Tampon saturé : on jette le plus ancien (glissement) pour rester borné.
 		copy(m.samples, m.samples[1:])
 		m.samples[len(m.samples)-1] = level
