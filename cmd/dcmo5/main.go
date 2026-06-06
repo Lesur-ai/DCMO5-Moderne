@@ -18,6 +18,7 @@ func main() {
 	tapePath := flag.String("tape", "", "fichier cassette .k7 à monter")
 	diskPath := flag.String("disk", "", "fichier disquette .fd à monter")
 	cartPath := flag.String("cart", "", "fichier cartouche .rom à monter")
+	noAudio := flag.Bool("no-audio", false, "désactiver la sortie audio")
 	flag.Parse()
 
 	// Charger les préférences pour fallback
@@ -118,6 +119,9 @@ func main() {
 	a.SetROMStatus(romMissing)
 	a.SetMediaNames(*romPath, *tapePath, *diskPath, *cartPath)
 	a.SetStartupMediaClosers(tapeCloser, diskCloser)
+	if *noAudio {
+		a.DisableAudio()
+	}
 
 	if err := app.Run(a); err != nil && !errors.Is(err, app.ErrUserQuit) {
 		fmt.Fprintln(os.Stderr, "dcmo5:", err)

@@ -53,9 +53,10 @@ type App struct {
 	diskCloser io.Closer
 
 	// Audio
-	audioStream *dcaudio.Stream
-	audioPlayer *ebaudio.Player
-	audioBuf    []uint8
+	audioStream   *dcaudio.Stream
+	audioPlayer   *ebaudio.Player
+	audioBuf      []uint8
+	audioDisabled bool
 
 	// État desktop
 	paused     bool
@@ -81,7 +82,6 @@ func New(machine *core.Machine) *App {
 		mediaDir: home,
 	}
 	a.menu = menu.NewModel(osLister)
-	a.initAudio()
 	return a
 }
 
@@ -412,6 +412,7 @@ func (a *App) updateTitle() {
 func Run(a *App) error {
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	ebiten.SetWindowSize(windowScaleX*spec.FrameWidth, windowScaleY*spec.FrameHeight)
+	a.initAudio() // après que main a pu désactiver l'audio (--no-audio)
 	a.updateTitle()
 	err := ebiten.RunGame(a)
 	if errors.Is(err, ErrUserQuit) {

@@ -4,30 +4,45 @@
 package app
 
 import (
+	"time"
+
 	dcaudio "github.com/Lesur-ai/dcmo5/internal/audio"
 	"github.com/Lesur-ai/dcmo5/internal/spec"
 	ebaudio "github.com/hajimehoshi/ebiten/v2/audio"
 )
 
-// defaultAudioGain amplifie l'écart au niveau central (registre 6 bits → PCM
-// s16). 31 (amplitude max) × gain reste sous 32767. Réglage du volume.
-const defaultAudioGain = 600
+const (
+	// defaultAudioGain amplifie l'écart au niveau central (registre 6 bits →
+	// PCM s16). 31 (amplitude max) × gain reste sous 32767. Réglage du volume.
+	defaultAudioGain = 600
+	// audioBufferDuration : taille du tampon du lecteur. Court pour limiter la
+	// latence (sinon le pré-remplissage de silence d'Oto retarde le son), mais
+	// assez grand pour éviter les coupures entre deux frames (60 Hz ≈ 16 ms).
+	audioBufferDuration = 50 * time.Millisecond
+)
+
+// DisableAudio coupe la sortie audio (à appeler avant Run). Utile sur une
+// machine sans backend audio fonctionnel, ou via le flag CLI --no-audio.
+func (a *App) DisableAudio() { a.audioDisabled = true }
 
 // initAudio met en place le contexte audio, le flux PCM et le lecteur. En cas
-// d'échec (pas de périphérique audio), l'émulation continue sans son.
+// d'échec (pas de périphérique audio), l'émulation continue sans son. Appelé
+// depuis Run (après que main a pu désactiver l'audio).
 func (a *App) initAudio() {
-	if a.audioStream != nil {
+	if a.audioDisabled || a.audioStream != nil {
 		return
 	}
-	a.audioStream = dcaudio.NewStream(defaultAudioGain, spec.AudioSampleRate/2)
+	stream := dcaudio.NewStream(defaultAudioGain, spec.AudioSampleRate/2)
 	a.audioBuf = make([]uint8, 2048)
 
 	ctx := ebaudio.NewContext(spec.AudioSampleRate)
-	player, err := ctx.NewPlayer(a.audioStream)
+	player, err := ctx.NewPlayer(stream)
 	if err != nil {
-		a.audioStream = nil // pas de son, mais l'émulation tourne
-		return
+		return // pas de son, mais l'émulation tourne
 	}
+	// Tampon court : réduit la latence du son interactif.
+	player.SetBufferSize(audioBufferDuration)
+	a.audioStream = stream
 	a.audioPlayer = player
 	a.audioPlayer.Play()
 }
