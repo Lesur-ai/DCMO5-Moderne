@@ -3,6 +3,7 @@ module github.com/Lesur-ai/dcmo5
 go 1.26.3
 
 require (
+	github.com/atotto/clipboard v0.1.4
 	github.com/hajimehoshi/ebiten/v2 v2.9.9
 	golang.org/x/image v0.41.0
 )

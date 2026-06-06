@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/atotto/clipboard"
+
 	"github.com/Lesur-ai/dcmo5/internal/core"
 	"github.com/Lesur-ai/dcmo5/internal/emu"
 	"github.com/Lesur-ai/dcmo5/internal/keyboard"
@@ -183,6 +185,12 @@ func (a *App) Update() error {
 		} else {
 			a.queueTypeAhead(a.execSeq)
 			a.execSeq = ""
+		}
+	}
+	// Coller : Cmd+V (macOS) ou Ctrl+V → taper le presse-papier dans le MO5.
+	if pasteRequested() {
+		if text, err := clipboard.ReadAll(); err == nil && text != "" {
+			a.queueTypeAhead(text)
 		}
 	}
 	a.feedTypeAhead()
@@ -460,6 +468,16 @@ func inputJustPressed(k ebiten.Key) bool {
 	was := pressedLastFrame[k]
 	pressedLastFrame[k] = now
 	return now && !was
+}
+
+// pasteRequested détecte le raccourci « coller » : V vient d'être pressé avec
+// Cmd (macOS) ou Ctrl maintenu.
+func pasteRequested() bool {
+	if !inputJustPressed(ebiten.KeyV) {
+		return false
+	}
+	return ebiten.IsKeyPressed(ebiten.KeyMetaLeft) || ebiten.IsKeyPressed(ebiten.KeyMetaRight) ||
+		ebiten.IsKeyPressed(ebiten.KeyControlLeft) || ebiten.IsKeyPressed(ebiten.KeyControlRight)
 }
 
 // keyMapping mappe les touches spéciales Ebitengine vers les indices MO5.
