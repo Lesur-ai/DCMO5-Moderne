@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/Lesur-ai/dcmo5/internal/app"
@@ -46,6 +47,9 @@ func main() {
 
 	opts := core.Options{}
 	romMissing := false
+	// Descripteurs des médias ouverts au démarrage, confiés ensuite à l'App
+	// pour fermeture propre en cas de remplacement via le menu.
+	var tapeCloser, diskCloser io.Closer
 
 	// ROM système
 	if *romPath != "" {
@@ -69,6 +73,7 @@ func main() {
 			os.Exit(1)
 		}
 		opts.Tape = tape
+		tapeCloser = tape
 	}
 
 	// Disquette
@@ -79,6 +84,7 @@ func main() {
 			os.Exit(1)
 		}
 		opts.Disk = disk
+		diskCloser = disk
 	}
 
 	// Cartouche
@@ -110,7 +116,8 @@ func main() {
 
 	a := app.New(machine)
 	a.SetROMStatus(romMissing)
-	a.SetMediaNames(*romPath, *tapePath, *diskPath)
+	a.SetMediaNames(*romPath, *tapePath, *diskPath, *cartPath)
+	a.SetStartupMediaClosers(tapeCloser, diskCloser)
 
 	if err := app.Run(a); err != nil && !errors.Is(err, app.ErrUserQuit) {
 		fmt.Fprintln(os.Stderr, "dcmo5:", err)
