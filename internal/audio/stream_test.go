@@ -49,6 +49,23 @@ func TestStream_EmptyIsSilenceNoEOF(t *testing.T) {
 	}
 }
 
+// TestStream_PartialReadNoStaleBytes vérifie qu'une lecture de taille non
+// multiple de la frame ne laisse aucun octet « stale » (tout est rempli).
+func TestStream_PartialReadNoStaleBytes(t *testing.T) {
+	s := NewStream(1, 1000)
+	s.Write([]uint8{25})                // last = échantillon 25
+	p := make([]byte, BytesPerSample+2) // 6 octets (non multiple de 4)
+	for i := range p {
+		p[i] = 0xCC
+	}
+	s.Read(p)
+	for i, b := range p {
+		if b == 0xCC {
+			t.Fatalf("octet %d resté stale (0xCC) après Read partiel", i)
+		}
+	}
+}
+
 func TestStream_Bounded(t *testing.T) {
 	const maxSamples = 8
 	s := NewStream(1, maxSamples)

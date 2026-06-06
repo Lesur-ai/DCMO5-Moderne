@@ -47,8 +47,12 @@ func (s *Stream) Read(p []byte) (int, error) {
 	n := copy(p, s.buf)
 	rest := copy(s.buf, s.buf[n:])
 	s.buf = s.buf[:rest]
-	for i := n; i+BytesPerSample <= len(p); i += BytesPerSample {
-		copy(p[i:i+BytesPerSample], s.last[:])
+	// Compléter octet par octet en répétant le dernier échantillon. n est un
+	// multiple de BytesPerSample (la file ne contient que des frames complètes,
+	// et n vaut soit tout p, soit toute la file), donc i%BytesPerSample garde la
+	// phase L/R correcte même si len(p) n'est pas un multiple de la frame.
+	for i := n; i < len(p); i++ {
+		p[i] = s.last[i%BytesPerSample]
 	}
 	return len(p), nil
 }
