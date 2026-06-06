@@ -4,9 +4,9 @@ package core
 import "github.com/Lesur-ai/dcmo5/internal/spec"
 
 const (
-	borderPx    = 8   // largeur bordure en pixels logiques
-	activeLines = 200 // lignes actives MO5
-	activeCols  = 40  // octets de couleurs par ligne (40 × 8 pixels = 320 px)
+	borderPx    = spec.BorderWidth  // largeur bordure en pixels logiques (source : spec)
+	activeLines = spec.ActiveHeight // lignes actives MO5 (source : spec)
+	activeCols  = 40                // octets de couleurs par ligne (40 × 8 pixels = 320 px)
 )
 
 // Framebuffer génère le framebuffer RGBA 336×216 depuis la RAM vidéo courante.
@@ -52,7 +52,7 @@ func (m *Machine) FramebufferInto(fb []uint32) {
 		// 40 octets → 320 pixels actifs
 		m.composeLine(fb, rowBase+borderPx, line*activeCols)
 		// Bordure droite
-		for x := borderPx + 320; x < spec.FrameWidth; x++ {
+		for x := borderPx + spec.ActiveWidth; x < spec.FrameWidth; x++ {
 			fb[rowBase+x] = borderRGBA
 		}
 	}

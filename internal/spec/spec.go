@@ -22,7 +22,25 @@ const (
 const (
 	FrameWidth  = 336 // 320 pixels actifs + 2 bordures de 8 px
 	FrameHeight = 216 // 200 lignes actives + 2 bordures de 8 px
+
+	BorderWidth  = 8   // largeur de la bordure en pixels (haut/bas/gauche/droite)
+	ActiveWidth  = 320 // pixels actifs horizontaux de l'écran MO5
+	ActiveHeight = 200 // lignes actives de l'écran MO5
 )
+
+// PenFromFramebuffer convertit une position curseur exprimée dans le repère du
+// framebuffer logique (0..FrameWidth-1 / 0..FrameHeight-1, bordure incluse) vers
+// le repère de l'écran actif MO5 (0..ActiveWidth-1 / 0..ActiveHeight-1) attendu
+// par le crayon optique (core.readPenXY).
+//
+// Le framebuffer DCMO5 a une bordure symétrique de BorderWidth pixels : le pixel
+// actif (0,0) est donc dessiné à (BorderWidth, BorderWidth). On retranche la
+// bordure. Une position hors zone active produit volontairement une coordonnée
+// négative ou ≥ Active{Width,Height} : le cœur (readPenXY) l'interprète alors
+// comme « pas de détection » (carry positionné). On ne borne donc pas ici.
+func PenFromFramebuffer(cursorX, cursorY int) (penX, penY int) {
+	return cursorX - BorderWidth, cursorY - BorderWidth
+}
 
 // Carte mémoire MO5 — 48 Ko de RAM physique organisée ainsi :
 //
