@@ -11,8 +11,11 @@
 // Réf. table : dcmo5keyb.h mo5key[] (libellés « touche / shift »).
 package keyboard
 
-// Mo5KeyShift est l'index de la touche SHIFT MO5.
-const Mo5KeyShift = 0x38
+// Index des touches modificatrices MO5.
+const (
+	Mo5KeyShift = 0x38 // SHIFT
+	Mo5KeyCNT   = 0x35 // CONTROL (CNT)
+)
 
 // Cadences par défaut de l'injecteur (en frames à 60 Hz) et borne de file.
 const (

@@ -209,7 +209,11 @@ func (a *App) Update() error {
 
 	var in emu.InputState
 	for eKey, mo5Key := range keyMapping {
-		if mo5Key == keyboard.Mo5KeyShift && injecting {
+		// Pendant une injection (saisie caractère, --exec, coller), ne pas
+		// propager les modificateurs physiques : l'OS a déjà produit le bon
+		// caractère, et le SHIFT/CNT physiques (ex. Ctrl maintenu pour Ctrl+V)
+		// parasiteraient les frappes injectées.
+		if injecting && (mo5Key == keyboard.Mo5KeyShift || mo5Key == keyboard.Mo5KeyCNT) {
 			continue
 		}
 		if ebiten.IsKeyPressed(eKey) {
