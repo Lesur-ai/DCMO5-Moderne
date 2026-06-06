@@ -7,6 +7,13 @@ const (
 	CPUClockHz = 1_000_000 // Motorola 6809 à 1 MHz nominal
 )
 
+// Audio — le MO5 produit un son via un registre de niveau (6 bits) échantillonné
+// périodiquement. Ref: dcmo5main.c (callback à 22050 Hz, stream[i] = sound).
+const (
+	AudioSampleRate = 22050 // fréquence d'échantillonnage audio (Hz)
+	AudioLevelMax   = 0x3F  // niveau sonore maximal (6 bits)
+)
+
 // Framebuffer logique (ref: dcmo5video.c xbitmap=336, ybitmap=216)
 const (
 	FrameWidth  = 336 // 320 pixels actifs + 2 bordures de 8 px

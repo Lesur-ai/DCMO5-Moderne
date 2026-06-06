@@ -54,6 +54,13 @@ type Machine struct {
 	k7bit   uint8 // masque du bit en cours (0x80→0x01) ; 0 = recharger un octet
 	k7octet uint8 // octet cassette courant en cours de lecture bit à bit
 
+	// Son (ref: dcmo5main.c). sound = niveau courant du haut-parleur (0..0x3F),
+	// mis à jour par les ports 0xA7C1/0xA7CD. Échantillonné dans Step() à
+	// spec.AudioSampleRate via un accumulateur de cycles, dans samples.
+	sound       uint8   // niveau sonore courant (6 bits)
+	sampleAccum int64   // accumulateur cycles×SampleRate pour l'échantillonnage
+	samples     []uint8 // tampon d'échantillons audio (niveau 0..0x3F)
+
 	// Timing vidéo (ref: dcmo5emulation.c Run())
 	// 64 cycles par ligne, 312 lignes par trame (50 Hz)
 	videolinecycle  int // cycles dans la ligne courante [0,63]
@@ -103,6 +110,13 @@ func (m *Machine) hardReset() {
 	m.penbutton = false
 	m.videolinecycle = 0
 	m.videolinenumber = 0
+	// État audio : repartir silencieux, sans échantillons périmés ni reliquat
+	// d'accumulateur (sinon DrainAudio rejouerait du son d'avant le reset).
+	m.sound = 0
+	m.sampleAccum = 0
+	m.samples = m.samples[:0]
+	m.k7bit = 0
+	m.k7octet = 0
 	m.mo5VideoRAM()
 }
 
@@ -219,8 +233,10 @@ func (m *Machine) readPort(addr uint16) uint8 {
 		}
 		return m.port[0x0C]
 	case 0xA7CD:
+		// Ref C : (port[0x0F]&4) ? joysaction | sound : port[0x0d].
+		// Le niveau son courant est reflété dans la lecture (registre musique).
 		if m.port[0x0F]&4 != 0 {
-			return m.joysAction
+			return m.joysAction | m.sound
 		}
 		return m.port[0x0D]
 	case 0xA7CE:
@@ -256,6 +272,7 @@ func (m *Machine) writePort(addr uint16, v uint8) {
 		m.mo5VideoRAM()
 	case 0xA7C1:
 		m.port[1] = v & 0x7F
+		m.sound = (v & 1) << 5 // bit haut-parleur → niveau 0 ou 32
 	case 0xA7C2:
 		m.port[2] = v & 0x3F
 	case 0xA7C3:
@@ -266,6 +283,7 @@ func (m *Machine) writePort(addr uint16, v uint8) {
 		m.port[0x0C] = v
 	case 0xA7CD:
 		m.port[0x0D] = v
+		m.sound = v & spec.AudioLevelMax // registre niveau musique/son (6 bits)
 	case 0xA7CE:
 		m.port[0x0E] = v
 	case 0xA7CF:
@@ -343,6 +361,14 @@ func (m *Machine) Step(cycles int) int {
 		}
 		consumed += c
 
+		// Échantillonnage audio : produit spec.AudioSampleRate échantillons par
+		// spec.CPUClockHz cycles, en capturant le niveau sonore courant.
+		m.sampleAccum += int64(c) * int64(spec.AudioSampleRate)
+		for m.sampleAccum >= int64(spec.CPUClockHz) {
+			m.sampleAccum -= int64(spec.CPUClockHz)
+			m.appendSample(m.sound)
+		}
+
 		// Timing vidéo (ref: dcmo5emulation.c Run())
 		m.videolinecycle += c
 		for m.videolinecycle >= cyclesPerLine {
@@ -361,6 +387,41 @@ func (m *Machine) Step(cycles int) int {
 	}
 	return consumed
 }
+
+// maxAudioBacklog borne le tampon d'échantillons : si l'application ne draine
+// pas (fenêtre inactive, pause), on évite une croissance mémoire illimitée en
+// abandonnant les échantillons les plus anciens (~0,5 s de retard maximum).
+const maxAudioBacklog = spec.AudioSampleRate / 2
+
+// appendSample ajoute un échantillon au tampon audio en respectant le plafond.
+func (m *Machine) appendSample(level uint8) {
+	if len(m.samples) >= maxAudioBacklog {
+		// Tampon saturé : on jette le plus ancien (glissement) pour rester borné.
+		copy(m.samples, m.samples[1:])
+		m.samples[len(m.samples)-1] = level
+		return
+	}
+	m.samples = append(m.samples, level)
+}
+
+// DrainAudio copie les échantillons disponibles dans dst et vide le tampon
+// interne. Retourne le nombre d'échantillons écrits (≤ len(dst)). Les niveaux
+// sont sur 6 bits (0..spec.AudioLevelMax) ; la conversion en PCM est à la charge
+// de la couche audio. Conçu pour être appelé une fois par frame par l'app.
+func (m *Machine) DrainAudio(dst []uint8) int {
+	n := copy(dst, m.samples)
+	if n >= len(m.samples) {
+		m.samples = m.samples[:0]
+	} else {
+		// Conserver le reliquat non copié au début du tampon.
+		rest := copy(m.samples, m.samples[n:])
+		m.samples = m.samples[:rest]
+	}
+	return n
+}
+
+// AudioBacklog retourne le nombre d'échantillons en attente (observabilité).
+func (m *Machine) AudioBacklog() int { return len(m.samples) }
 
 // SetKey met à jour l'état d'une touche MO5.
 func (m *Machine) SetKey(key Key, pressed bool) {
