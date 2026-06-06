@@ -70,6 +70,18 @@ func TestHost_TickAppliesInput(t *testing.T) {
 	}
 }
 
+// TestHost_StopIdempotent : Stop doit pouvoir être appelé plusieurs fois sans
+// paniquer (fermeture de canal en double).
+func TestHost_StopIdempotent(t *testing.T) {
+	h := New(nopMachine(t), 1)
+	h.Start()
+	h.Stop()
+	h.Stop() // ne doit pas paniquer
+	// Stop sans Start préalable non plus.
+	h2 := New(nopMachine(t), 1)
+	h2.Stop()
+}
+
 // TestHost_Paused : en pause, l'état est rapporté correctement.
 func TestHost_Paused(t *testing.T) {
 	h := New(nopMachine(t), 1)

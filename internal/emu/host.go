@@ -115,10 +115,11 @@ func (h *Host) Start() {
 	go h.run()
 }
 
-// Stop arrête la goroutine et attend sa fin.
+// Stop arrête la goroutine et attend sa fin. Idempotent : un second appel (ou
+// un appel sans Start préalable) ne fait rien.
 func (h *Host) Stop() {
-	if !h.running.Load() {
-		return
+	if !h.running.Swap(false) {
+		return // jamais démarré, ou déjà arrêté
 	}
 	close(h.stop)
 	<-h.done
