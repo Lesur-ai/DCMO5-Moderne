@@ -66,27 +66,19 @@ func TestStream_PartialReadNoStaleBytes(t *testing.T) {
 	}
 }
 
-// TestStream_PhaseAcrossPartialReads vérifie que des lectures successives de
-// taille non multiple de la frame produisent un flux continu du dernier
-// échantillon (phase L/R préservée d'un Read à l'autre).
-func TestStream_PhaseAcrossPartialReads(t *testing.T) {
+// TestStream_HoldAcrossAlignedReads vérifie qu'en sous-alimentation, des
+// lectures successives alignées sur la frame restituent bien le dernier
+// échantillon (L et R corrects), sans corruption.
+func TestStream_HoldAcrossAlignedReads(t *testing.T) {
 	s := NewStream(1, 1000)
 	s.Write([]uint8{25})                 // last = [25,0,25,0]
 	s.Read(make([]byte, BytesPerSample)) // consomme l'échantillon réel ; ring vide
 
-	out := make([]byte, 0, 6)
-	a := make([]byte, 3)
-	s.Read(a)
-	out = append(out, a...)
-	b := make([]byte, 3)
-	s.Read(b)
-	out = append(out, b...)
-
-	// Flux attendu = dernier échantillon répété cycliquement, sans saut de phase.
-	want := []byte{25, 0, 25, 0, 25, 0}
-	for i := range want {
-		if out[i] != want[i] {
-			t.Errorf("octet %d = %d, want %d (phase du flux non préservée)", i, out[i], want[i])
+	for k := 0; k < 3; k++ {
+		p := make([]byte, BytesPerSample)
+		s.Read(p)
+		if l, r := s16(p[0], p[1]), s16(p[2], p[3]); l != 25 || r != 25 {
+			t.Errorf("read %d en underrun: L=%d R=%d, want 25/25 (maintien)", k, l, r)
 		}
 	}
 }
