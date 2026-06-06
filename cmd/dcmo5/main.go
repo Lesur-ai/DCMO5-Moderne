@@ -21,7 +21,7 @@ func main() {
 	cartPath := flag.String("cart", "", "fichier cartouche .rom à monter")
 	noAudio := flag.Bool("no-audio", false, "désactiver la sortie audio")
 	execSeq := flag.String("exec", "", "séquence de touches tapée au démarrage (\\n = ENTRÉE), ex: '10 CLS\\nRUN\\n'")
-	execDelay := flag.Float64("exec-delay", 32, "délai en secondes avant de taper --exec (l'invite BASIC MO5 apparaît vers 30 s)")
+	execDelay := flag.Float64("exec-delay", 3, "délai en secondes avant de taper --exec (le temps que l'invite BASIC apparaisse)")
 	flag.Parse()
 
 	// Charger les préférences pour fallback

@@ -11,17 +11,23 @@
 // Réf. table : dcmo5keyb.h mo5key[] (libellés « touche / shift »).
 package keyboard
 
-// Index des touches modificatrices MO5.
+// Index de touches MO5 utiles à l'injecteur.
 const (
 	Mo5KeyShift = 0x38 // SHIFT
 	Mo5KeyCNT   = 0x35 // CONTROL (CNT)
+	Mo5KeyENT   = 0x34 // ENTRÉE (validation de ligne)
 )
 
 // Cadences par défaut de l'injecteur (en frames à 60 Hz) et borne de file.
 const (
-	DefaultHoldFrames = 3   // maintien d'une frappe (scan ROM ~50 Hz)
-	DefaultGapFrames  = 2   // relâchement entre deux frappes successives
+	DefaultHoldFrames = 4   // maintien d'une frappe (scan ROM ~50 Hz)
+	DefaultGapFrames  = 3   // relâchement entre deux frappes successives
 	DefaultQueueMax   = 256 // borne la file (collage massif / répétition OS)
+	// enterGapFrames : relâchement APRÈS un ENTRÉE. Plus long, car le BASIC
+	// traite la ligne saisie (tokenisation) et ne lit pas le clavier pendant ce
+	// temps : sans cette pause, le premier caractère de la ligne suivante est
+	// avalé (« 10 CLS » → « 0 CLS »).
+	enterGapFrames = 16
 )
 
 // charKey décrit la combinaison MO5 produisant un caractère donné.
@@ -187,6 +193,9 @@ func (i *Injector) Tick() []int {
 		if i.timer <= 0 {
 			i.phase = phaseGap
 			i.timer = i.gapFrames
+			if i.current.key == Mo5KeyENT {
+				i.timer = enterGapFrames // laisser le BASIC traiter la ligne
+			}
 		}
 		return keys
 	case phaseGap:

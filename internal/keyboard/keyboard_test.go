@@ -107,6 +107,34 @@ func TestInjector_EnqueueString(t *testing.T) {
 	}
 }
 
+// TestInjector_EnterGapLonger vérifie que le relâchement après un ENTRÉE est
+// nettement plus long (le BASIC traite la ligne) que le gap normal.
+func TestInjector_EnterGapLonger(t *testing.T) {
+	ki := NewInjector(1, 2) // hold=1, gap=2
+	ki.Enqueue('\n')        // ENT (0x34)
+	ki.Enqueue('a')         // 0x2D
+
+	if got := ki.Tick(); len(got) != 1 || got[0] != Mo5KeyENT {
+		t.Fatalf("frame 1: got %v, want [ENT]", got)
+	}
+	nilCount := 0
+	for {
+		got := ki.Tick()
+		if len(got) == 1 && got[0] == 0x2D {
+			break
+		}
+		if got == nil {
+			nilCount++
+		}
+		if nilCount > 60 {
+			t.Fatal("'a' jamais joué après l'ENTRÉE")
+		}
+	}
+	if nilCount <= DefaultGapFrames {
+		t.Errorf("gap après ENT = %d frames, attendu nettement > gap normal (%d)", nilCount, DefaultGapFrames)
+	}
+}
+
 func TestInjector_QueueBounded(t *testing.T) {
 	ki := NewInjector(DefaultHoldFrames, DefaultGapFrames)
 	ki.queueMax = 4
