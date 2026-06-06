@@ -38,6 +38,8 @@ const cyclesPerFrame = spec.CPUClockHz / 60
 type App struct {
 	machine     *core.Machine
 	fb          *ebiten.Image
+	fbPixels    []uint32 // tampon framebuffer réutilisé (anti-alloc/GC)
+	fbBytes     []byte   // tampon RGBA réutilisé pour WritePixels
 	extraCycles int
 
 	// Saisie clavier
@@ -380,19 +382,25 @@ func (a *App) Draw(screen *ebiten.Image) {
 		screen.Fill(color.RGBA{R: 20, G: 0, B: 0, A: 0xFF})
 		return
 	}
-	// Framebuffer() lit la RAM vidéo ; la protéger du thread audio qui fait
-	// avancer l'émulation (écritures RAM).
-	a.mu.Lock()
-	pixels := a.machine.Framebuffer()
-	a.mu.Unlock()
-	buf := make([]byte, len(pixels)*4)
-	for i, px := range pixels {
-		buf[i*4+0] = byte(px)
-		buf[i*4+1] = byte(px >> 8)
-		buf[i*4+2] = byte(px >> 16)
-		buf[i*4+3] = byte(px >> 24)
+	// Buffers réutilisés : aucune allocation par frame (la pression GC à 60 Hz
+	// provoque des pauses qui glitchent le thread audio).
+	if a.fbPixels == nil {
+		a.fbPixels = make([]uint32, spec.FrameWidth*spec.FrameHeight)
+		a.fbBytes = make([]byte, spec.FrameWidth*spec.FrameHeight*4)
 	}
-	a.fb.WritePixels(buf)
+	// Rendu sous verrou (lit la RAM vidéo, que le thread audio fait évoluer),
+	// au plus court : juste le remplissage de a.fbPixels.
+	a.mu.Lock()
+	a.machine.FramebufferInto(a.fbPixels)
+	a.mu.Unlock()
+	// Conversion uint32→RGBA hors verrou.
+	for i, px := range a.fbPixels {
+		a.fbBytes[i*4+0] = byte(px)
+		a.fbBytes[i*4+1] = byte(px >> 8)
+		a.fbBytes[i*4+2] = byte(px >> 16)
+		a.fbBytes[i*4+3] = byte(px >> 24)
+	}
+	a.fb.WritePixels(a.fbBytes)
 	op := &ebiten.DrawImageOptions{}
 	scaleX := float64(screen.Bounds().Dx()) / float64(spec.FrameWidth)
 	scaleY := float64(screen.Bounds().Dy()) / float64(spec.FrameHeight)
