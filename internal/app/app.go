@@ -9,8 +9,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 
-	dcaudio "github.com/Lesur-ai/dcmo5/internal/audio"
 	"github.com/Lesur-ai/dcmo5/internal/core"
 	"github.com/Lesur-ai/dcmo5/internal/media"
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
@@ -52,10 +53,13 @@ type App struct {
 	tapeCloser io.Closer
 	diskCloser io.Closer
 
-	// Audio
-	audioStream   *dcaudio.Stream
+	// Audio (architecture audio-driven : le thread audio pilote l'émulation).
+	// mu protège tout accès à machine (thread audio Read vs thread jeu Update/Draw).
+	// emuPaused est lu par le thread audio, écrit par le thread jeu (atomique).
+	mu            sync.Mutex
+	emuPaused     atomic.Bool
 	audioPlayer   *ebaudio.Player
-	audioBuf      []uint8
+	audioActive   bool // true si l'émulation est cadencée par le thread audio
 	audioDisabled bool
 
 	// État desktop
@@ -126,25 +130,31 @@ func (a *App) Update() error {
 		} else {
 			a.menu.Toggle()
 		}
+		a.refreshPause()
 		a.updateTitle()
 	}
 
 	// Menu ouvert : il capte toutes les entrées et suspend l'émulation.
 	if a.menu.IsOpen() {
-		if err := a.updateMenu(); err != nil {
+		err := a.updateMenu()
+		a.refreshPause() // une action a pu fermer le menu
+		if err != nil {
 			return err
 		}
 		return nil
 	}
 
-	// F5 = reset machine
+	// F5 = reset machine (sous verrou : le thread audio touche la machine)
 	if inputJustPressed(ebiten.KeyF5) {
+		a.mu.Lock()
 		a.machine.Reset()
+		a.mu.Unlock()
 	}
 
 	// F3 = pause / resume (KeyP est la touche MO5 P=0x1C, on évite le conflit)
 	if inputJustPressed(ebiten.KeyF3) {
 		a.paused = !a.paused
+		a.refreshPause()
 		a.updateTitle()
 	}
 
@@ -187,36 +197,38 @@ func (a *App) Update() error {
 			active[k] = true
 		}
 	}
-	// Appliquer l'état résultant à la matrice clavier de la machine.
+	mx, my := ebiten.CursorPosition()
+	penPressed := ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+
+	// Tout accès à la machine est protégé : en audio-driven, le thread audio la
+	// fait tourner en parallèle (audioReader.Read).
+	a.mu.Lock()
 	for k := 0; k < spec.KeyMax; k++ {
 		a.machine.SetKey(core.Key(k), active[k])
 	}
-
-	// Souris → crayon optique (coords logiques directes après Layout)
-	mx, my := ebiten.CursorPosition()
-	a.machine.SetPen(mx, my, ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft))
-
-	// Avancer l'émulation. Par défaut une frame de cycles ; mais si l'audio est
-	// actif, on asservit la cadence sur le tampon audio (dynamic rate control) :
-	// on produit juste ce qu'il faut pour maintenir ~audioTargetSamples en
-	// réserve. Cela évite la dérive du tampon — donc les coupures (« tac »
-	// périodiques) — et borne la latence du son aux frappes.
-	toRun := cyclesPerFrame - a.extraCycles
-	if a.audioStream != nil {
-		toRun = a.audioPacedCycles() - a.extraCycles
+	a.machine.SetPen(mx, my, penPressed)
+	// L'émulation n'est avancée ici QUE si l'audio ne la pilote pas (mode
+	// --no-audio ou init audio échouée). Sinon, audioReader.Read s'en charge,
+	// cadencé par l'horloge audio.
+	if !a.audioActive {
+		toRun := cyclesPerFrame - a.extraCycles
+		if toRun < 0 {
+			toRun = 0
+		}
+		consumed := a.machine.Step(toRun)
+		a.extraCycles = consumed - toRun
+		if a.extraCycles < 0 {
+			a.extraCycles = 0
+		}
 	}
-	if toRun < 0 {
-		toRun = 0
-	}
-	consumed := a.machine.Step(toRun)
-	a.extraCycles = consumed - toRun
-	if a.extraCycles < 0 {
-		a.extraCycles = 0
-	}
-
-	// Pousser le son produit pendant cette frame vers la sortie audio.
-	a.pumpAudio()
+	a.mu.Unlock()
 	return nil
+}
+
+// refreshPause met à jour le drapeau de pause lu par le thread audio. À appeler
+// après tout changement de pause ou d'état du menu.
+func (a *App) refreshPause() {
+	a.emuPaused.Store(a.paused || a.menu.IsOpen())
 }
 
 // updateMenu traite les entrées (clavier ET souris) quand le menu est ouvert et
@@ -270,16 +282,19 @@ func (a *App) selectMenuIndex(i int) {
 	}
 }
 
-// handleMenuAction exécute l'intention produite par le menu.
+// handleMenuAction exécute l'intention produite par le menu. Les actions qui
+// touchent la machine sont protégées par a.mu (le thread audio peut tourner).
 func (a *App) handleMenuAction(act menu.Action) error {
+	if act == menu.ActQuit {
+		return ErrUserQuit
+	}
+	a.mu.Lock()
 	switch act {
 	case menu.ActResume:
 		// Le modèle a déjà fermé le menu.
 	case menu.ActReset:
 		a.machine.Reset()
 		a.menu.Close()
-	case menu.ActQuit:
-		return ErrUserQuit
 	case menu.ActEjectTape:
 		a.machine.EjectTape()
 		a.closeTape()
@@ -294,6 +309,7 @@ func (a *App) handleMenuAction(act menu.Action) error {
 	case menu.ActMountChosen:
 		a.mountChosen()
 	}
+	a.mu.Unlock()
 	a.updateTitle()
 	return nil
 }
@@ -364,7 +380,11 @@ func (a *App) Draw(screen *ebiten.Image) {
 		screen.Fill(color.RGBA{R: 20, G: 0, B: 0, A: 0xFF})
 		return
 	}
+	// Framebuffer() lit la RAM vidéo ; la protéger du thread audio qui fait
+	// avancer l'émulation (écritures RAM).
+	a.mu.Lock()
 	pixels := a.machine.Framebuffer()
+	a.mu.Unlock()
 	buf := make([]byte, len(pixels)*4)
 	for i, px := range pixels {
 		buf[i*4+0] = byte(px)

@@ -1,6 +1,12 @@
-// Fichier : audio.go — sortie audio Ebitengine du son MO5.
-// Le cœur produit des niveaux (core.DrainAudio) ; ce fichier les convertit en
-// PCM (internal/audio.Stream) et les joue via Ebitengine.
+// Fichier : audio.go — sortie audio « audio-driven » du son MO5.
+//
+// Le thread audio pilote l'émulation : pour fournir N échantillons au backend,
+// audioReader.Read fait avancer la machine juste ce qu'il faut et encode le son
+// produit. L'émulation est ainsi cadencée par l'horloge audio (régulière),
+// supprimant le gros tampon — donc la latence — sans réintroduire d'underrun.
+//
+// La machine étant touchée par deux threads (audio via Read, jeu via
+// Update/Draw), tout accès passe par App.mu.
 package app
 
 import (
@@ -15,79 +21,84 @@ const (
 	// defaultAudioGain convertit le niveau (0..63) en amplitude PCM s16.
 	// 63 × gain reste sous 32767 (pas d'écrêtage). Réglage du volume.
 	defaultAudioGain = 480
-	// audioBufferDuration : tampon du lecteur. ~120 ms est le minimum stable sur
-	// les machines testées : en dessous, le backend se vide périodiquement et
-	// glitche (« tac » au repos, son haché pendant les bips). La latence qui en
-	// résulte sera réduite par une refonte « audio-driven » (cf. issue).
-	audioBufferDuration = 120 * time.Millisecond
+	// audioBufferDuration : tampon du lecteur. En audio-driven, Read fournit
+	// exactement ce qui est demandé (jamais de sous-alimentation), donc un
+	// tampon court suffit → faible latence sans « tac ».
+	audioBufferDuration = 40 * time.Millisecond
+	// audioReadGuard borne le nombre d'itérations Step par Read (sécurité).
+	audioReadGuard = 4096
 )
 
-// Cadence audio (dynamic rate control). On vise une petite réserve constante
-// d'échantillons dans le flux : assez pour ne pas se vider entre deux frames
-// (sinon « tac » périodique), assez peu pour que le son des frappes reste
-// synchrone (faible latence).
-const (
-	audioSamplesPerFrame = spec.AudioSampleRate / 60 // production nominale/frame
-	audioTargetSamples   = audioSamplesPerFrame * 7  // réserve cible (~117 ms, alignée sur le tampon lecteur)
-	audioMinFrameSamples = audioSamplesPerFrame / 2  // plancher (garde la vidéo fluide)
-	audioMaxFrameSamples = audioSamplesPerFrame * 4  // plafond modéré (évite le « brouillé » du varispeed)
-)
-
-// audioPacedCycles retourne le nombre de cycles CPU à exécuter cette frame pour
-// maintenir le tampon audio autour de audioTargetSamples. Asservit la vitesse
-// d'émulation sur l'horloge audio (plus stable que le vsync).
-func (a *App) audioPacedCycles() int {
-	backlog := a.audioStream.BufferedSamples()
-	// Échantillons à produire = combler l'écart à la cible + une frame nominale.
-	want := audioTargetSamples - backlog + audioSamplesPerFrame
-	if want < audioMinFrameSamples {
-		want = audioMinFrameSamples
-	} else if want > audioMaxFrameSamples {
-		want = audioMaxFrameSamples
-	}
-	return want * spec.CPUClockHz / spec.AudioSampleRate
-}
-
-// DisableAudio coupe la sortie audio (à appeler avant Run). Utile sur une
-// machine sans backend audio fonctionnel, ou via le flag CLI --no-audio.
+// DisableAudio coupe la sortie audio (à appeler avant Run). En mode désactivé,
+// l'émulation est pilotée par les frames (Update), pas par le thread audio.
 func (a *App) DisableAudio() { a.audioDisabled = true }
 
-// initAudio met en place le contexte audio, le flux PCM et le lecteur. En cas
-// d'échec (pas de périphérique audio), l'émulation continue sans son. Appelé
-// depuis Run (après que main a pu désactiver l'audio).
+// initAudio installe le lecteur audio-driven. Échec non fatal (émulation
+// pilotée par frames). Appelé depuis Run (après un éventuel DisableAudio).
 func (a *App) initAudio() {
-	if a.audioDisabled || a.audioStream != nil {
+	if a.audioDisabled || a.audioActive {
 		return
 	}
-	stream := dcaudio.NewStream(defaultAudioGain, spec.AudioSampleRate/2)
-	a.audioBuf = make([]uint8, 2048)
-
 	ctx := ebaudio.NewContext(spec.AudioSampleRate)
-	player, err := ctx.NewPlayer(stream)
+	reader := &audioReader{app: a}
+	player, err := ctx.NewPlayer(reader)
 	if err != nil {
-		return // pas de son, mais l'émulation tourne
+		return // pas de son ; Update pilotera l'émulation
 	}
-	// Tampon court : réduit la latence du son interactif.
 	player.SetBufferSize(audioBufferDuration)
-	a.audioStream = stream
 	a.audioPlayer = player
-	a.audioPlayer.Play()
+	a.audioActive = true
+	player.Play()
 }
 
-// pumpAudio draine les échantillons produits par le cœur et les pousse dans le
-// flux PCM. Appelé une fois par frame, après l'avance de l'émulation.
-func (a *App) pumpAudio() {
-	if a.audioStream == nil {
-		return
+// audioReader implémente io.Reader pour Ebitengine : il pilote l'émulation à la
+// demande du backend audio.
+type audioReader struct {
+	app    *App
+	levels []uint8 // tampon de niveaux réutilisé entre les Read
+	last   int16   // dernier échantillon encodé (maintien en pause)
+}
+
+// Read fournit du PCM s16 stéréo. Il fait tourner l'émulation (sous verrou) pour
+// produire exactement le nombre d'échantillons demandés, puis les encode.
+func (r *audioReader) Read(p []byte) (int, error) {
+	need := len(p) / dcaudio.BytesPerSample
+	if need == 0 {
+		return 0, nil
 	}
-	for {
-		n := a.machine.DrainAudio(a.audioBuf)
-		if n == 0 {
-			break
-		}
-		a.audioStream.Write(a.audioBuf[:n])
-		if n < len(a.audioBuf) {
-			break
-		}
+	if cap(r.levels) < need {
+		r.levels = make([]uint8, need)
 	}
+	lv := r.levels[:need]
+	got := 0
+
+	a := r.app
+	// En pause / menu ouvert, on n'avance pas l'émulation : silence.
+	// emuPaused est atomique (écrit par le thread jeu, lu ici).
+	if !a.emuPaused.Load() {
+		a.mu.Lock()
+		guard := 0
+		for got < need {
+			want := need - got
+			cycles := want*spec.CPUClockHz/spec.AudioSampleRate + 64
+			a.machine.Step(cycles)
+			got += a.machine.DrainAudio(lv[got:])
+			if guard++; guard >= audioReadGuard {
+				break // sécurité (ne devrait jamais arriver)
+			}
+		}
+		a.mu.Unlock()
+	}
+
+	for i := 0; i < need; i++ {
+		var s int16
+		if i < got {
+			s = dcaudio.EncodeLevel(lv[i], defaultAudioGain)
+			r.last = s
+		}
+		// En pause (got==0) ou complément : silence (0). r.last sert d'anti-clic
+		// uniquement si on voulait maintenir ; ici le repos MO5 est déjà 0.
+		dcaudio.PutStereoSample(p[i*dcaudio.BytesPerSample:], s)
+	}
+	return len(p), nil
 }
