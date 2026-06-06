@@ -335,11 +335,29 @@ func (m *Machine) switchMemo5Bank(addr uint16) {
 
 // ── Interface publique ────────────────────────────────────────────────────────
 
-// Reset réinitialise la machine.
+// Reset réinitialise la machine (reset matériel : efface la RAM).
 func (m *Machine) Reset() {
 	m.hardReset()
 	m.loadCartridge()
 	m.cpu.Reset()
+}
+
+// Initprog relance le programme (reset « doux ») SANS effacer la RAM : touches
+// relâchées, manettes au centre, banque cartouche remise à 0, son coupé, puis
+// rechargement du vecteur reset. Ref: dcmo5emulation.c Initprog().
+func (m *Machine) Initprog() {
+	for i := range m.touche {
+		m.touche[i] = 0x80
+	}
+	m.joysPosition = 0xFF
+	m.joysAction = 0xC0
+	m.carflags &= 0xEC // efface bits 0,1 (banque) et 4 (OS-9), garde cart-enabled
+	m.sound = 0
+	m.sampleAccum = 0
+	m.samples = m.samples[:0]
+	m.k7bit = 0
+	m.k7octet = 0
+	m.cpu.Reset() // CC = 0x10, PC = vecteur reset
 }
 
 const (

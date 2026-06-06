@@ -243,6 +243,9 @@ func (a *App) handleMenuAction(act menu.Action) error {
 	case menu.ActReset:
 		a.host.Reset()
 		a.menu.Close()
+	case menu.ActInitprog:
+		a.host.Initprog()
+		a.menu.Close()
 	case menu.ActQuit:
 		return ErrUserQuit
 	case menu.ActEjectTape:

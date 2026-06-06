@@ -50,6 +50,7 @@ type cmdKind int
 
 const (
 	cmdReset cmdKind = iota
+	cmdInitprog
 	cmdMountTape
 	cmdEjectTape
 	cmdMountDisk
@@ -170,6 +171,7 @@ func (h *Host) Framebuffer(dst []uint32) {
 // ── Commandes médias (exécutées par la goroutine propriétaire de la Machine) ──
 
 func (h *Host) Reset()                           { h.send(command{kind: cmdReset}) }
+func (h *Host) Initprog()                        { h.send(command{kind: cmdInitprog}) }
 func (h *Host) MountTape(t media.Tape)           { h.send(command{kind: cmdMountTape, tape: t}) }
 func (h *Host) EjectTape()                       { h.send(command{kind: cmdEjectTape}) }
 func (h *Host) MountDisk(d media.Disk)           { h.send(command{kind: cmdMountDisk, disk: d}) }
@@ -285,6 +287,8 @@ func (h *Host) execCommand(c command) {
 	switch c.kind {
 	case cmdReset:
 		h.machine.Reset()
+	case cmdInitprog:
+		h.machine.Initprog()
 	case cmdMountTape:
 		h.machine.MountTape(c.tape)
 	case cmdEjectTape:
