@@ -5,6 +5,7 @@
 /dist/
 /coverage.out
 *.test
+/.tmp/
 # Binaires compilés à la racine (go build sans -o → nom du module/dossier)
 /main
 /dcmo5

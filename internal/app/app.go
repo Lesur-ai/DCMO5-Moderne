@@ -14,9 +14,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/atotto/clipboard"
 
 	"github.com/Lesur-ai/dcmo5/internal/core"
 	"github.com/Lesur-ai/dcmo5/internal/emu"
+	"github.com/Lesur-ai/dcmo5/internal/keyboard"
 	"github.com/Lesur-ai/dcmo5/internal/media"
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
 	"github.com/Lesur-ai/dcmo5/internal/menu"
@@ -43,8 +47,15 @@ type App struct {
 	fbBytes  []byte   // tampon RGBA réutilisé pour WritePixels
 
 	// Saisie clavier
-	keys       *keyInjector
+	keys       *keyboard.Injector
 	inputChars []rune
+
+	// Saisie programmée (--exec, coller). execSeq attend la fin du délai de boot,
+	// puis alimente typeAhead, lui-même vidé progressivement vers l'injecteur
+	// (sans dépasser sa file bornée, donc sans perdre le début d'un long script).
+	execSeq         string
+	execDelayFrames int
+	typeAhead       []rune
 
 	// Menu de pilotage
 	menu     *menu.Model
@@ -80,7 +91,7 @@ func New(machine *core.Machine) *App {
 		fb:       fb,
 		fbPixels: make([]uint32, spec.FrameWidth*spec.FrameHeight),
 		fbBytes:  make([]byte, spec.FrameWidth*spec.FrameHeight*4),
-		keys:     newKeyInjector(defaultKeyHoldFrames, defaultKeyGapFrames),
+		keys:     keyboard.NewInjector(keyboard.DefaultHoldFrames, keyboard.DefaultGapFrames),
 		mediaDir: home,
 	}
 	a.menu = menu.NewModel(osLister)
@@ -109,6 +120,14 @@ func (a *App) SetMediaNames(rom, tape, disk, cart string) {
 	a.tapeName = filepath.Base(tape)
 	a.diskName = filepath.Base(disk)
 	a.cartName = filepath.Base(cart)
+}
+
+// SetExec programme une séquence de touches tapée automatiquement après
+// delaySeconds (le temps que la ROM atteigne l'invite BASIC). Les « \n » de la
+// séquence ont déjà été convertis en retours-chariot par l'appelant.
+func (a *App) SetExec(seq string, delaySeconds float64) {
+	a.execSeq = seq
+	a.execDelayFrames = int(delaySeconds * 60) // 60 ticks/s
 }
 
 // SetStartupMediaClosers confie à l'App les descripteurs des médias ouverts au
@@ -158,11 +177,32 @@ func (a *App) Update() error {
 		return nil
 	}
 
+	// Saisie programmée : après le délai de boot, la séquence --exec rejoint le
+	// tampon typeAhead, vidé progressivement vers l'injecteur ci-dessous.
+	if a.execSeq != "" {
+		if a.execDelayFrames > 0 {
+			a.execDelayFrames--
+		} else {
+			a.queueTypeAhead(a.execSeq)
+			a.execSeq = ""
+		}
+	}
+	// Coller : Cmd+V (macOS) ou Ctrl+V → taper le presse-papier dans le MO5.
+	if pasteRequested() {
+		if text, err := clipboard.ReadAll(); err == nil && text != "" {
+			a.queueTypeAhead(text)
+		}
+	}
+	a.feedTypeAhead()
+
 	// Saisie clavier MO5 : caractères (layout OS + Shift) + touches spéciales.
 	// LIMITE connue : les touches imprimables sont jouées en impulsions par
 	// l'injecteur (adapté à la frappe de texte), pas maintenues en continu.
 	a.inputChars = ebiten.AppendInputChars(a.inputChars[:0])
 	for _, r := range a.inputChars {
+		if r == ' ' {
+			continue // l'espace live est géré en positionnel (KeySpace), pas via l'injecteur
+		}
 		a.keys.Enqueue(r)
 	}
 	tickKeys := a.keys.Tick()
@@ -172,7 +212,11 @@ func (a *App) Update() error {
 
 	var in emu.InputState
 	for eKey, mo5Key := range keyMapping {
-		if mo5Key == mo5KeyShift && injecting {
+		// Pendant une injection (saisie caractère, --exec, coller), ne pas
+		// propager les modificateurs physiques : l'OS a déjà produit le bon
+		// caractère, et le SHIFT/CNT physiques (ex. Ctrl maintenu pour Ctrl+V)
+		// parasiteraient les frappes injectées.
+		if injecting && (mo5Key == keyboard.Mo5KeyShift || mo5Key == keyboard.Mo5KeyCNT) {
 			continue
 		}
 		if ebiten.IsKeyPressed(eKey) {
@@ -192,6 +236,28 @@ func (a *App) Update() error {
 
 // syncPause répercute l'état pause/menu sur le Host (suspend l'émulation).
 func (a *App) syncPause() { a.host.SetPaused(a.paused || a.menu.IsOpen()) }
+
+// typeAheadHighWater : on ne remplit la file de l'injecteur que jusqu'à ce
+// niveau, sous sa borne (keyboard.DefaultQueueMax), pour ne jamais en perdre le
+// début. Le reste attend dans typeAhead et est injecté au fil du jeu.
+const typeAheadHighWater = 200
+
+// queueTypeAhead ajoute une séquence à taper (--exec ou coller), en normalisant
+// les fins de ligne (\r\n et \r → \n = ENT).
+func (a *App) queueTypeAhead(s string) {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	a.typeAhead = append(a.typeAhead, []rune(s)...)
+}
+
+// feedTypeAhead déverse le tampon de saisie programmée dans l'injecteur sans
+// dépasser sa file bornée (évite que le début d'un long script soit abandonné).
+func (a *App) feedTypeAhead() {
+	for len(a.typeAhead) > 0 && a.keys.Pending() < typeAheadHighWater {
+		a.keys.Enqueue(a.typeAhead[0])
+		a.typeAhead = a.typeAhead[1:]
+	}
+}
 
 // updateMenu traite les entrées (clavier ET souris) quand le menu est ouvert.
 func (a *App) updateMenu() error {
@@ -409,6 +475,16 @@ func inputJustPressed(k ebiten.Key) bool {
 	was := pressedLastFrame[k]
 	pressedLastFrame[k] = now
 	return now && !was
+}
+
+// pasteRequested détecte le raccourci « coller » : V vient d'être pressé avec
+// Cmd (macOS) ou Ctrl maintenu.
+func pasteRequested() bool {
+	if !inputJustPressed(ebiten.KeyV) {
+		return false
+	}
+	return ebiten.IsKeyPressed(ebiten.KeyMetaLeft) || ebiten.IsKeyPressed(ebiten.KeyMetaRight) ||
+		ebiten.IsKeyPressed(ebiten.KeyControlLeft) || ebiten.IsKeyPressed(ebiten.KeyControlRight)
 }
 
 // keyMapping mappe les touches spéciales Ebitengine vers les indices MO5.
