@@ -10,12 +10,14 @@ import (
 	"os"
 	"path/filepath"
 
+	dcaudio "github.com/Lesur-ai/dcmo5/internal/audio"
 	"github.com/Lesur-ai/dcmo5/internal/core"
 	"github.com/Lesur-ai/dcmo5/internal/media"
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
 	"github.com/Lesur-ai/dcmo5/internal/menu"
 	"github.com/Lesur-ai/dcmo5/internal/spec"
 	"github.com/hajimehoshi/ebiten/v2"
+	ebaudio "github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
@@ -50,6 +52,11 @@ type App struct {
 	tapeCloser io.Closer
 	diskCloser io.Closer
 
+	// Audio
+	audioStream *dcaudio.Stream
+	audioPlayer *ebaudio.Player
+	audioBuf    []uint8
+
 	// État desktop
 	paused     bool
 	romMissing bool
@@ -74,6 +81,7 @@ func New(machine *core.Machine) *App {
 		mediaDir: home,
 	}
 	a.menu = menu.NewModel(osLister)
+	a.initAudio()
 	return a
 }
 
@@ -198,6 +206,9 @@ func (a *App) Update() error {
 	if a.extraCycles < 0 {
 		a.extraCycles = 0
 	}
+
+	// Pousser le son produit pendant cette frame vers la sortie audio.
+	a.pumpAudio()
 	return nil
 }
 
