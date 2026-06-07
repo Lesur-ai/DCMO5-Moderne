@@ -15,21 +15,41 @@ jobs:
           - os: darwin
             arch: arm64
             runner: macos-latest
+            cgo: 1
+            ext: ""
+            archive: tar
           - os: darwin
             arch: amd64
             runner: macos-latest
+            cgo: 1
+            ext: ""
+            archive: tar
           - os: linux
             arch: amd64
             runner: ubuntu-latest
+            cgo: 1
+            ext: ""
+            archive: tar
+          # Windows : Ebitengine n'a PAS besoin de CGO sur Windows → cross-compilation
+          # depuis le runner Linux (CGO_ENABLED=0), archive .zip.
+          - os: windows
+            arch: amd64
+            runner: ubuntu-latest
+            cgo: 0
+            ext: ".exe"
+            archive: zip
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: deps Linux (Ebitengine)
-        if: runner.os == 'Linux'
+      # Dépendances système Ebitengine + ALSA : uniquement pour le build natif
+      # Linux (CGO). Le cross-build Windows (CGO=0) n'en a pas besoin.
+      - name: deps Linux (Ebitengine + ALSA)
+        if: matrix.os == 'linux'
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q \
+            libasound2-dev \
             libgl1-mesa-dev \
             libx11-dev \
             libxcursor-dev \
@@ -47,27 +67,32 @@ jobs:
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
-          CGO_ENABLED: 1
+          CGO_ENABLED: ${{ matrix.cgo }}
           # Le tag est passé par env pour éviter l'interpolation shell directe.
           RELEASE_VERSION: ${{ github.ref_name }}
         run: |
           mkdir -p dist
-          BINARY="dist/dcmo5-${{ matrix.os }}-${{ matrix.arch }}"
+          BINARY="dist/dcmo5-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}"
           go build -ldflags="-s -w -X main.version=${RELEASE_VERSION}" \
             -o "$BINARY" ./cmd/dcmo5
 
       - name: archive
         run: |
           cd dist
-          BINARY="dcmo5-${{ matrix.os }}-${{ matrix.arch }}"
-          tar czf "${BINARY}.tar.gz" "$BINARY"
-          rm "$BINARY"
+          BASE="dcmo5-${{ matrix.os }}-${{ matrix.arch }}"
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            zip "${BASE}.zip" "${BASE}${{ matrix.ext }}"
+            rm "${BASE}${{ matrix.ext }}"
+          else
+            tar czf "${BASE}.tar.gz" "${BASE}${{ matrix.ext }}"
+            rm "${BASE}${{ matrix.ext }}"
+          fi
 
       - name: upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: dcmo5-${{ matrix.os }}-${{ matrix.arch }}
-          path: dist/*.tar.gz
+          path: dist/dcmo5-*
           retention-days: 30
 
   release:
@@ -84,6 +109,8 @@ jobs:
       - name: create release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.tar.gz
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}

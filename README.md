@@ -238,16 +238,25 @@ DCMO5_LONG_TESTS=1 go test ./internal/core/...
 
 ## Distribution
 
-Des archives binaires pré-compilées (macOS arm64/amd64, Linux amd64) sont
-disponibles dans les [releases GitHub](https://github.com/Lesur-ai/dcmo5/releases).
+Des archives binaires pré-compilées sont disponibles dans les
+[releases GitHub](https://github.com/Lesur-ai/dcmo5/releases) :
+
+- **Windows amd64** : `dcmo5-windows-amd64.zip`
+- **macOS** arm64 / amd64 : `dcmo5-darwin-{arm64,amd64}.tar.gz`
+- **Linux amd64** : `dcmo5-linux-amd64.tar.gz`
 
 ```bash
+# macOS / Linux
 tar xzf dcmo5-darwin-arm64.tar.gz
 ./dcmo5-darwin-arm64 -rom /chemin/vers/mo5.rom
 ```
 
-Sous **Windows**, construire l'exécutable depuis les sources (`go build -o
-dcmo5.exe ./cmd/dcmo5`) — voir [Pré-requis › Windows](#windows--supporté-nativement).
+```powershell
+# Windows : dézipper puis lancer
+dcmo5-windows-amd64.exe -rom mo5-v1.1.rom
+```
+
+`dcmo5 -version` affiche la version du binaire.
 
 Voir [`RELEASE.md`](RELEASE.md) pour la procédure de release complète.
 
