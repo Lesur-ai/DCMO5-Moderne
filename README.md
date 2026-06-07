@@ -8,6 +8,12 @@ et `NOTICE`.
 
 **Version : 1.0.0** — historique des évolutions dans [`CHANGELOG.md`](CHANGELOG.md).
 
+## Captures d'écran
+
+| Jeu cassette (`.k7`) | DOS disquette (CD90-640) |
+|:--:|:--:|
+| ![Jeu MO5 chargé depuis cassette](screenshoot/mo5_aigle.png) | ![DOS MO5 depuis disquette](screenshoot/mo5_disk.png) |
+
 ---
 
 ## Périmètre v1
@@ -27,7 +33,7 @@ et `NOTICE`.
 - **Saisie programmée** `--exec` (taper une séquence au démarrage) et
   **copier-coller** depuis le presse-papier (`Cmd+V` / `Ctrl+V`)
 - **Imprimante** parallèle vers fichier
-- Préférences utilisateur portables macOS / Linux
+- Préférences utilisateur portables (Windows / macOS / Linux)
 - ROM système, ROM contrôleur CD90-640 et logiciels MO5 **inclus dans le dépôt**
   (sous réserve — voir [`DESIGN/LICENSING.md`](DESIGN/LICENSING.md))
 
@@ -97,8 +103,30 @@ accepte l'import de vos propres fichiers. Détails : [`DESIGN/LICENSING.md`](DES
 
 ## Pré-requis
 
-- Go 1.26+ (voir `go.mod`)
-- macOS arm64 / amd64 ou Linux amd64 (cibles de premier ordre)
+- **Go 1.26+** (voir `go.mod`)
+- Plateformes de bureau supportées : **Windows 10/11**, **macOS** (arm64/amd64),
+  **Linux** (amd64) — et plus largement toute cible supportée par Go et Ebitengine.
+
+Le cœur est en Go pur et le rendu passe par **Ebitengine** (multi-plateforme) :
+DCMO5 Moderne tourne **nativement** sur les trois OS de bureau.
+
+### Windows — supporté nativement
+
+Aucune dépendance système à installer (Ebitengine utilise l'API graphique native
+de Windows). Avec [Go 1.26+](https://go.dev/dl/) :
+
+```powershell
+# Lancer depuis la racine du dépôt
+go run ./cmd/dcmo5 -rom rom\mo5-v1.1.rom
+
+# Ou construire un exécutable
+go build -o dcmo5.exe ./cmd/dcmo5
+dcmo5.exe -rom rom\mo5-v1.1.rom -tape software\yahtzee-mo5.k7
+```
+
+### macOS — supporté nativement
+
+Aucune dépendance à installer ; `go run ./cmd/dcmo5 -rom rom/mo5-v1.1.rom`.
 
 ### Linux — dépendances système (Ebitengine)
 
@@ -217,6 +245,9 @@ disponibles dans les [releases GitHub](https://github.com/Lesur-ai/dcmo5/release
 tar xzf dcmo5-darwin-arm64.tar.gz
 ./dcmo5-darwin-arm64 -rom /chemin/vers/mo5.rom
 ```
+
+Sous **Windows**, construire l'exécutable depuis les sources (`go build -o
+dcmo5.exe ./cmd/dcmo5`) — voir [Pré-requis › Windows](#windows--supporté-nativement).
 
 Voir [`RELEASE.md`](RELEASE.md) pour la procédure de release complète.
 
