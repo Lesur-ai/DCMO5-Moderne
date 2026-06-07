@@ -6,6 +6,8 @@ Portage moderne de l'émulateur Thomson MO5 [DCMO5 v11](http://dcmo5.free.fr/)
 Ce projet est un logiciel libre sous licence **GNU GPL v3+**. Voir `LICENSE`
 et `NOTICE`.
 
+**Version : 1.0.0** — historique des évolutions dans [`CHANGELOG.md`](CHANGELOG.md).
+
 ---
 
 ## Périmètre v1

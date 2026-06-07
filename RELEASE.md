@@ -44,11 +44,19 @@ GOOS=darwin GOARCH=amd64 go build ./cmd/dcmo5
 > La vérification du build Linux se fait via la CI GitHub Actions ou sur un
 > environnement Linux natif avec les libs X11/GL installées (voir README).
 
-### 4. Créer le tag
+### 4. Mettre à jour version et changelog
+
+- [ ] `VERSION` reflète la version à publier (ex. `1.0.0`).
+- [ ] `CHANGELOG.md` a une section datée pour cette version (Ajouté / Changé /
+  Corrigé / Limites connues) et le lien `[x.y.z]` en bas pointe vers le tag.
+
+### 5. Créer le tag
+
+Le tag DOIT correspondre au contenu de `VERSION`, préfixé par `v` :
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 Le workflow CI `.github/workflows/release.yml` se déclenche automatiquement
@@ -57,7 +65,7 @@ et produit les archives pour :
 - `dcmo5-darwin-amd64.tar.gz`
 - `dcmo5-linux-amd64.tar.gz`
 
-### 5. Vérification post-release
+### 6. Vérification post-release
 
 - [ ] La release GitHub contient les 3 archives.
 - [ ] Les archives se lancent sur chaque plateforme cible.
