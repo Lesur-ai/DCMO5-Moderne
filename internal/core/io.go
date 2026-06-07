@@ -97,6 +97,10 @@ func (m *Machine) Entreesortie(io int) {
 }
 
 func (m *Machine) entreesortie(io int) {
+	if m.ioTrace != nil {
+		// Figer l'état d'entrée (params RAM, registres) avant le dispatch.
+		m.ioTrace.record(io, m)
+	}
 	switch io {
 	case 0x14:
 		m.readSector()

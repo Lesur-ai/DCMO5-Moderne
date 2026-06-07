@@ -106,6 +106,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "dcmo5: init machine:", err)
 		os.Exit(1)
 	}
+
+	// Instrumentation E/S optionnelle (diagnostic P10). Gating par env, jamais
+	// en dur : DCMO5_IO_TRACE=1 → stderr ; DCMO5_IO_TRACE_FILE=<path> → fichier.
+	if traceW := ioTraceWriter(); traceW != nil {
+		machine.EnableIOTrace(traceW)
+	}
+
 	machine.Reset()
 
 	// Sauvegarder uniquement le chemin ROM : les médias (tape/disk/cart) sont
@@ -138,4 +145,25 @@ func main() {
 		fmt.Fprintln(os.Stderr, "dcmo5:", err)
 		os.Exit(1)
 	}
+}
+
+// ioTraceWriter résout la destination de la trace E/S depuis l'environnement.
+// Retourne nil si la trace est désactivée (cas par défaut). Le fichier éventuel
+// reste ouvert pour la durée du process (outil de diagnostic ponctuel).
+//   - DCMO5_IO_TRACE_FILE=<path> : journalise dans le fichier (ajout) ;
+//   - DCMO5_IO_TRACE=<non vide>  : journalise sur stderr ;
+//   - sinon                      : désactivé.
+func ioTraceWriter() io.Writer {
+	if path := os.Getenv("DCMO5_IO_TRACE_FILE"); path != "" {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "dcmo5: trace E/S:", err)
+			return nil
+		}
+		return f
+	}
+	if os.Getenv("DCMO5_IO_TRACE") != "" {
+		return os.Stderr
+	}
+	return nil
 }
