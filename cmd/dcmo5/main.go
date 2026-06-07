@@ -15,7 +15,12 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
 )
 
+// version est la version du binaire, injectée à la compilation via
+// -ldflags="-X main.version=<tag>" (cf. .github/workflows/release.yml).
+var version = "dev"
+
 func main() {
+	showVersion := flag.Bool("version", false, "afficher la version et quitter")
 	romPath := flag.String("rom", "", "chemin vers la ROM système MO5 (16 Ko)")
 	tapePath := flag.String("tape", "", "fichier cassette .k7 à monter")
 	diskPath := flag.String("disk", "", "fichier disquette .fd à monter")
@@ -25,6 +30,11 @@ func main() {
 	execSeq := flag.String("exec", "", "séquence de touches tapée au démarrage (\\n = ENTRÉE), ex: '10 CLS\\nRUN\\n'")
 	execDelay := flag.Float64("exec-delay", 3, "délai en secondes avant de taper --exec (le temps que l'invite BASIC apparaisse)")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("dcmo5", version)
+		return
+	}
 
 	// Charger les préférences pour fallback
 	store, err := config.NewStore()
