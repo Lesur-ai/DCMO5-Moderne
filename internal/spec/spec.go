@@ -92,13 +92,20 @@ const (
 	K7BaudRate = 1200 // débit nominal cassette (bauds)
 )
 
-// Paramètres disquette .fd (CD90-640 compatible)
+// Paramètres disquette .fd — géométrie du contrôleur CD90-640.
+//
+// Le contrôleur adresse une disquette par (unité, piste, secteur). La taille
+// RÉELLE du fichier .fd détermine la densité (simple/double face, 40/80 pistes) :
+// le décalage d'un secteur est borné dynamiquement par la taille du fichier,
+// jamais par une taille figée. Ref C: dcmo5devices.c Readsector() —
+// s += 16*p + 1280*u ; offset=(s-1)<<8 ; borné par ftell(ffd).
 const (
-	FDSectorSize = 256                                           // octets par secteur
-	FDSectors    = 16                                            // secteurs par piste
-	FDTracks     = 40                                            // pistes par face
-	FDFaces      = 2                                             // nombre de faces
-	FDDiskSize   = FDFaces * FDTracks * FDSectors * FDSectorSize // 327 680 octets
+	FDSectorSize      = 256                                 // octets par secteur
+	FDSectorsPerTrack = 16                                  // secteurs par piste
+	FDTracksPerUnit   = 80                                  // pistes adressables par unité (stride)
+	FDMaxUnits        = 4                                   // unités 0..3
+	FDSectorsPerUnit  = FDSectorsPerTrack * FDTracksPerUnit // 1280 secteurs/unité
+	FDDiskSize        = FDSectorsPerUnit * FDSectorSize     // 327 680 o — taille par défaut d'une disquette créée
 )
 
 // palette Thomson MO5 (16 couleurs utilisateur + 3 couleurs système).
