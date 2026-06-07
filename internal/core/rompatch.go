@@ -86,3 +86,67 @@ func (m *Machine) applySystemRomPatches() RomPatchReport {
 	}
 	return rep
 }
+
+// ── ROM du contrôleur de disquette CD90-640 ───────────────────────────────────
+//
+// Même problème que la ROM système : la VRAIE ROM contrôleur pilote le FDC par
+// des accès matériel bas niveau (poll de registres non émulés → boucles de délai,
+// le DOS abandonne sans lire). dcmo5 v11 embarque une ROM contrôleur PATCHÉE où
+// les routines lire/écrire/formater secteur sont remplacées par des stubs-trap.
+// Les 8 octets ci-dessous proviennent du diff entre la vraie cd90-640.rom et la
+// ROM contrôleur de dcmo5rom.h. Patch appliqué EN MÉMOIRE (diskRom[]) uniquement.
+
+// diskRomBase est l'adresse de mappage de la ROM contrôleur (0xA000..0xA7BF).
+const diskRomBase = 0xA000
+
+// bytePatch décrit le remplacement d'UN octet (les patchs contrôleur mêlent
+// stubs-trap 2 octets et neutralisations 1 octet, d'où une granularité d'octet).
+type bytePatch struct {
+	addr     uint16
+	original uint8
+	patched  uint8
+	desc     string
+}
+
+// dcmo5DiskControllerPatches : alignée sur la ROM contrôleur patchée de dcmo5 v11.
+var dcmo5DiskControllerPatches = []bytePatch{
+	{0xA12E, 0x86, 0x39, "init/restore FDC → RTS"},
+	{0xA17D, 0x8D, 0x15, "écrire secteur (trap 0x15)"},
+	{0xA17E, 0x56, 0x39, "  + RTS"},
+	{0xA202, 0x8D, 0x14, "lire secteur (trap 0x14)"},
+	{0xA203, 0x3B, 0x39, "  + RTS"},
+	{0xA30C, 0x17, 0x39, "seek/moteur → RTS"},
+	{0xA32C, 0x34, 0x18, "formater (trap 0x18)"},
+	{0xA32D, 0x7F, 0x39, "  + RTS"},
+}
+
+// applyDiskControllerPatches aligne diskRom[] sur le modèle trap, en mémoire.
+// Même stratégie tout-ou-rien / idempotente / sûre que applySystemRomPatches.
+// No-op si aucun contrôleur n'est monté (diskRomLen == 0).
+func (m *Machine) applyDiskControllerPatches() RomPatchReport {
+	if m.diskRomLen == 0 {
+		return RomPatchReport{OK: false}
+	}
+	// Passe 1 : vérification (bornes + octet d'origine ou déjà patché).
+	for _, p := range dcmo5DiskControllerPatches {
+		i := int(p.addr) - diskRomBase
+		if i < 0 || i >= m.diskRomLen {
+			return RomPatchReport{OK: false}
+		}
+		if cur := m.diskRom[i]; cur != p.original && cur != p.patched {
+			return RomPatchReport{OK: false}
+		}
+	}
+	// Passe 2 : application.
+	rep := RomPatchReport{OK: true}
+	for _, p := range dcmo5DiskControllerPatches {
+		i := int(p.addr) - diskRomBase
+		if m.diskRom[i] == p.patched {
+			rep.Already++
+			continue
+		}
+		m.diskRom[i] = p.patched
+		rep.Applied++
+	}
+	return rep
+}

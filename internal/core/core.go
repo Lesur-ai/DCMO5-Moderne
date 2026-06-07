@@ -28,11 +28,13 @@ type Options struct {
 	Printer         media.PrinterSink // imprimante, ou nil
 	AudioSampleRate int               // taux d'échantillonnage audio (0 = spec.AudioSampleRate)
 
-	// PatchSystemROM aligne en mémoire les routines d'E/S de la vraie ROM MO5
-	// (cassette, crayon, imprimante) sur le modèle trap de l'émulateur, comme la
-	// ROM patchée de dcmo5 v11 (cf. rompatch.go). Sans ce patch, un LOAD" boucle
-	// indéfiniment (lecture cassette par bit-bang matériel non émulé). Le fichier
-	// ROM n'est jamais modifié. Sans effet sur une ROM non reconnue.
+	// PatchSystemROM aligne en mémoire les routines d'E/S des vraies ROM MO5 sur
+	// le modèle trap de l'émulateur, comme les ROM patchées de dcmo5 v11
+	// (cf. rompatch.go) : ROM système (cassette, crayon, imprimante) ET, si
+	// présente, ROM contrôleur de disquette CD90-640 (lire/écrire/formater +
+	// amorçage DOS). Sans ce patch, ces E/S bouclent sur du bit-bang matériel non
+	// émulé. Les fichiers ROM ne sont jamais modifiés. Sans effet sur une ROM non
+	// reconnue.
 	PatchSystemROM bool
 
 	// OnError notifie la couche hôte d'une erreur d'E/S MO5 (codes BASIC : 11 =
@@ -118,6 +120,9 @@ func NewMachine(opts Options) (*Machine, error) {
 		}
 		copy(m.diskRom[:n], opts.DiskControllerROM[:n])
 		m.diskRomLen = n
+		if opts.PatchSystemROM {
+			m.applyDiskControllerPatches() // alignement trap du DOS (cf. rompatch.go)
+		}
 	}
 	m.hardReset()
 	m.loadCartridge() // charge opts.Cartridge dans car[] si présente

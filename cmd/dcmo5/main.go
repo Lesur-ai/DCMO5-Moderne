@@ -52,8 +52,10 @@ func main() {
 	}
 
 	opts := core.Options{
-		// Aligne la vraie ROM MO5 sur le modèle trap (cassette/crayon/imprimante),
-		// comme la ROM patchée de dcmo5 v11. Patch en mémoire ; fichier ROM intact.
+		// Aligne les vraies ROM MO5 sur le modèle trap, comme dcmo5 v11 : ROM
+		// système (cassette/crayon/imprimante) et ROM contrôleur de disquette
+		// CD90-640 (lire/écrire/formater + amorçage DOS). Patch en mémoire ;
+		// fichiers ROM intacts.
 		PatchSystemROM: true,
 		// Remonte les erreurs d'E/S MO5 (équiv. boîte Erreur(n) réf C) sur stderr.
 		OnError: func(code int) {
