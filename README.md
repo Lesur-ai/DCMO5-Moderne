@@ -12,14 +12,22 @@ et `NOTICE`.
 
 ### Fonctionnalités émulées
 
-- Rendu vidéo MO5 (framebuffer logique 336×216, palette Thomson)
-- Audio mono
-- Clavier MO5 + mapping clavier hôte
-- Joysticks émulés au clavier
-- Chargement cassette `.k7`, disquette `.fd` (densité variable, DOS CD90-640),
-  cartouche MEMO5 `.rom`
-- Imprimante parallèle vers fichier
+- **Vidéo** MO5 (framebuffer logique 336×216, palette Thomson, timing faisceau/IRQ 50 Hz)
+- **Audio** mono (haut-parleur 1 bit, échantillonné à 48 kHz)
+- **Clavier MO5** *layout-safe* (AZERTY/QWERTY) : les touches sont **maintenues**
+  (jeux + répétition) ; mapping clavier hôte
+- **Joysticks** émulés au clavier
+- **Cassette** `.k7`, **disquette** `.fd` (densité variable + DOS contrôleur CD90-640),
+  **cartouche** MEMO5 `.rom`
+- **Menu de pilotage in-app** (touche `Échap`) : charger/éjecter cassette,
+  disquette, cartouche ; Reset / Init prog
+- **Médias à chaud** : montage/éjection sans relancer l'émulateur
+- **Saisie programmée** `--exec` (taper une séquence au démarrage) et
+  **copier-coller** depuis le presse-papier (`Cmd+V` / `Ctrl+V`)
+- **Imprimante** parallèle vers fichier
 - Préférences utilisateur portables macOS / Linux
+- ROM système, ROM contrôleur CD90-640 et logiciels MO5 **inclus dans le dépôt**
+  (sous réserve — voir [`DESIGN/LICENSING.md`](DESIGN/LICENSING.md))
 
 ### Limites connues
 
@@ -117,47 +125,83 @@ sudo dnf install -y \
   libXxf86vm-devel
 ```
 
-> **CI headless :** `go test -race ./...` est sûr car `internal/app` expose
-> uniquement des fonctions pures testables sans initialiser Ebitengine.
+> **CI headless :** `internal/app` initialise Ebitengine (GLFW) et n'est donc
+> pas exécuté dans la suite headless — la CI lance `go test -race` sur tous les
+> autres paquets, et ne teste de `internal/app` que ses fonctions pures.
 > `go build ./...` requiert les libs ci-dessus sur Linux.
 
 ## Utilisation
 
-### Lancer l'émulateur
+### Démarrage rapide
+
+La ROM et des logiciels étant inclus dans le dépôt, l'émulateur est utilisable
+immédiatement (lancé depuis la racine du projet) :
 
 ```bash
-# Sans ROM (état indéfini, avertissement affiché)
-go run ./cmd/dcmo5
+# BASIC (la ROM rom/mo5-v1.1.rom est trouvée automatiquement)
+go run ./cmd/dcmo5 -rom rom/mo5-v1.1.rom
 
-# Avec ROM (recommandé)
-go run ./cmd/dcmo5 -rom /chemin/vers/mo5.rom
+# Charger un jeu cassette
+go run ./cmd/dcmo5 -rom rom/mo5-v1.1.rom -tape software/yahtzee-mo5.k7
 
-# Avec ROM + cassette
-go run ./cmd/dcmo5 -rom mo5.rom -tape jeu.k7
+# Démarrer le DOS depuis une disquette (ROM contrôleur cd90-640.rom auto-détectée)
+go run ./cmd/dcmo5 -rom rom/mo5-v1.1.rom -disk software/dos-5p25-mo5.fd
 
-# Avec ROM + disquette
-go run ./cmd/dcmo5 -rom mo5.rom -disk dos.fd
-
-# Avec cartouche MEMO5
-go run ./cmd/dcmo5 -rom mo5.rom -cart memo5.rom
+# Cartouche MEMO5
+go run ./cmd/dcmo5 -rom rom/mo5-v1.1.rom -cart software/glouton-memo5.rom
 ```
 
-Les chemins sont mémorisés dans la configuration utilisateur
-(`~/.config/dcmo5/config.json` sur Linux, `~/Library/Application Support/dcmo5/config.json` sur macOS)
-et réutilisés au prochain lancement sans argument.
+> Le menu in-app (`Échap`) permet aussi de charger/éjecter les médias **à chaud**,
+> sans relancer. Les chemins sont mémorisés dans la config utilisateur
+> (`~/.config/dcmo5/config.json` sous Linux,
+> `~/Library/Application Support/dcmo5/config.json` sous macOS).
 
-### Raccourcis clavier
+### Options de ligne de commande
+
+| Option | Description |
+|--------|-------------|
+| `-rom <fichier>` | ROM système MO5 (16 Ko) |
+| `-tape <fichier>` | Cassette `.k7` à monter |
+| `-disk <fichier>` | Disquette `.fd` à monter |
+| `-cart <fichier>` | Cartouche MEMO5 `.rom` à monter |
+| `-disk-rom <fichier>` | ROM du contrôleur CD90-640 (auto-détectée à côté de la ROM système si absente) |
+| `-exec "<séquence>"` | Tape une séquence de touches au démarrage (`\n` = ENTRÉE, `\t` = TAB) |
+| `-exec-delay <s>` | Délai avant `--exec`, le temps que l'invite BASIC apparaisse (défaut 3 s) |
+| `-no-audio` | Désactive la sortie audio |
+
+### Raccourcis clavier (hôte)
 
 | Touche | Action |
 |--------|--------|
-| `F5` | Reset machine |
+| `Échap` | Ouvrir le menu de pilotage / revenir en arrière |
+| `F5` | Reset machine (efface la RAM) |
 | `F3` | Pause / Reprise |
-| `Escape` | Quitter |
+| `Cmd+V` / `Ctrl+V` | Coller le presse-papier (tapé dans le MO5) |
+| Fermeture fenêtre | Quitter |
+
+Dans le **menu** (`Échap`) : flèches pour naviguer, `Entrée` pour valider —
+charger/éjecter cassette, disquette, cartouche ; `Init prog` (reset doux) ;
+`Reset machine`.
+
+### Saisie programmée (`--exec`) et copier-coller
+
+`--exec` tape automatiquement une séquence après le boot (utile pour charger et
+lancer un programme), et `Cmd+V`/`Ctrl+V` colle le presse-papier comme si vous
+le tapiez :
+
+```bash
+# Taper puis exécuter un petit programme BASIC au démarrage
+go run ./cmd/dcmo5 -rom rom/mo5-v1.1.rom -exec '10 CLS\n20 PRINT "BONJOUR"\nRUN\n'
+```
 
 ### Tests
 
 ```bash
-go test ./...
+# Suite headless (exclut internal/app qui nécessite un affichage)
+go test $(go list ./... | grep -v /internal/app)
+
+# Tests longs avec la vraie ROM (boot BASIC, cassette, disquette…)
+DCMO5_LONG_TESTS=1 go test ./internal/core/...
 ```
 
 ---
