@@ -82,20 +82,31 @@ type App struct {
 func New(machine *core.Machine) *App {
 	fb := ebiten.NewImage(spec.FrameWidth, spec.FrameHeight)
 	fb.Fill(color.RGBA{R: 0, G: 0, B: 0, A: 0xFF})
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		home = "."
-	}
 	a := &App{
 		host:     emu.New(machine, defaultAudioGain),
 		fb:       fb,
 		fbPixels: make([]uint32, spec.FrameWidth*spec.FrameHeight),
 		fbBytes:  make([]byte, spec.FrameWidth*spec.FrameHeight*4),
 		keys:     keyboard.NewInjector(keyboard.DefaultHoldFrames, keyboard.DefaultGapFrames),
-		mediaDir: home,
+		mediaDir: startMediaDir(os.Getwd, os.UserHomeDir),
 	}
 	a.menu = menu.NewModel(osLister)
 	return a
+}
+
+// startMediaDir choisit le répertoire de départ du navigateur du menu : le
+// répertoire de travail courant en priorité (intuitif quand on lance le binaire
+// depuis le dossier du projet, où vivent rom/ et software/), avec repli sur le
+// répertoire personnel puis « . ». Les sources (getwd/home) sont injectées pour
+// rester testable sans dépendre de l'environnement réel.
+func startMediaDir(getwd, home func() (string, error)) string {
+	if wd, err := getwd(); err == nil && wd != "" {
+		return wd
+	}
+	if h, err := home(); err == nil && h != "" {
+		return h
+	}
+	return "."
 }
 
 // osLister liste un répertoire réel pour le navigateur du menu.
