@@ -137,6 +137,14 @@ func (c *CPU) execTFRbyte(postbyte uint8) {
 }
 
 func (c *CPU) execEXGbyte(postbyte uint8) {
+	// EXG est SYMÉTRIQUE : EXG R1,R2 == EXG R2,R1. La table ci-dessous ne liste
+	// les paires 16 bits (IDs 0..5) que dans l'ordre canonique (petit nibble en
+	// premier). On normalise donc les encodages inversés (ex. EXG Y,X = 0x21 →
+	// 0x12) pour les couvrir tous — sans cela, EXG Y,X ne faisait RIEN.
+	// Ref: dc6809emul.c Exg() (qui énumère explicitement les deux sens).
+	if hi, lo := postbyte>>4, postbyte&0x0F; hi <= 0x05 && lo <= 0x05 && hi > lo {
+		postbyte = lo<<4 | hi
+	}
 	switch postbyte {
 	case 0x01:
 		d := c.D()
