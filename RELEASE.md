@@ -73,8 +73,15 @@ tar xzf dcmo5-darwin-arm64.tar.gz
 
 ## Limites connues v1
 
-- ROM système MO5 non fournie (voir `DESIGN/LICENSING.md`).
-- L'émulation cassette/disque/cartouche est architecturalement prête
-  mais non testée sans ROM réelle.
+- **Crayon optique** : la fonction BASIC `PEN(...)` ne suit pas la souris. La
+  routine bas niveau (trap `0x4B`) est émulée, mais le BASIC dérive la position
+  d'un handshake matériel du crayon optique non émulé — **conforme à dcmo5 v11**
+  (qui ne fait pas suivre la souris à `PEN` non plus). Cf. issue #86.
+- ROM système MO5 / contrôleur CD90-640 et logiciels MO5 inclus dans le dépôt
+  sous réserve (voir `DESIGN/LICENSING.md` §3.1 : provenance, appréciation,
+  procédure de retrait).
+- Cassette `.k7`, disquette `.fd` (densité variable + DOS CD90-640) et cartouche
+  MEMO5 sont fonctionnelles sur ROM réelle (alignement trap via patch ROM en
+  mémoire, cf. `internal/core/rompatch.go`).
 - macOS : warning CVDisplayLink (Ebitengine v2.9.9, sans impact).
 - Linux : nécessite les libs X11/GL (voir README).

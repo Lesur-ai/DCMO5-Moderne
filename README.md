@@ -16,10 +16,19 @@ et `NOTICE`.
 - Audio mono
 - Clavier MO5 + mapping clavier hôte
 - Joysticks émulés au clavier
-- Crayon optique via souris
-- Chargement cassette `.k7`, disquette `.fd`, cartouche MEMO5 `.rom`
+- Chargement cassette `.k7`, disquette `.fd` (densité variable, DOS CD90-640),
+  cartouche MEMO5 `.rom`
 - Imprimante parallèle vers fichier
 - Préférences utilisateur portables macOS / Linux
+
+### Limites connues
+
+- **Crayon optique** : la routine bas niveau (souris → coordonnées MO5) est en
+  place, mais la fonction BASIC `PEN(...)` **ne suit pas la souris**. La ROM MO5
+  dérive la position d'un **handshake matériel du crayon optique** (synchro
+  faisceau) que la version moderne n'émule pas — comportement **identique à
+  dcmo5 v11**, qui ne fait pas non plus suivre la souris à `PEN`. Voir
+  [issue #86](https://github.com/Lesur-ai/dcmo5/issues/86) (amélioration future).
 
 ### Exclusions explicites de la v1
 
