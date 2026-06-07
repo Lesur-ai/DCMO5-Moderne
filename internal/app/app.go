@@ -228,7 +228,10 @@ func (a *App) Update() error {
 			in.Keys[k] = true
 		}
 	}
-	in.PenX, in.PenY = ebiten.CursorPosition()
+	// Le curseur Ebitengine est en repère framebuffer (Layout = 336×216, bordure
+	// incluse). Le crayon MO5 attend le repère écran actif → on retranche la
+	// bordure. Hors zone active, le cœur (readPenXY) signalera « pas de détection ».
+	in.PenX, in.PenY = spec.PenFromFramebuffer(ebiten.CursorPosition())
 	in.PenDown = ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 	a.host.SetInput(in)
 	return nil
