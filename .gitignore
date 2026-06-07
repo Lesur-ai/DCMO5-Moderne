@@ -22,9 +22,9 @@
 *.m4a
 *.wav
 
-# ROM système et logiciels MO5 (sous copyright — ne pas versionner)
-/rom/
-/software/
+# Note : rom/ (ROM système MO5 + contrôleur CD90-640) et software/ (logiciels
+# MO5 historiques) sont désormais versionnés — cf. DESIGN/LICENSING.md (§3) pour
+# la provenance, l'appréciation de redistribuabilité et la procédure de retrait.
 
 # Règles projet Claude Code (non versionnées)
 .clinerules/

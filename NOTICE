@@ -26,15 +26,23 @@ documentaire au portage. Il n'est pas une dependance runtime de la version
 moderne.
 
 
-Contenus copyright NON distribues avec ce logiciel
----------------------------------------------------
+Contenus Thomson MO5 inclus (sous reserve)
+------------------------------------------
 
-Les elements suivants sont soumis a copyright et ne sont jamais embarques
-dans ce logiciel ni dans ses paquets de distribution. L'utilisateur doit
-les fournir lui-meme via le mecanisme d'import.
+Ce depot inclut, pour rendre l'emulateur utilisable immediatement :
 
-  - ROM Thomson MO5 et ROM du controleur disque CD90-640
-    (accord ecrit des ayants droit requis).
-  - Logiciels MO5 commerciaux (.k7, .fd, .rom).
+  - ROM systeme MO5 et ROM du controleur de disquette CD90-640 (rom/).
+  - Logiciels MO5 historiques (software/ : .k7, .fd, .rom).
 
-Voir DESIGN/LICENSING.md pour la classification complete et les garde-fous.
+Ces contenus proviennent du materiel et de l'ecosysteme Thomson MO5
+(commercialise en 1984) et de la communaute de preservation/emulation. Le
+mainteneur les considere comme raisonnablement redistribuables compte tenu de
+leur anciennete et de leur diffusion etablie. CECI N'EST PAS UN AVIS JURIDIQUE
+et n'affirme pas un statut de domaine public etabli.
+
+Tout ayant droit peut demander le retrait d'un contenu en ouvrant une issue
+sur le depot ; il sera retire sans delai.
+
+Le binaire lui-meme n'embarque aucun octet de ROM : ROM et medias sont
+charges depuis des fichiers. Voir DESIGN/LICENSING.md (section 3) pour la
+classification complete et la procedure de retrait.
