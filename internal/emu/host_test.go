@@ -11,6 +11,7 @@ import (
 
 	"github.com/Lesur-ai/dcmo5/internal/audio"
 	"github.com/Lesur-ai/dcmo5/internal/core"
+	"github.com/Lesur-ai/dcmo5/internal/machine/mo5"
 	"github.com/Lesur-ai/dcmo5/internal/spec"
 )
 
@@ -38,7 +39,7 @@ func nopMachine(t *testing.T) *core.Machine {
 func TestHost_TickProducesAudio(t *testing.T) {
 	const gain = 480
 	m := nopMachine(t)
-	h := New(m, gain)
+	h := New(mo5.Wrap(m), gain)
 	m.Write8(0xA7CD, 0x3F) // niveau max ; la ROM NOP ne le modifie pas
 
 	h.tick(spec.CPUClockHz / 100) // ~10 ms d'émulation
@@ -55,7 +56,7 @@ func TestHost_TickProducesAudio(t *testing.T) {
 // TestHost_TickAppliesInput vérifie que l'instantané d'entrée est appliqué.
 func TestHost_TickAppliesInput(t *testing.T) {
 	m := nopMachine(t)
-	h := New(m, 1)
+	h := New(mo5.Wrap(m), 1)
 	var in InputState
 	in.Keys[0x20] = true // ESPACE pressé
 	h.SetInput(in)
@@ -73,18 +74,18 @@ func TestHost_TickAppliesInput(t *testing.T) {
 // TestHost_StopIdempotent : Stop doit pouvoir être appelé plusieurs fois sans
 // paniquer (fermeture de canal en double).
 func TestHost_StopIdempotent(t *testing.T) {
-	h := New(nopMachine(t), 1)
+	h := New(mo5.Wrap(nopMachine(t)), 1)
 	h.Start()
 	h.Stop()
 	h.Stop() // ne doit pas paniquer
 	// Stop sans Start préalable non plus.
-	h2 := New(nopMachine(t), 1)
+	h2 := New(mo5.Wrap(nopMachine(t)), 1)
 	h2.Stop()
 }
 
 // TestHost_Paused : en pause, l'état est rapporté correctement.
 func TestHost_Paused(t *testing.T) {
-	h := New(nopMachine(t), 1)
+	h := New(mo5.Wrap(nopMachine(t)), 1)
 	if h.Paused() {
 		t.Fatal("ne doit pas démarrer en pause")
 	}
@@ -99,7 +100,7 @@ func TestHost_Paused(t *testing.T) {
 func TestHost_PausedReaderSilence(t *testing.T) {
 	m := nopMachine(t)
 	m.Write8(0xA7CD, 0x3F) // niveau max
-	h := New(m, 480)
+	h := New(mo5.Wrap(m), 480)
 	h.tick(spec.CPUClockHz / 100) // produit du son non nul dans la ring
 
 	h.SetPaused(true)
@@ -119,7 +120,7 @@ func TestHost_PausedReaderSilence(t *testing.T) {
 // TestHost_ConcurrentAccessNoRace lance la goroutine d'émulation et sollicite
 // toutes les surfaces partagées en parallèle. À exécuter avec -race.
 func TestHost_ConcurrentAccessNoRace(t *testing.T) {
-	h := New(nopMachine(t), 480)
+	h := New(mo5.Wrap(nopMachine(t)), 480)
 	h.Start()
 	defer h.Stop()
 

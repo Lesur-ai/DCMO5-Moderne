@@ -63,6 +63,14 @@ func New(opts core.Options) (machine.Machine, error) {
 	return &adapter{Machine: m}, nil
 }
 
+// Wrap habille un *core.Machine MO5 existant pour le contrat machine.Machine, sans
+// le reconstruire. Utile quand l'appelant détient déjà le cœur — par exemple le CLI,
+// qui configure des options non couvertes par le contrat (EnableIOTrace), ou les
+// tests. Pour une construction standard depuis des options, préférer New.
+func Wrap(m *core.Machine) machine.Machine {
+	return &adapter{Machine: m}
+}
+
 // ── Profil MO5 (registre) ─────────────────────────────────────────────────────
 
 // Clés des paramètres déclarés (consommées par le launcher/overlay).

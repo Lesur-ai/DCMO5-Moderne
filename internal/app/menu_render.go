@@ -11,7 +11,6 @@ import (
 	"image/color"
 
 	"github.com/Lesur-ai/dcmo5/internal/menu"
-	"github.com/Lesur-ai/dcmo5/internal/spec"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -95,7 +94,8 @@ func drawMenu(screen *ebiten.Image, m *menu.Model) {
 	if !m.IsOpen() {
 		return
 	}
-	vector.DrawFilledRect(screen, 0, 0, spec.FrameWidth, spec.FrameHeight, menuVeil, false)
+	b := screen.Bounds()
+	vector.DrawFilledRect(screen, 0, 0, float32(b.Dx()), float32(b.Dy()), menuVeil, false)
 
 	px, py, pw, ph := panelRect(m.State())
 	// Liseré double (externe sombre + filet clair) pour un cadre net.

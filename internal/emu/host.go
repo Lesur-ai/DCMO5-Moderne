@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/Lesur-ai/dcmo5/internal/audio"
-	"github.com/Lesur-ai/dcmo5/internal/core"
+	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/media"
 	"github.com/Lesur-ai/dcmo5/internal/spec"
 )
@@ -68,7 +68,7 @@ type command struct {
 
 // Host pilote une Machine en temps réel.
 type Host struct {
-	machine *core.Machine
+	machine machine.Machine
 	stream  *audio.Stream
 
 	inputMu sync.Mutex
@@ -88,14 +88,17 @@ type Host struct {
 	drainBuf []uint8 // tampon de drainage audio réutilisé (goroutine)
 }
 
-// New crée un Host pour la machine donnée. gain règle le volume audio.
-func New(m *core.Machine, gain int) *Host {
+// New crée un Host pour la machine donnée. gain règle le volume audio. Les tampons
+// framebuffer sont dimensionnés selon FrameSize() de la machine (fixe par instance),
+// et non plus selon des constantes MO5 : le Host est agnostique de la machine.
+func New(m machine.Machine, gain int) *Host {
 	sr := m.AudioSampleRate()
+	fw, fh := m.FrameSize()
 	h := &Host{
 		machine:  m,
 		stream:   audio.NewStream(gain, sr*audioRingMaxMS/1000),
-		fbFront:  make([]uint32, spec.FrameWidth*spec.FrameHeight),
-		fbBack:   make([]uint32, spec.FrameWidth*spec.FrameHeight),
+		fbFront:  make([]uint32, fw*fh),
+		fbBack:   make([]uint32, fw*fh),
 		cmds:     make(chan command, 16),
 		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
@@ -250,9 +253,9 @@ func (h *Host) run() {
 func (h *Host) tick(cycles int) int {
 	in := h.snapshotInput()
 	for k := 0; k < spec.KeyMax; k++ {
-		h.machine.SetKey(core.Key(k), in.Keys[k])
+		h.machine.SetKey(machine.Key(k), in.Keys[k])
 	}
-	h.machine.SetPen(in.PenX, in.PenY, in.PenDown)
+	h.machine.SetPointer(machine.PointerInput{Kind: machine.PointerPen, X: in.PenX, Y: in.PenY, Button: in.PenDown})
 	consumed := h.machine.Step(cycles)
 	for {
 		n := h.machine.DrainAudio(h.drainBuf)

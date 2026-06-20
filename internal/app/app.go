@@ -18,9 +18,9 @@ import (
 
 	"github.com/atotto/clipboard"
 
-	"github.com/Lesur-ai/dcmo5/internal/core"
 	"github.com/Lesur-ai/dcmo5/internal/emu"
 	"github.com/Lesur-ai/dcmo5/internal/keyboard"
+	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/media"
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
 	"github.com/Lesur-ai/dcmo5/internal/menu"
@@ -62,6 +62,7 @@ type App struct {
 	fb       *ebiten.Image
 	fbPixels []uint32 // tampon framebuffer réutilisé (anti-alloc/GC)
 	fbBytes  []byte   // tampon RGBA réutilisé pour WritePixels
+	fw, fh   int      // dimensions logiques du framebuffer (fixées par la machine)
 
 	// Saisie clavier
 	keys       *keyboard.Injector
@@ -102,15 +103,20 @@ type App struct {
 	cartName   string
 }
 
-// New crée une application pilotant la machine donnée via un emu.Host.
-func New(machine *core.Machine) *App {
-	fb := ebiten.NewImage(spec.FrameWidth, spec.FrameHeight)
+// New crée une application pilotant la machine donnée via un emu.Host. Les tampons
+// d'affichage sont dimensionnés selon FrameSize() de la machine (fixe par instance) :
+// l'App est agnostique du modèle émulé.
+func New(m machine.Machine) *App {
+	fw, fh := m.FrameSize()
+	fb := ebiten.NewImage(fw, fh)
 	fb.Fill(color.RGBA{R: 0, G: 0, B: 0, A: 0xFF})
 	a := &App{
-		host:     emu.New(machine, defaultAudioGain),
+		host:     emu.New(m, defaultAudioGain),
 		fb:       fb,
-		fbPixels: make([]uint32, spec.FrameWidth*spec.FrameHeight),
-		fbBytes:  make([]byte, spec.FrameWidth*spec.FrameHeight*4),
+		fw:       fw,
+		fh:       fh,
+		fbPixels: make([]uint32, fw*fh),
+		fbBytes:  make([]byte, fw*fh*4),
 		keys:     keyboard.NewInjector(keyboard.DefaultHoldFrames, keyboard.DefaultGapFrames),
 		liveKeys: make(map[ebiten.Key]liveKey),
 		mediaDir: startMediaDir(os.Getwd, os.UserHomeDir),
@@ -425,18 +431,20 @@ func (a *App) Draw(screen *ebiten.Image) {
 	a.fb.WritePixels(a.fbBytes)
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Scale(
-		float64(screen.Bounds().Dx())/float64(spec.FrameWidth),
-		float64(screen.Bounds().Dy())/float64(spec.FrameHeight),
+		float64(screen.Bounds().Dx())/float64(a.fw),
+		float64(screen.Bounds().Dy())/float64(a.fh),
 	)
 	screen.DrawImage(a.fb, op)
 
 	drawMenu(screen, a.menu)
 }
 
-// Layout retourne les dimensions logiques fixes du framebuffer MO5.
-func (a *App) Layout(_, _ int) (int, int) { return LogicalSize() }
+// Layout retourne les dimensions logiques du framebuffer de la machine émulée
+// (fixées au New() via FrameSize()).
+func (a *App) Layout(_, _ int) (int, int) { return a.fw, a.fh }
 
-// LogicalSize retourne les dimensions logiques. Testable sans Ebitengine.
+// LogicalSize retourne les dimensions logiques par défaut (MO5). Conservée pour les
+// tests ; la taille effective d'une App vient de Layout()/FrameSize() de sa machine.
 func LogicalSize() (int, int) { return spec.FrameWidth, spec.FrameHeight }
 
 // updateTitle met à jour le titre de fenêtre selon l'état courant.
@@ -468,7 +476,7 @@ func (a *App) updateTitle() {
 // Run configure et lance la boucle Ebitengine.
 func Run(a *App) error {
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
-	ebiten.SetWindowSize(windowScaleX*spec.FrameWidth, windowScaleY*spec.FrameHeight)
+	ebiten.SetWindowSize(windowScaleX*a.fw, windowScaleY*a.fh)
 	a.initAudio()  // après que main a pu désactiver l'audio (--no-audio)
 	a.host.Start() // lance la goroutine d'émulation
 	defer a.host.Stop()

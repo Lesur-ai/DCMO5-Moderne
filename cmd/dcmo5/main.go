@@ -12,6 +12,8 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/app"
 	"github.com/Lesur-ai/dcmo5/internal/app/config"
 	"github.com/Lesur-ai/dcmo5/internal/core"
+	"github.com/Lesur-ai/dcmo5/internal/machine"
+	"github.com/Lesur-ai/dcmo5/internal/machine/mo5"
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
 )
 
@@ -21,6 +23,7 @@ var version = "dev"
 
 func main() {
 	showVersion := flag.Bool("version", false, "afficher la version et quitter")
+	machineID := flag.String("machine", "mo5", "machine à émuler (défaut: mo5)")
 	romPath := flag.String("rom", "", "chemin vers la ROM système MO5 (16 Ko)")
 	tapePath := flag.String("tape", "", "fichier cassette .k7 à monter")
 	diskPath := flag.String("disk", "", "fichier disquette .fd à monter")
@@ -143,19 +146,33 @@ func main() {
 			"(-disk-rom) — le DOS sera inopérant")
 	}
 
-	machine, err := core.NewMachine(opts)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "dcmo5: init machine:", err)
+	// Construction de la machine sélectionnée via le registre des profils. Le MO5
+	// est bâti par la voie cœur (pour brancher l'instrumentation E/S non couverte par
+	// le contrat) puis enrobé par l'adaptateur. Les autres profils seront constructibles
+	// en CLI au fil des lots v2 ; le launcher (lot 11) les instanciera génériquement.
+	var m machine.Machine
+	switch *machineID {
+	case "mo5":
+		coreM, err := core.NewMachine(opts)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "dcmo5: init machine:", err)
+			os.Exit(1)
+		}
+		// Instrumentation E/S optionnelle (diagnostic P10). Gating par env, jamais
+		// en dur : DCMO5_IO_TRACE=1 → stderr ; DCMO5_IO_TRACE_FILE=<path> → fichier.
+		if traceW := ioTraceWriter(); traceW != nil {
+			coreM.EnableIOTrace(traceW)
+		}
+		coreM.Reset()
+		m = mo5.Wrap(coreM)
+	default:
+		ids := make([]string, 0)
+		for _, p := range machine.Profiles() {
+			ids = append(ids, p.ID)
+		}
+		fmt.Fprintf(os.Stderr, "dcmo5: machine inconnue %q. Disponibles : %s\n", *machineID, strings.Join(ids, ", "))
 		os.Exit(1)
 	}
-
-	// Instrumentation E/S optionnelle (diagnostic P10). Gating par env, jamais
-	// en dur : DCMO5_IO_TRACE=1 → stderr ; DCMO5_IO_TRACE_FILE=<path> → fichier.
-	if traceW := ioTraceWriter(); traceW != nil {
-		machine.EnableIOTrace(traceW)
-	}
-
-	machine.Reset()
 
 	// Sauvegarder uniquement le chemin ROM : les médias (tape/disk/cart) sont
 	// acceptés en CLI et passés à core.Options, mais l'émulation I/O
@@ -167,7 +184,7 @@ func main() {
 		store.Save(cfg)
 	}
 
-	a := app.New(machine)
+	a := app.New(m)
 	a.SetROMStatus(romMissing)
 	a.SetMediaNames(*romPath, *tapePath, *diskPath, *cartPath)
 	a.SetStartupMediaClosers(tapeCloser, diskCloser)
