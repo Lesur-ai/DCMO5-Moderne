@@ -91,6 +91,14 @@ func (m *Machine) EjectCartridge() {
 	m.cpu.Reset()
 }
 
+// SetPrinter branche (p non nil) ou débranche (nil) la sortie imprimante à chaud.
+// Le trap d'impression (0x51) écrit dans ce sink quand il est présent. Permet le
+// montage/éjection imprimante via le contrat machine.Machine sans reconstruire la
+// machine. Ref: dcmo5devices.c Imprime() — fputc(B, fprn).
+func (m *Machine) SetPrinter(p media.PrinterSink) {
+	m.opts.Printer = p
+}
+
 // ── Dispatch I/O (Entreesortie) ───────────────────────────────────────────────
 
 // Entreesortie dispatche les appels I/O du CPU vers les périphériques montés.
