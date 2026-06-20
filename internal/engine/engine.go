@@ -1,0 +1,181 @@
+// Package engine fournit la boucle d'émulation COMMUNE à toutes les machines
+// Thomson : exécution CPU 6809, comptage de cycles, échantillonnage audio, cadence
+// vidéo ligne/trame et IRQ de fin de trame. La partie spécifique à une machine
+// (carte mémoire, traps d'E/S, timing périphériques, niveau audio, décodage vidéo)
+// est fournie par un Device injecté.
+//
+// La boucle Step réplique fidèlement celle de internal/core (MO5 v1) : c'est le
+// socle sur lequel le MO5 sera rebranché au lot suivant (sans régression), puis la
+// famille gate-array (TO8D…). Ce paquet ne dépend ni de core ni d'une machine
+// concrète : il est testable en isolation avec un Device synthétique.
+//
+// Ref : DESIGN/MACHINE_PROFILES.md §5 (moteur partagé + Device).
+package engine
+
+import (
+	"github.com/Lesur-ai/dcmo5/internal/cpu6809"
+	"github.com/Lesur-ai/dcmo5/internal/machine"
+	"github.com/Lesur-ai/dcmo5/internal/spec"
+)
+
+// Timing vidéo Thomson (commun MO5 / famille TO) : 64 cycles par ligne, 312 lignes
+// par trame → IRQ 50 Hz. Ref: dcmo5emulation.c / dcto8demulation.c Run().
+const (
+	cyclesPerLine = 64
+	linesPerFrame = 312
+)
+
+// Device est la partie d'une machine que le moteur pilote : bus mémoire, dispatch
+// des traps d'E/S, timing des périphériques par instruction, niveau audio courant et
+// rendu vidéo. Une machine concrète (MO5, gate-array) implémente Device.
+type Device interface {
+	cpu6809.Bus // Read8/Write8 = carte mémoire de la machine
+
+	// Trap dispatche un appel d'E/S (opcode illégal MO5/Thomson, code = -opcode).
+	Trap(code int)
+
+	// OnInstructionCycles est appelé après chaque instruction (c cycles consommés),
+	// pour le timing des périphériques propres à la machine (timer 6846, IRQ clavier
+	// de la famille TO). La machine asserte/relâche ses lignes via irq. No-op pour le
+	// MO5 (sa seule source d'IRQ — la trame — est gérée par le moteur).
+	OnInstructionCycles(c int, irq *machine.IRQLines)
+
+	// SoundLevel retourne le niveau de haut-parleur courant (0..0x3F), échantillonné
+	// par le moteur à la fréquence audio.
+	SoundLevel() uint8
+
+	// FrameSize retourne la taille (fixe) du framebuffer logique de la machine.
+	FrameSize() (w, h int)
+
+	// DecodeFrame rend le framebuffer courant dans dst (len ≥ w*h).
+	DecodeFrame(dst []uint32)
+}
+
+// Engine exécute une machine via son Device. Il possède le CPU, l'accumulateur
+// d'échantillonnage audio, les compteurs de balayage vidéo et les lignes d'IRQ.
+type Engine struct {
+	cpu *cpu6809.CPU
+	dev Device
+	irq machine.IRQLines
+
+	audioSampleRate int
+	sampleAccum     int64
+	samples         []uint8
+
+	videolinecycle  int
+	videolinenumber int
+}
+
+// New crée un moteur pilotant dev. audioSampleRate ≤ 0 retombe sur le défaut spec.
+func New(dev Device, audioSampleRate int) *Engine {
+	if audioSampleRate <= 0 {
+		audioSampleRate = spec.AudioSampleRate
+	}
+	e := &Engine{dev: dev, audioSampleRate: audioSampleRate}
+	e.cpu = cpu6809.New(dev)
+	return e
+}
+
+// CPU expose le processeur (accès registres pour les handlers d'E/S de la machine).
+func (e *Engine) CPU() *cpu6809.CPU { return e.cpu }
+
+// IRQ expose les lignes d'interruption (pour les tests et l'observabilité).
+func (e *Engine) IRQ() *machine.IRQLines { return &e.irq }
+
+// AudioSampleRate retourne le taux d'échantillonnage effectif.
+func (e *Engine) AudioSampleRate() int { return e.audioSampleRate }
+
+// Reset réinitialise le CPU (vecteur reset), l'état audio et les compteurs vidéo.
+// Le contenu mémoire/état de la machine reste à la charge du Device.
+func (e *Engine) Reset() {
+	e.cpu.Reset()
+	e.videolinecycle = 0
+	e.videolinenumber = 0
+	e.sampleAccum = 0
+	e.samples = e.samples[:0]
+	e.irq.Reset()
+}
+
+// Step avance l'émulation d'au plus cycles et retourne les cycles consommés.
+// Réplique exactement dcmo5emulation.c Run() / core.Machine.Step :
+//   - opcode illégal (CPU.Step < 0) → Device.Trap(-code) + 64 cycles ;
+//   - échantillonnage audio cadencé (audioSampleRate par CPUClockHz cycles) ;
+//   - timing périphériques de la machine via Device.OnInstructionCycles ;
+//   - cadence ligne (64 cy) / trame (312 lignes) → IRQ 50 Hz de fin de trame.
+func (e *Engine) Step(cycles int) int {
+	if cycles <= 0 {
+		return 0
+	}
+	consumed := 0
+	for consumed < cycles {
+		c := e.cpu.Step()
+		if c < 0 {
+			e.dev.Trap(-c)
+			c = 64
+		} else if c == 0 {
+			c = 2
+		}
+		consumed += c
+
+		// Échantillonnage audio : audioSampleRate échantillons par CPUClockHz cycles.
+		e.sampleAccum += int64(c) * int64(e.audioSampleRate)
+		for e.sampleAccum >= int64(spec.CPUClockHz) {
+			e.sampleAccum -= int64(spec.CPUClockHz)
+			e.appendSample(e.dev.SoundLevel())
+		}
+
+		// Timing périphériques de la machine (6846, IRQ clavier TO ; MO5 = no-op).
+		e.dev.OnInstructionCycles(c, &e.irq)
+
+		// Cadence vidéo ligne/trame.
+		e.videolinecycle += c
+		for e.videolinecycle >= cyclesPerLine {
+			e.videolinecycle -= cyclesPerLine
+			e.videolinenumber++
+			if e.videolinenumber >= linesPerFrame {
+				e.videolinenumber = 0
+				e.cpu.IRQ() // IRQ 50 Hz de fin de trame (commune à toutes les machines)
+			}
+		}
+
+		if consumed >= cycles {
+			break
+		}
+	}
+	return consumed
+}
+
+// maxAudioBacklog borne le tampon d'échantillons à ~0,5 s (cf. core.Machine).
+func (e *Engine) maxAudioBacklog() int { return e.audioSampleRate / 2 }
+
+// appendSample ajoute un échantillon en respectant le plafond (glissement si saturé).
+func (e *Engine) appendSample(level uint8) {
+	if len(e.samples) >= e.maxAudioBacklog() {
+		copy(e.samples, e.samples[1:])
+		e.samples[len(e.samples)-1] = level
+		return
+	}
+	e.samples = append(e.samples, level)
+}
+
+// DrainAudio copie les échantillons disponibles dans dst et vide le tampon interne.
+// Retourne le nombre d'échantillons écrits (≤ len(dst)).
+func (e *Engine) DrainAudio(dst []uint8) int {
+	n := copy(dst, e.samples)
+	if n >= len(e.samples) {
+		e.samples = e.samples[:0]
+	} else {
+		rest := copy(e.samples, e.samples[n:])
+		e.samples = e.samples[:rest]
+	}
+	return n
+}
+
+// AudioBacklog retourne le nombre d'échantillons en attente (observabilité).
+func (e *Engine) AudioBacklog() int { return len(e.samples) }
+
+// FrameSize retourne la taille du framebuffer logique de la machine.
+func (e *Engine) FrameSize() (w, h int) { return e.dev.FrameSize() }
+
+// FramebufferInto rend le framebuffer courant dans dst via le Device.
+func (e *Engine) FramebufferInto(dst []uint32) { e.dev.DecodeFrame(dst) }
