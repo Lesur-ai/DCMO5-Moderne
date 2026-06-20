@@ -23,17 +23,38 @@ func TestRegistry(t *testing.T) {
 	}
 }
 
-func TestProfilesIsCopy(t *testing.T) {
+func TestProfilesIsDeepCopy(t *testing.T) {
 	saved := registry
 	t.Cleanup(func() { registry = saved })
 	registry = nil
-	Register(MachineProfile{ID: "mo5"})
+	Register(MachineProfile{ID: "mo5", Params: []Param{
+		{Key: "rom", FileExt: []string{".rom"}, Options: []Option{{Value: 1, Label: "a"}}},
+	}})
 
-	// Muter la tranche retournée ne doit pas affecter le registre interne.
+	// Muter tous les niveaux du résultat ne doit pas corrompre le registre global.
 	out := Profiles()
 	out[0].ID = "muté"
-	if again := Profiles(); again[0].ID != "mo5" {
-		t.Fatalf("Profiles() expose le registre interne : %q", again[0].ID)
+	out[0].Params[0].Key = "muté"
+	out[0].Params[0].FileExt[0] = ".muté"
+	out[0].Params[0].Options[0].Label = "muté"
+
+	again := Profiles()
+	switch {
+	case again[0].ID != "mo5":
+		t.Errorf("ID corrompu : %q", again[0].ID)
+	case again[0].Params[0].Key != "rom":
+		t.Errorf("Param.Key corrompu : %q", again[0].Params[0].Key)
+	case again[0].Params[0].FileExt[0] != ".rom":
+		t.Errorf("Param.FileExt corrompu : %q", again[0].Params[0].FileExt[0])
+	case again[0].Params[0].Options[0].Label != "a":
+		t.Errorf("Param.Options corrompu : %q", again[0].Params[0].Options[0].Label)
+	}
+
+	// ByID retourne aussi une copie profonde.
+	p, _ := ByID("mo5")
+	p.Params[0].FileExt[0] = ".x"
+	if again2, _ := ByID("mo5"); again2.Params[0].FileExt[0] != ".rom" {
+		t.Errorf("ByID expose le registre : %q", again2.Params[0].FileExt[0])
 	}
 }
 
