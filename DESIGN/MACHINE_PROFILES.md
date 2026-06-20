@@ -1,7 +1,7 @@
 # Architecture multi-machines & IHM de pilotage (v2 / v3)
 
-> Statut : proposition de conception — à valider.
-> Date : 2026-06-20.
+> Statut : proposition de conception — revue Codex intégrée.
+> Date : 2026-06-20 (révisé le jour même après revue Codex).
 > Périmètre : faire évoluer DCMO5 d'un émulateur mono-machine (MO5, v1) vers une
 > plateforme multi-machines Thomson, avec une IHM de pilotage professionnelle.
 > Cibles v2 : **TO8D**, **TO9+**. Cibles v3 : **MO6/PC128**, **TO7**, **TO7/70**.
@@ -83,13 +83,19 @@ type Machine interface {
     Initprog()             // reset doux (RAM conservée)
 
     // Entrées (l'espace de touches est défini par la machine — cf. §8 clavier)
+    // Entrées — état IDEMPOTENT réappliqué à chaque tick par l'hôte ; la machine
+    // détecte elle-même les TRANSITIONS d'appui (indispensable au clavier TO8D qui
+    // émet scancode + IRQ sur front, sinon rafale d'IRQ — revue Codex, bloquant).
     SetKey(k Key, pressed bool)
     SetJoystick(j JoystickInput)
-    SetPen(x, y int, pressed bool)
+    SetPointer(p PointerInput) // crayon ET souris (TO) : type, boutons, coords (X jusqu'à 640)
 
-    // Vidéo — dimensions DYNAMIQUES (peuvent changer au runtime selon le mode)
-    FrameSize() (w, h int)        // taille courante du framebuffer logique
-    FramebufferInto(dst []uint32) // rend dans dst (len ≥ w*h courant)
+    // Vidéo — FrameSize est CONSTANT pour une instance de machine (336×216 MO5,
+    // 672×216 famille TO). Les modes vidéo (ex. 80 colonnes) sont des résolutions de
+    // DÉCODAGE dans cette frame logique, PAS un redimensionnement runtime (revue
+    // Codex, majeur ; cf. dcto8dglobal.h XBITMAP=672). L'hôte dimensionne au New().
+    FrameSize() (w, h int)        // taille du framebuffer logique (fixe par machine)
+    FramebufferInto(dst []uint32) // rend dans dst (len ≥ w*h)
 
     // Audio
     AudioSampleRate() int
@@ -99,9 +105,23 @@ type Machine interface {
     MountTape(media.Tape); EjectTape()
     MountDisk(media.Disk); EjectDisk()
     MountCartridge(media.Cartridge); EjectCartridge()
+    MountPrinter(media.PrinterSink); EjectPrinter() // sortie imprimante (trap 0x51 ; MO5 et TO)
 
     // Observabilité
     CPUSnapshot() cpu6809.Snapshot
+}
+```
+
+`PointerInput` unifie crayon optique et souris (les TO ont les deux ; X jusqu'à 640
+en mode 80 colonnes). Le contrat `Machine` n'expose **pas** d'`IRQ()` : les lignes
+d'interruption (trame 50 Hz, timer 6846, clavier) sont gérées **dans le moteur**
+(cf. §5), pas pilotées par l'hôte.
+
+```go
+type PointerInput struct {
+    Kind   PointerKind // Pen | Mouse
+    X, Y   int         // repère écran actif de la machine
+    Button bool        // bouton crayon / clic souris
 }
 ```
 
@@ -125,13 +145,15 @@ type MachineProfile struct {
 
 // Param : un paramètre configurable, rendu GÉNÉRIQUEMENT par le launcher/overlay.
 type Param struct {
-    Key      string    // "ram","rom","tape","disk","video",...
-    Label    string    // libellé affiché
-    Kind     ParamKind // Enum | File | Bool | Int
-    Default  any
-    Options  []Option  // pour Enum (RAM 512 Ko / mode vidéo / variante ROM…)
-    FileExt  []string  // pour File (".k7", ".fd", ".rom")
-    Required bool
+    Key         string    // "ram","rom","tape","disk","video",...
+    Label       string    // libellé affiché
+    Kind        ParamKind // Enum | File | Bool | Int
+    Default     any
+    Options     []Option  // pour Enum (RAM 512 Ko / mode vidéo / variante ROM…)
+    FileExt     []string  // pour File (".k7", ".fd", ".rom")
+    Required    bool
+    LiveMutable bool            // modifiable à chaud (overlay) vs boot-only (launcher) — revue Codex
+    Validate    func(any) error // validation/coercition typée de Config[Key] (nil = aucune)
 }
 
 type ParamKind int
@@ -185,17 +207,29 @@ voir `dcto8demulation.c:Run()`). Deux options :
 ```go
 // internal/engine/engine.go (option B, recommandée)
 type Device interface {
-    cpu6809.Bus          // Read8/Write8 = carte mémoire de la machine
-    Trap(code int)       // dispatch I/O (Entreesortie) propre à la machine
-    OnCycles(n int)      // timing périphériques (6846, IRQ clavier…) ; MO5 = no-op
-    SoundLevel() uint8   // niveau audio courant à échantillonner
-    FrameSize() (w, h int)
+    cpu6809.Bus               // Read8/Write8 = carte mémoire de la machine
+    Trap(code int)            // dispatch I/O (Entreesortie) propre à la machine
+    OnInstructionCycles(c int, irq *IRQLines) // timing périph. (6846, IRQ clavier) ; MO5 = no-op
+    SoundLevel() uint8        // niveau audio courant à échantillonner
+    FrameSize() (w, h int)    // fixe par machine (cf. §4)
     DecodeFrame(dst []uint32)
 }
-// Engine possède *cpu6809.CPU, l'accumulateur audio, le compteur de trame ;
-// au bout de 312 lignes il lève cpu.IRQ() (commun à toutes les machines).
-// Le Device tient une back-référence au CPU pour lever ses propres IRQ (6846).
+
+// IRQLines : lignes d'interruption NIVEAU-déclenchées, détenues par l'engine et
+// échantillonnées en frontière d'instruction (revue Codex, bloquant). La famille TO
+// pilote une ligne IRQ composite (timer 6846 + clavier) avec durée d'impulsion et
+// clear conditionnel — PAS un cpu.IRQ() ponctuel : une source asserte la ligne et la
+// maintient jusqu'à acquittement, donc l'IRQ n'est pas perdue si I est masqué lors de
+// l'assertion. MO5 n'utilise que la source « trame ».
+type IRQLines struct{ /* sources : trame, timer, clavier… (assert/clear par source) */ }
+func (l *IRQLines) Assert(src IRQSource)
+func (l *IRQLines) Clear(src IRQSource)
 ```
+
+Ordre par instruction (engine) : `CPU.Step` → trap éventuel (coût 64) → échantillon
+audio + avance vidéo → `Device.OnInstructionCycles(c, &irq)` → l'engine présente au
+CPU le niveau d'IRQ courant avant l'instruction suivante. La source « trame » (50 Hz)
+est gérée par l'engine, commune à toutes les machines.
 
 En (B), MO5 et la famille gate-array deviennent chacun un `Device` ; `Machine`
 (le contrat runtime) est une fine enveloppe `engine + Device`. La boucle de
@@ -241,9 +275,11 @@ Cartographie issue de l'audit (réf. Theodore `motoemulator.c`, sources Coulom) 
 
 Lecture stratégique :
 
-- **TO8D et TO9+ (v2)** partagent ~95 % : un seul `Device` « gate-array »
-  paramétré, dont la **seule vraie divergence est le clavier** (+ layout ROM et
-  séquence reset). Voir les notes d'audit en mémoire.
+- **TO8D et TO9+ (v2/v2.1)** partagent ~95 % : un seul `Device` « gate-array »
+  paramétré, dont la divergence **principale est le clavier**, mais PAS la seule —
+  aussi la séquence de reset, le patch/date ROM et la sémantique IRQ timer/clavier
+  (revue Codex, mineur). Le `Device` gate-array expose donc une **table de points de
+  variation** explicite (clavier, layout ROM, reset). Voir les notes d'audit en mémoire.
 - **MO6 (v3)** = gate-array « saveur MO » : il **réutilisera l'essentiel du
   `Device` gate-array de la v2** (vidéo en `0x0000`, clavier MO, mode compat MO5).
   Quasi gratuit une fois la v2 faite.
@@ -252,22 +288,24 @@ Lecture stratégique :
 
 ## 8. Impacts sur l'hôte, l'UI et les entrées
 
-L'abstraction force trois adaptations concrètes, toutes circonscrites :
+L'abstraction force des adaptations plus larges que le seul `emu.Host` (revue
+Codex, majeur) :
 
-1. **`emu.Host` dépend de `machine.Machine`** (au lieu de `*core.Machine`). Les
-   appels sont déjà les bons ; seul le type change.
-2. **Framebuffer à taille dynamique** : `Host` interroge `FrameSize()` (qui peut
-   varier — ex. mode 80 colonnes `640×…` du TO8) et **réalloue** `fbFront`/`fbBack`
-   si la taille change (rare → coût négligeable). On supprime l'allocation figée à
-   `spec.FrameWidth*FrameHeight`. Le rendu `app` met à l'échelle la taille courante.
-3. **Clavier multi-machines** : `KeyMax` varie (58 MO5 / 84 TO8-TO9). Deux sous-
-   problèmes — (a) l'espace de touches logiques par machine ; (b) la traduction
-   touche physique hôte → touche machine, aujourd'hui MO5-spécifique dans
-   `internal/keyboard` (apprentissage layout-safe, politique modificateurs, table
-   ASCII TO9 différente). Proposition : le `MachineProfile` expose un **modèle
-   clavier** (tables + politique) et `internal/keyboard` se généralise pour le
-   consommer. `emu.InputState` passe à une représentation non figée (slice ou max
-   commun). **C'est un lot à part entière** (cf. §10), pas un détail.
+1. **`emu.Host` ET `internal/app` sur `machine.Machine`** (au lieu de
+   `*core.Machine`). Au-delà de `Host`, `app` câble aussi `ebiten.Image`, les buffers
+   pixels/octets, le `Layout`, la taille fenêtre, le scaling et la conversion crayon
+   sur `spec.FrameWidth/Height` : tout cela doit passer par `FrameSize()` de la machine.
+2. **Framebuffer dimensionné PAR MACHINE, une fois.** `FrameSize()` est fixe pour une
+   instance (cf. §4) : hôte et app allouent au `New()` de la machine, **sans**
+   réallocation par changement de mode vidéo. Changer de machine (overlay) =
+   réinstanciation → nouveaux buffers. Pas de course de redimensionnement en session.
+3. **Entrées multi-machines.** `KeyMax` varie (58 MO5 / 84 TO8-TO9) → `emu.InputState`
+   passe à une représentation non figée. La **sémantique** est arrêtée dès le contrat
+   (§4) : `SetKey`/`SetPointer` publient un état idempotent, la machine détecte les
+   transitions (sinon rafale d'IRQ TO8D). La traduction touche physique hôte → touche
+   machine (aujourd'hui MO5-spécifique dans `internal/keyboard` : layout-safe,
+   modificateurs, table ASCII TO9) est portée par un **modèle clavier** déclaré par le
+   `MachineProfile` ; `internal/keyboard` se généralise. **Lot à part entière** (§10).
 
 ## 9. IHM de pilotage (ebitenui)
 
@@ -295,28 +333,41 @@ release cross-compile `CGO_ENABLED=0`) + structure **launcher puis overlay**.
 (son delta ≈ clavier table ASCII + layout ROM 1 blob), traité après mise en service
 et validation utilisateur du TO8D.
 
-Lots, dans l'ordre de dépendance. Chacun = une PR (workflow PR-only + revue) ;
-chaque lot reste verrouillé par les tests de non-régression MO5.
+Lots, dans l'ordre de dépendance RÉVISÉ après la revue Codex (poser MO5 derrière le
+contrat AVANT d'extraire l'engine et le gate-array, pour éviter le big-bang). Chacun
+= une PR (workflow PR-only + revue) ; chaque lot reste verrouillé par les tests de
+non-régression MO5. Le n° d'issue GitHub est indiqué entre crochets.
 
-1. **Contrat & registre** : paquet `internal/machine` (`Machine`, `MachineProfile`,
-   `Param`, `Registry`). Aucun comportement modifié. *(Socle.)*
-2. **Moteur partagé** : extraire `internal/engine` (boucle Step/audio/trame) +
-   contrat `Device` (option B §5). *(Décision (A)/(B) à valider avant.)*
-3. **MO5 derrière le contrat** : déplacer le MO5 en `machine/mo5` (Device),
-   sortir ses constantes de `spec`. **Critère : fidélité identique.**
-4. **Hôte & UI agnostiques** : `emu.Host` + `app` sur `machine.Machine` ;
-   framebuffer dynamique ; CLI `--machine`.
-5. **Clavier généralisé** : modèle clavier porté par le profil ; `internal/keyboard`
-   data-driven ; `InputState` non figé.
-6. **Device gate-array** : carte mémoire 512 K + banking `e7e4`–`e7e7`, ROM overlay.
-7. **Vidéo gate-array** : 5 modes + palette programmable EF9369.
-8. **6846 + PIA système** : timer/IRQ via `Device.OnCycles`.
-9. **ROM & traps TO** : layout ROM (TO8D 2 blobs + patchs / TO9+ 1 blob),
-   disque secteur `.fd`, cassette octet `.k7`, imprimante, crayon/souris.
-10. **Clavier TO8D** (scancode + IRQ).
-11. **Launcher ebitenui** (consomme les profils) + **overlay** de pilotage.
-12. **Profil TO8D** : enregistrement, paramètres déclarés, intégration, validation
-    utilisateur en GUI.
+1. **Contrat + adapter MO5** [#107] : paquet `internal/machine` (`Machine`,
+   `MachineProfile`, `Param`, `Registry`) INCLUANT le **modèle de lignes d'IRQ**, la
+   **sémantique d'entrées** (`SetKey` idempotent/transition, `SetPointer`),
+   l'imprimante et le `Param` enrichi (`LiveMutable`/`Validate`). Le `core.Machine`
+   existant est **adapté** derrière l'interface, **sans déplacement**. *(Socle.)*
+2. **Hôte & app agnostiques** [#110] : `emu.Host` **et** `internal/app` sur
+   `machine.Machine` ; framebuffer dimensionné par machine ; conversion pointeur ;
+   CLI `--machine`. *(Avant toute extraction de moteur.)*
+3. **Extraction `internal/engine` + `Device` sous MO5** [#108] : boucle
+   Step/audio/trame + lignes d'IRQ migrent dans `engine` ; MO5 devient un `Device`.
+4. **MO5 comme Device, sans régression** [#109] : constantes hors `spec` ; **critère
+   BLOQUANT : fidélité identique** (checksums ROM/RAM, tests longs, déterminisme).
+5. **Device gate-array** [#112] : mémoire 512 K + banking `e7e4`–`e7e7` + `e7c9` +
+   recouvrement ROM `e7e6`.
+6. **Vidéo gate-array** [#113] : 5 modes + palette programmable EF9369 (frame 672×216).
+7. **Timer 6846 + PIA système** [#114] : timer/IRQ clavier via le **modèle de lignes
+   d'IRQ** (`OnInstructionCycles`).
+8. **ROM & traps TO8D** [#115] : layout ROM (2 blobs + patchs) ; disque secteur `.fd`,
+   cassette octet `.k7`, imprimante, **crayon + souris** (`0x4b`/`0x4e`/`0x52`).
+9. **Clavier — généralisation** [#111] : modèle clavier porté par le profil ;
+   `internal/keyboard` data-driven ; `InputState` non figé.
+10. **Clavier TO8D** [#116] : tables scancode + IRQ sur transition (via le lot 9).
+11. **IHM ebitenui** [#117] : launcher (consomme les profils) + overlay de pilotage.
+12. **Profil TO8D** [#118] : enregistrement, paramètres déclarés, intégration,
+    validation utilisateur en GUI.
+
+> Remaniement Codex (2026-06-20) : l'ancien ordre extrayait `internal/engine` avant de
+> poser MO5 derrière le contrat — point de régression maximal. Le nouvel ordre adapte
+> d'abord MO5 sans le déplacer (1), bascule l'hôte/app sur l'interface (2), puis
+> n'extrait l'engine qu'ensuite (3-4), gate-array après.
 
 Incrément **v2.1** (après mise en service TO8D) : **variante clavier TO9+** (table
 ASCII), **layout ROM TO9+** (1 blob `to9prom`), **profil TO9+**. Réutilise tout le
@@ -332,22 +383,26 @@ famille TO7). Les ROMs de toutes ces machines sont récupérables dans Theodore
 2. **Nommage des paquets** : `internal/machine` (contrat) + `internal/machine/<id>`
    (impls) + `internal/engine` (moteur). Alternative : `internal/profile`.
    *(Détail tranché en PR du lot 1.)*
-3. **Sort de `internal/core`** : devient `machine/mo5` (option B) — ou reste un
-   alias le temps de la transition ? *(Détail tranché en PR du lot 3.)*
+3. **Sort de `internal/core`** : adapté derrière l'interface au lot 1 (sans
+   déplacement), puis déplacé en `machine/mo5` aux lots 3-4. *(Tranché en PR.)*
 4. **Représentation des touches** multi-machines (slice vs max commun) — §8.
-   *(Détail tranché en PR du lot 5.)*
+   *(Sémantique au lot 1 ; implémentation au lot 9.)*
 5. ~~Périmètre v2~~ — **validé : TO8D d'abord ; TO9+ = incrément v2.1** (2026-06-20).
+6. ~~Contrat interruptions / entrées / framebuffer~~ — **arrêté via la revue Codex
+   du 2026-06-20** : lignes d'IRQ niveau, entrées idempotentes + transitions,
+   `SetPointer`, framebuffer fixe par machine (cf. §4, §5, §8).
 
 ## 12. Risques
 
-- **Refactor sans régression (lots 2–3)** : la fidélité MO5 est le filet ; tout
-  écart de checksum bloque le lot. Risque maîtrisé si les tests restent vert.
-- **Framebuffer dynamique** : bien gérer le changement de taille en cours de
-  session (mode 80 colonnes) sans glitch ni course avec le thread d'affichage.
-- **Clavier** : la généralisation est le point le moins trivial (politique
-  modificateurs, apprentissage layout-safe, table ASCII TO9). À ne pas sous-estimer.
-- **ebitenui** : valider tôt le rendu + la cohabitation avec la boucle Ebitengine
-  et le cross-compile Windows `CGO_ENABLED=0` (prototype jetable recommandé).
+- **Refactor sans régression (lots 3–4)** : la fidélité MO5 est le filet ; tout
+  écart de checksum bloque le lot. L'ordre révisé (adapter avant d'extraire) réduit
+  ce risque.
+- **Modèle d'interruptions** : les lignes d'IRQ niveau (timer 6846 + clavier) sont le
+  point le plus délicat du gate-array ; à valider sur le boot moniteur TO8D.
+- **Clavier** : généralisation non triviale (modificateurs, layout-safe, table ASCII
+  TO9, détection de transitions pour éviter les rafales d'IRQ). À ne pas sous-estimer.
+- **ebitenui** : valider tôt le rendu, la cohabitation avec la boucle Ebitengine et le
+  cross-compile Windows `CGO_ENABLED=0` (prototype jetable recommandé).
 
 ---
 
