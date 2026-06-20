@@ -10,10 +10,11 @@ import (
 // fakeDevice : machine synthétique pour tester la boucle du moteur en isolation
 // (sans core ni machine concrète). RAM 64K, code = NOP (0x12), son réglable.
 type fakeDevice struct {
-	ram       [0x10000]byte
-	sound     uint8
-	traps     int
-	cyclesSum int // somme des c reçus via OnInstructionCycles (invariant)
+	ram         [0x10000]byte
+	sound       uint8
+	traps       int
+	cyclesSum   int  // somme des c reçus via OnInstructionCycles (invariant)
+	assertTimer bool // si vrai, asserte IRQTimer à chaque instruction (test livraison IRQ)
 }
 
 func newFake() *fakeDevice {
@@ -37,7 +38,12 @@ func (d *fakeDevice) DecodeFrame(dst []uint32) {
 		dst[i] = 0xFF00FF00
 	}
 }
-func (d *fakeDevice) OnInstructionCycles(c int, irq *machine.IRQLines) { d.cyclesSum += c }
+func (d *fakeDevice) OnInstructionCycles(c int, irq *machine.IRQLines) {
+	d.cyclesSum += c
+	if d.assertTimer {
+		irq.Assert(machine.IRQTimer)
+	}
+}
 
 // Vérification à la compilation que fakeDevice satisfait le contrat.
 var _ Device = (*fakeDevice)(nil)
@@ -109,5 +115,35 @@ func TestEngineFramebuffer(t *testing.T) {
 		if px != 0xFF00FF00 {
 			t.Fatalf("pixel %d = 0x%08X (DecodeFrame non délégué)", i, px)
 		}
+	}
+}
+
+// TestEngineDeliversAssertedIRQ vérifie qu'une ligne d'IRQ assertée par le Device est
+// livrée au CPU une fois le masque I levé (cas niveau masqué-puis-démasqué). Le
+// programme démasque I (ANDCC #$EF) puis boucle ; l'IRQTimer assertée doit faire
+// vectoriser le CPU vers son handler (BRA sur place à 0x2000).
+func TestEngineDeliversAssertedIRQ(t *testing.T) {
+	d := newFake()
+	d.assertTimer = true
+	// LDS #$1FFF : place la pile en milieu de RAM (sinon S=0 et l'empilement de
+	// l'IRQ, qui descend depuis 0xFFFF, écraserait le vecteur 0xFFF8).
+	d.ram[0x0000] = 0x10
+	d.ram[0x0001] = 0xCE
+	d.ram[0x0002] = 0x1F
+	d.ram[0x0003] = 0xFF
+	d.ram[0x0004] = 0x1C // ANDCC #imm
+	d.ram[0x0005] = 0xEF // efface le bit I (0x10) → IRQ démasquée
+	// 0x0006.. : NOP (déjà rempli) jusqu'à la prise d'IRQ.
+	d.ram[0xFFF8] = 0x20 // vecteur IRQ → 0x2000
+	d.ram[0xFFF9] = 0x00
+	d.ram[0x2000] = 0x20 // BRA
+	d.ram[0x2001] = 0xFE // offset -2 → boucle sur 0x2000 (handler stable)
+
+	e := New(d, spec.AudioSampleRate)
+	e.Reset()
+	e.Step(1000)
+
+	if pc := e.CPU().Snapshot().PC; pc != 0x2000 {
+		t.Fatalf("PC = 0x%04X, attendu 0x2000 (IRQ assertée non livrée au CPU)", pc)
 	}
 }

@@ -127,6 +127,18 @@ func (e *Engine) Step(cycles int) int {
 		// Timing périphériques de la machine (6846, IRQ clavier TO ; MO5 = no-op).
 		e.dev.OnInstructionCycles(c, &e.irq)
 
+		// Livraison des lignes d'IRQ NIVEAU-déclenchées asserties par la machine
+		// (timer/clavier de la famille TO). cpu.IRQ() honore le masque I : si I est
+		// masqué l'IRQ est ignorée, mais la ligne RESTE assertée (le niveau persiste),
+		// donc elle est reprise dès que le code démasque I — c'est précisément le cas
+		// masqué-puis-démasqué que ce modèle doit gérer. Quand l'IRQ est prise, le CPU
+		// masque I, évitant la ré-entrée tant que le handler n'a pas relâché la source
+		// (puis RTI). MO5 n'asserte aucune ligne ici (sa trame est livrée plus bas) →
+		// no-op, fidélité préservée.
+		if e.irq.Pending() {
+			e.cpu.IRQ()
+		}
+
 		// Cadence vidéo ligne/trame.
 		e.videolinecycle += c
 		for e.videolinecycle >= cyclesPerLine {
