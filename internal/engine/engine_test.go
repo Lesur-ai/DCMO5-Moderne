@@ -67,7 +67,7 @@ func TestEngineConsumesCyclesAndDeviceTiming(t *testing.T) {
 
 func TestEngineAudioSampling(t *testing.T) {
 	d := newFake()
-	d.sound = spec.AudioLevelMax // 0x3F
+	d.sound = 0x3F // niveau audio max (6 bits) ; valeur MO5 reproduite localement
 	e := New(d, spec.AudioSampleRate)
 	e.Reset()
 
@@ -82,8 +82,8 @@ func TestEngineAudioSampling(t *testing.T) {
 		t.Errorf("nb échantillons = %d, attendu ~%d", n, exp)
 	}
 	for i := 0; i < n; i++ {
-		if buf[i] != spec.AudioLevelMax {
-			t.Fatalf("échantillon %d = 0x%02X, want 0x%02X", i, buf[i], spec.AudioLevelMax)
+		if buf[i] != 0x3F {
+			t.Fatalf("échantillon %d = 0x%02X, want 0x%02X", i, buf[i], 0x3F)
 		}
 	}
 	if e.DrainAudio(buf) != 0 {

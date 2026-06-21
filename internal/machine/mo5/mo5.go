@@ -15,7 +15,6 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/core"
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/media"
-	"github.com/Lesur-ai/dcmo5/internal/spec"
 )
 
 // adapter rend un *core.Machine MO5 conforme à machine.Machine.
@@ -38,15 +37,21 @@ func (a *adapter) SetJoystick(j machine.JoystickInput) {
 
 // SetPointer mappe le pointeur unifié sur le crayon optique MO5. Le MO5 n'a pas de
 // souris : les événements PointerMouse sont ignorés.
+//
+// p.X/p.Y arrivent dans le repère du framebuffer (seul repère connu de l'UI, via
+// Layout). La conversion vers l'écran actif MO5 (retrait de la bordure) est faite
+// ICI, côté machine, qui seule connaît sa géométrie : hors zone active, le cœur
+// (readPenXY) signalera « pas de détection ».
 func (a *adapter) SetPointer(p machine.PointerInput) {
 	if p.Kind == machine.PointerPen {
-		a.Machine.SetPen(p.X, p.Y, p.Button)
+		x, y := core.PenFromFramebuffer(p.X, p.Y)
+		a.Machine.SetPen(x, y, p.Button)
 	}
 }
 
-// FrameSize : le framebuffer MO5 est de taille fixe (cf. spec). Ces constantes
-// migreront hors de spec au lot 4 ; l'adaptateur les expose en attendant.
-func (a *adapter) FrameSize() (int, int) { return spec.FrameWidth, spec.FrameHeight }
+// FrameSize : le framebuffer MO5 est de taille fixe (constantes propres au MO5,
+// cf. internal/core/mo5hw.go).
+func (a *adapter) FrameSize() (int, int) { return core.FrameWidth, core.FrameHeight }
 
 // MountPrinter / EjectPrinter : montage à chaud de la sortie imprimante (trap 0x51).
 func (a *adapter) MountPrinter(p media.PrinterSink) { a.Machine.SetPrinter(p) }

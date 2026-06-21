@@ -59,10 +59,10 @@ type Machine struct {
 	opts Options
 
 	// Mémoire physique
-	ram  [spec.RAMTotalSize]uint8 // 48 Ko RAM (vidéo + utilisateur)
-	rom  [0x4000]uint8            // 16 Ko ROM système (0xC000–0xFFFF)
-	car  [0x10000]uint8           // 4 banques × 16 Ko cartouche
-	port [spec.PortSize]uint8     // 64 octets ports E/S
+	ram  [RAMTotalSize]uint8 // 48 Ko RAM (vidéo + utilisateur)
+	rom  [0x4000]uint8       // 16 Ko ROM système (0xC000–0xFFFF)
+	car  [0x10000]uint8      // 4 banques × 16 Ko cartouche
+	port [PortSize]uint8     // 64 octets ports E/S
 
 	// État mémoire banked
 	cartype  int   // 0=simple 1=MEMO5 switch 2=OS-9
@@ -337,7 +337,7 @@ func (m *Machine) writePort(addr uint16, v uint8) {
 		m.port[0x0C] = v
 	case 0xA7CD:
 		m.port[0x0D] = v
-		m.sound = v & spec.AudioLevelMax // registre niveau musique/son (6 bits)
+		m.sound = v & AudioLevelMax // registre niveau musique/son (6 bits)
 	case 0xA7CE:
 		m.port[0x0E] = v
 	case 0xA7CF:
@@ -434,7 +434,7 @@ func (m *Machine) OnInstructionCycles(int, *machine.IRQLines) {}
 func (m *Machine) SoundLevel() uint8 { return m.sound }
 
 // FrameSize retourne la taille (fixe) du framebuffer logique MO5.
-func (m *Machine) FrameSize() (w, h int) { return spec.FrameWidth, spec.FrameHeight }
+func (m *Machine) FrameSize() (w, h int) { return FrameWidth, FrameHeight }
 
 // DecodeFrame rend le framebuffer courant dans dst (contrat Device → délègue au
 // rendu MO5 de video.go).
@@ -442,7 +442,7 @@ func (m *Machine) DecodeFrame(dst []uint32) { m.FramebufferInto(dst) }
 
 // DrainAudio copie les échantillons disponibles dans dst et vide le tampon du
 // moteur. Retourne le nombre d'échantillons écrits (≤ len(dst)). Les niveaux
-// sont sur 6 bits (0..spec.AudioLevelMax) ; la conversion en PCM est à la charge
+// sont sur 6 bits (0..AudioLevelMax) ; la conversion en PCM est à la charge
 // de la couche audio. Conçu pour être appelé une fois par frame par l'app.
 func (m *Machine) DrainAudio(dst []uint8) int { return m.eng.DrainAudio(dst) }
 

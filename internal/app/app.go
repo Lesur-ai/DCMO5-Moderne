@@ -250,10 +250,11 @@ func (a *App) Update() error {
 	injecting := len(tickKeys) > 0 || a.keys.Pending() > 0
 
 	in := resolveKeys(ebiten.IsKeyPressed, a.liveKeys, injecting, tickKeys)
-	// Le curseur Ebitengine est en repère framebuffer (Layout = 336×216, bordure
-	// incluse). Le crayon MO5 attend le repère écran actif → on retranche la
-	// bordure. Hors zone active, le cœur (readPenXY) signalera « pas de détection ».
-	in.PenX, in.PenY = spec.PenFromFramebuffer(ebiten.CursorPosition())
+	// Le curseur Ebitengine est déjà en repère framebuffer (Layout). On publie ces
+	// coordonnées brutes ; chaque machine les convertit vers son propre repère
+	// écran dans SetPointer (le MO5 y retranche sa bordure). L'UI reste agnostique
+	// de la géométrie de la machine émulée.
+	in.PenX, in.PenY = ebiten.CursorPosition()
 	in.PenDown = ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 	a.host.SetInput(in)
 	return nil
@@ -442,10 +443,6 @@ func (a *App) Draw(screen *ebiten.Image) {
 // Layout retourne les dimensions logiques du framebuffer de la machine émulée
 // (fixées au New() via FrameSize()).
 func (a *App) Layout(_, _ int) (int, int) { return a.fw, a.fh }
-
-// LogicalSize retourne les dimensions logiques par défaut (MO5). Conservée pour les
-// tests ; la taille effective d'une App vient de Layout()/FrameSize() de sa machine.
-func LogicalSize() (int, int) { return spec.FrameWidth, spec.FrameHeight }
 
 // updateTitle met à jour le titre de fenêtre selon l'état courant.
 func (a *App) updateTitle() {

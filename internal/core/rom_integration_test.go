@@ -127,7 +127,7 @@ func TestROM_Framebuffer_NonTrivial(t *testing.T) {
 	borderColor := fb[0] // couleur de fond
 	for y := 8; y < 208; y++ {
 		for x := 8; x < 328; x++ {
-			if fb[y*spec.FrameWidth+x] != borderColor {
+			if fb[y*core.FrameWidth+x] != borderColor {
 				nonBlack++
 			}
 		}

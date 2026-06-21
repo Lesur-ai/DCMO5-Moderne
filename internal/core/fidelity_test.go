@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/Lesur-ai/dcmo5/internal/core"
-	"github.com/Lesur-ai/dcmo5/internal/spec"
 )
 
 // ── ROM de test générées ──────────────────────────────────────────────────────
@@ -211,7 +210,7 @@ func TestFidelity_FrameWidth_Pixels(t *testing.T) {
 	m, _ := core.NewMachine(core.Options{ROMSys: rom})
 	m.Reset()
 	fb := m.Framebuffer()
-	want := spec.FrameWidth * spec.FrameHeight
+	want := core.FrameWidth * core.FrameHeight
 	if len(fb) != want {
 		t.Errorf("framebuffer: %d pixels, want %d", len(fb), want)
 	}

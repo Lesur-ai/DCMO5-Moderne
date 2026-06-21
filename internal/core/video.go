@@ -1,12 +1,10 @@
 // Fichier : video.go — génération du framebuffer MO5 depuis la RAM vidéo.
 package core
 
-import "github.com/Lesur-ai/dcmo5/internal/spec"
-
 const (
-	borderPx    = spec.BorderWidth  // largeur bordure en pixels logiques (source : spec)
-	activeLines = spec.ActiveHeight // lignes actives MO5 (source : spec)
-	activeCols  = 40                // octets de couleurs par ligne (40 × 8 pixels = 320 px)
+	borderPx    = BorderWidth  // largeur bordure en pixels logiques (cf. mo5hw.go)
+	activeLines = ActiveHeight // lignes actives MO5 (cf. mo5hw.go)
+	activeCols  = 40           // octets de couleurs par ligne (40 × 8 pixels = 320 px)
 )
 
 // Framebuffer génère le framebuffer RGBA 336×216 depuis la RAM vidéo courante.
@@ -21,17 +19,17 @@ const (
 //	Colonnes 8..327      : 320 pixels actifs (40 octets × 8 bits)
 //	Colonnes 328..335    : bordure droite
 func (m *Machine) Framebuffer() []uint32 {
-	fb := make([]uint32, spec.FrameWidth*spec.FrameHeight)
+	fb := make([]uint32, FrameWidth*FrameHeight)
 	m.FramebufferInto(fb)
 	return fb
 }
 
 // FramebufferInto rend le framebuffer dans dst (taille exacte
-// spec.FrameWidth*spec.FrameHeight) sans allocation, pour éviter la pression GC
+// FrameWidth*FrameHeight) sans allocation, pour éviter la pression GC
 // à 60 Hz (les allocations par frame provoquent des pauses GC qui glitchent
 // l'audio). dst trop petit est ignoré.
 func (m *Machine) FramebufferInto(fb []uint32) {
-	if len(fb) < spec.FrameWidth*spec.FrameHeight {
+	if len(fb) < FrameWidth*FrameHeight {
 		return
 	}
 	borderRGBA := m.paletteRGBA(int(m.port[0]>>1) & 0x0F)
@@ -44,7 +42,7 @@ func (m *Machine) FramebufferInto(fb []uint32) {
 	// 200 lignes actives (lignes 8–207)
 	for line := 0; line < activeLines; line++ {
 		y := borderPx + line
-		rowBase := y * spec.FrameWidth
+		rowBase := y * FrameWidth
 		// Bordure gauche
 		for x := 0; x < borderPx; x++ {
 			fb[rowBase+x] = borderRGBA
@@ -52,13 +50,13 @@ func (m *Machine) FramebufferInto(fb []uint32) {
 		// 40 octets → 320 pixels actifs
 		m.composeLine(fb, rowBase+borderPx, line*activeCols)
 		// Bordure droite
-		for x := borderPx + spec.ActiveWidth; x < spec.FrameWidth; x++ {
+		for x := borderPx + ActiveWidth; x < FrameWidth; x++ {
 			fb[rowBase+x] = borderRGBA
 		}
 	}
 
 	// Bordure basse (lignes 208–215)
-	for y := borderPx + activeLines; y < spec.FrameHeight; y++ {
+	for y := borderPx + activeLines; y < FrameHeight; y++ {
 		fillRow(fb, y, borderRGBA)
 	}
 }
@@ -129,20 +127,20 @@ func (m *Machine) iniln() int {
 // paletteRGBA retourne la couleur RGBA d'un index palette Thomson (0–18)
 // avec correction gamma appliquée. Format : 0xAABBGGRR (Ebitengine RGBA).
 func (m *Machine) paletteRGBA(idx int) uint32 {
-	if idx < 0 || idx >= spec.PaletteLen() {
+	if idx < 0 || idx >= PaletteLen() {
 		idx = 0
 	}
-	rgb := spec.PaletteColor(idx)
-	r := uint32(spec.GammaLookup(int(rgb[0])))
-	g := uint32(spec.GammaLookup(int(rgb[1])))
-	b := uint32(spec.GammaLookup(int(rgb[2])))
+	rgb := PaletteColor(idx)
+	r := uint32(GammaLookup(int(rgb[0])))
+	g := uint32(GammaLookup(int(rgb[1])))
+	b := uint32(GammaLookup(int(rgb[2])))
 	return 0xFF000000 | (b << 16) | (g << 8) | r
 }
 
 // fillRow remplit une ligne entière avec une couleur uniforme.
 func fillRow(fb []uint32, y int, color uint32) {
-	base := y * spec.FrameWidth
-	for x := 0; x < spec.FrameWidth; x++ {
+	base := y * FrameWidth
+	for x := 0; x < FrameWidth; x++ {
 		fb[base+x] = color
 	}
 }

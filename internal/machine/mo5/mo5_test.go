@@ -6,7 +6,6 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/core"
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/machine/mo5"
-	"github.com/Lesur-ai/dcmo5/internal/spec"
 )
 
 func TestProfileRegistered(t *testing.T) {
@@ -36,8 +35,8 @@ func TestNewSatisfiesContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New = %v", err)
 	}
-	if w, h := m.FrameSize(); w != spec.FrameWidth || h != spec.FrameHeight {
-		t.Errorf("FrameSize = %dx%d, want %dx%d", w, h, spec.FrameWidth, spec.FrameHeight)
+	if w, h := m.FrameSize(); w != core.FrameWidth || h != core.FrameHeight {
+		t.Errorf("FrameSize = %dx%d, want %dx%d", w, h, core.FrameWidth, core.FrameHeight)
 	}
 	// Les entrées idempotentes ne doivent pas paniquer (y compris souris ignorée).
 	m.SetKey(machine.Key(0), true)
@@ -66,7 +65,7 @@ func TestNewFromConfigEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New(Config vide) = %v", err)
 	}
-	if w, _ := m.FrameSize(); w != spec.FrameWidth {
+	if w, _ := m.FrameSize(); w != core.FrameWidth {
 		t.Errorf("FrameSize w = %d", w)
 	}
 }

@@ -3,7 +3,7 @@ package core_test
 import (
 	"testing"
 
-	"github.com/Lesur-ai/dcmo5/internal/spec"
+	"github.com/Lesur-ai/dcmo5/internal/core"
 )
 
 // ── Taille et structure du framebuffer ────────────────────────────────────────
@@ -11,7 +11,7 @@ import (
 func TestFramebufferDimensions(t *testing.T) {
 	m := newMachine(t)
 	fb := m.Framebuffer()
-	want := spec.FrameWidth * spec.FrameHeight
+	want := core.FrameWidth * core.FrameHeight
 	if len(fb) != want {
 		t.Errorf("Framebuffer: len = %d, want %d", len(fb), want)
 	}
@@ -36,7 +36,7 @@ func TestFramebuffer_BorderColor(t *testing.T) {
 	m := newMachine(t)
 	fb := m.Framebuffer()
 	// Pixel (0, 0) doit être la couleur de bordure (noir avec gamma = 0x00000000 + alpha)
-	// spec.GammaLookup(0) = 0, donc RGBA = 0xFF000000
+	// core.GammaLookup(0) = 0, donc RGBA = 0xFF000000
 	borderPixel := fb[0]
 	if borderPixel != 0xFF000000 {
 		t.Errorf("bordure pixel (0,0) = 0x%08X, want 0xFF000000 (noir)", borderPixel)
@@ -50,16 +50,16 @@ func TestFramebuffer_BorderRows(t *testing.T) {
 	borderColor := fb[0] // couleur de référence ligne 0
 
 	for y := 0; y < 8; y++ {
-		for x := 0; x < spec.FrameWidth; x++ {
-			if fb[y*spec.FrameWidth+x] != borderColor {
+		for x := 0; x < core.FrameWidth; x++ {
+			if fb[y*core.FrameWidth+x] != borderColor {
 				t.Errorf("bordure haute (%d,%d): couleur inattendue", x, y)
 				return
 			}
 		}
 	}
-	for y := spec.FrameHeight - 8; y < spec.FrameHeight; y++ {
-		for x := 0; x < spec.FrameWidth; x++ {
-			if fb[y*spec.FrameWidth+x] != borderColor {
+	for y := core.FrameHeight - 8; y < core.FrameHeight; y++ {
+		for x := 0; x < core.FrameWidth; x++ {
+			if fb[y*core.FrameWidth+x] != borderColor {
 				t.Errorf("bordure basse (%d,%d): couleur inattendue", x, y)
 				return
 			}
@@ -92,7 +92,7 @@ func TestFramebuffer_RamChangeAffectsPixels(t *testing.T) {
 	// Les pixels actifs de la ligne 8 (première ligne active) doivent avoir changé.
 	changed := false
 	for x := 8; x < 8+320; x++ {
-		if fb0[8*spec.FrameWidth+x] != fb1[8*spec.FrameWidth+x] {
+		if fb0[8*core.FrameWidth+x] != fb1[8*core.FrameWidth+x] {
 			changed = true
 			break
 		}
@@ -121,14 +121,14 @@ func TestFramebuffer_ForegroundColor(t *testing.T) {
 	m.Write8(0xA7C0, 0x00) // repasser page 0
 	fb := m.Framebuffer()
 	// Couleur 7 (blanc) via spec : rgb = [15,15,15], gamma[15]=255
-	wantR := uint32(spec.GammaLookup(15))
-	wantG := uint32(spec.GammaLookup(15))
-	wantB := uint32(spec.GammaLookup(15))
+	wantR := uint32(core.GammaLookup(15))
+	wantG := uint32(core.GammaLookup(15))
+	wantB := uint32(core.GammaLookup(15))
 	want := 0xFF000000 | (wantB << 16) | (wantG << 8) | wantR
 
 	firstActiveLine := 8 // borderPx
 	for x := 8; x < 8+320; x++ {
-		px := fb[firstActiveLine*spec.FrameWidth+x]
+		px := fb[firstActiveLine*core.FrameWidth+x]
 		if px != want {
 			t.Errorf("pixel (%d,%d) = 0x%08X, want 0x%08X (blanc)", x, firstActiveLine, px, want)
 			return
