@@ -74,6 +74,14 @@ type GateArray struct {
 	pagevideoBase int
 	bordercolor   int
 	vmode         videoMode
+
+	// Timer 6846 + lignes d'IRQ (lot #114). timer6846 : compteur courant (en
+	// 1/8 de cycle, réf C) ; latch6846 : valeur de rechargement. timerIRQCount /
+	// keybIRQCount : durée résiduelle (en cycles) du signal d'IRQ correspondant.
+	timer6846     int
+	latch6846     int
+	timerIRQCount int
+	keybIRQCount  int
 }
 
 // videoMode est le mode de décodage vidéo gate-array (sélection par e7dc).
@@ -118,8 +126,12 @@ func (g *GateArray) hardReset() {
 	g.nvideopage = 0
 	g.nrambank = 0
 	g.nsystbank = 0
+	g.timerIRQCount = 0
+	g.keybIRQCount = 0
 	g.initprog()
 	g.refreshPalette() // initialise la palette rendue depuis x7da
+	g.latch6846 = 65535
+	g.timer6846 = 65535
 }
 
 // initprog reproduit Initprog() (partie mémoire) : recalcule tous les pointeurs
@@ -373,6 +385,12 @@ func (g *GateArray) writeIO(a uint16, c byte) {
 	case 0xe7c3:
 		// p0=page vidéo, p2=commutation ROM, p4=banque système (cf. réf C).
 		g.port[0x03] = c & 0x3d
+		// p5 (0x20) = acknowledge réception d'un code touche : l'effacer acquitte
+		// l'IRQ clavier (réf C : if((c & 0x20) == 0) keyb_irqcount = 0). Sans cela
+		// la ligne IRQKeyboard resterait assertée jusqu'au timeout (~500 ms).
+		if c&0x20 == 0 {
+			g.keybIRQCount = 0
+		}
 		g.updateVideoRAM()
 		g.updateROMBank()
 	case 0xe7c9:
@@ -397,6 +415,13 @@ func (g *GateArray) writeIO(a uint16, c byte) {
 		g.setVideoMode(c)
 	case 0xe7dd:
 		g.videopageBorder(c)
+	case 0xe7c5:
+		g.port[0x05] = c
+		g.timerControl() // recharge le compteur si bit0 armé (réf C Timercontrol)
+	case 0xe7c6:
+		g.latch6846 = (g.latch6846 & 0xff) | (int(c) << 8) // octet de poids fort
+	case 0xe7c7:
+		g.latch6846 = (g.latch6846 & 0xff00) | int(c) // octet de poids faible
 	default:
 		if a >= 0xe7c0 && a < 0xe800 {
 			g.port[a&0x3f] = c
@@ -406,11 +431,22 @@ func (g *GateArray) writeIO(a uint16, c byte) {
 
 func (g *GateArray) readIO(a uint16) byte {
 	switch a {
+	case 0xe7c0:
+		// CSR composite (6846) : si au moins une source d'IRQ est active, le bit7
+		// composite est armé (réf C : port[0] ? port[0]|0x80 : 0).
+		if g.port[0x00] != 0 {
+			return g.port[0x00] | 0x80
+		}
+		return 0
 	case 0xe7c3:
 		// Registre d'état port C : bit7 toujours armé en lecture. Le bit1
 		// (interrupteur crayon optique, penbutton) sera ajouté au lot crayon #115.
 		// Réf C : port[0x03] | 0x80 | (penbutton << 1).
 		return g.port[0x03] | 0x80
+	case 0xe7c6:
+		return byte(g.timer6846 >> 11 & 0xff) // timer, octet de poids fort
+	case 0xe7c7:
+		return byte(g.timer6846 >> 3 & 0xff) // timer, octet de poids faible
 	case 0xe7da:
 		// Lecture palette : index auto-incrémenté (post-incrément non masqué au
 		// stockage, masqué à l'indexation — réf C : x7da[port[0x1b]++ & 0x1f]).
