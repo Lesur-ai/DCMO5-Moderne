@@ -64,7 +64,28 @@ type GateArray struct {
 	nsystbank  int // banque système (0–1)
 	nrambank   int // banque RAM (0–31)
 	nrombank   int // banque ROM (-1 si cartouche)
+
+	// Vidéo (lot #113). x7da : palette EF9369 (16 couleurs × 2 octets : r|v puis b).
+	// pagevideoBase : offset dans ram[] de la page AFFICHÉE par le balayage (e7dd,
+	// distincte de ramvideo qui est la page vue par le CPU). bordercolor : index
+	// palette de la bordure. vmode : mode de décodage courant (e7dc).
+	x7da          [32]byte
+	pcolor        [16]uint32 // palette RGBA RENDUE (latchée), cf. paletteWrite
+	pagevideoBase int
+	bordercolor   int
+	vmode         videoMode
 }
+
+// videoMode est le mode de décodage vidéo gate-array (sélection par e7dc).
+type videoMode int
+
+const (
+	mode320x16       videoMode = iota // standard TO : 320×16 couleurs (défaut)
+	mode320x4                         // bitmap4 : 320×200, 4 couleurs
+	mode320x4special                  // bitmap4 spécial : 320×200, 4 couleurs
+	mode160x16                        // bitmap16 : 160×200, 16 couleurs
+	mode640x2                         // 80 colonnes : 640×200, 2 couleurs
+)
 
 // New construit un gate-array. romMon (≤ 16 Ko, moniteur système) et romBasic
 // (≤ 64 Ko, ROM interne) sont copiés dans des tampons de taille fixe (tronqués
@@ -98,16 +119,63 @@ func (g *GateArray) hardReset() {
 	g.nrambank = 0
 	g.nsystbank = 0
 	g.initprog()
+	g.refreshPalette() // initialise la palette rendue depuis x7da
 }
 
 // initprog reproduit Initprog() (partie mémoire) : recalcule tous les pointeurs
 // de banque depuis l'état des ports. ramuser est fixe (ram - 0x2000).
 func (g *GateArray) initprog() {
 	g.carflags &= 0xec
+	g.vmode = mode320x16
 	g.ramuserBase = -0x2000
+	g.videopageBorder(g.port[0x1d])
 	g.updateVideoRAM()
 	g.updateRAMBank()
 	g.updateROMBank()
+}
+
+// videopageBorder positionne la page vidéo AFFICHÉE et la couleur de bordure
+// depuis e7dd (réf C : Videopage_bordercolor). Bits 6-7 = page affichée (offset
+// (c&0xc0)<<8 dans ram), bits 0-3 = index palette de la bordure.
+func (g *GateArray) videopageBorder(c byte) {
+	g.port[0x1d] = c
+	g.pagevideoBase = (int(c) & 0xc0) << 8
+	g.bordercolor = int(c) & 0x0f
+}
+
+// setVideoMode sélectionne le mode de décodage depuis e7dc (réf C : TO8videomode).
+func (g *GateArray) setVideoMode(c byte) {
+	g.port[0x1c] = c
+	switch c {
+	case 0x21:
+		g.vmode = mode320x4
+	case 0x2a:
+		g.vmode = mode640x2
+	case 0x41:
+		g.vmode = mode320x4special
+	case 0x7b:
+		g.vmode = mode160x16
+	default:
+		g.vmode = mode320x16
+	}
+}
+
+// paletteWrite traite une écriture e7da (réf C : Palettecolor). Les 32 octets de
+// x7da forment 16 couleurs (octet pair : r en bits0-3, v en bits4-7 ; octet
+// impair : b en bits0-3). port[0x1b] est l'index auto-incrémenté (modulo 32). La
+// couleur RGBA est recalculée à la volée au décodage (palette24 / DecodeFrame).
+func (g *GateArray) paletteWrite(c byte) {
+	i := int(g.port[0x1b]) & 0x1f
+	g.x7da[i] = c
+	g.port[0x1b] = byte((i + 1) & 0x1f)
+	// La couleur RENDUE n'est latchée qu'à l'écriture du 2e octet (index impair),
+	// comme la réf C Palettecolor : tant que le 2e octet n'est pas écrit, pcolor
+	// garde l'ancienne valeur. Évite une couleur transitoire fausse en cas
+	// d'écriture fractionnée ou d'animation de palette décodée entre les 2 octets.
+	if i&1 != 0 {
+		even := int(g.x7da[i&0x1e])
+		g.pcolor[i>>1] = rgbaFromRVB(even&0x0f, (even>>4)&0x0f, int(c)&0x0f)
+	}
 }
 
 // Reset relance la machine dans l'état de reset matériel (efface la RAM).
@@ -321,6 +389,14 @@ func (g *GateArray) writeIO(a uint16, c byte) {
 	case 0xe7e7:
 		g.port[0x27] = c
 		g.updateRAMBank()
+	case 0xe7da:
+		g.paletteWrite(c)
+	case 0xe7db:
+		g.port[0x1b] = c
+	case 0xe7dc:
+		g.setVideoMode(c)
+	case 0xe7dd:
+		g.videopageBorder(c)
 	default:
 		if a >= 0xe7c0 && a < 0xe800 {
 			g.port[a&0x3f] = c
@@ -335,6 +411,12 @@ func (g *GateArray) readIO(a uint16) byte {
 		// (interrupteur crayon optique, penbutton) sera ajouté au lot crayon #115.
 		// Réf C : port[0x03] | 0x80 | (penbutton << 1).
 		return g.port[0x03] | 0x80
+	case 0xe7da:
+		// Lecture palette : index auto-incrémenté (post-incrément non masqué au
+		// stockage, masqué à l'indexation — réf C : x7da[port[0x1b]++ & 0x1f]).
+		v := g.x7da[g.port[0x1b]&0x1f]
+		g.port[0x1b]++
+		return v
 	case 0xe7e4:
 		return g.port[0x1d] & 0xf0
 	case 0xe7e5:
