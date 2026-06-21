@@ -250,6 +250,10 @@ func (c *CPU) RegA() uint8      { return c.a }
 func (c *CPU) SetRegA(v uint8)  { c.a = v }
 func (c *CPU) RegB() uint8      { return c.b }
 func (c *CPU) SetRegB(v uint8)  { c.b = v }
+func (c *CPU) RegX() uint16     { return c.x }
+func (c *CPU) SetRegX(v uint16) { c.x = v }
+func (c *CPU) RegY() uint16     { return c.y }
+func (c *CPU) SetRegY(v uint16) { c.y = v }
 func (c *CPU) RegS() uint16     { return c.s }
 func (c *CPU) RegCC() uint8     { return c.cc }
 func (c *CPU) SetRegCC(v uint8) { c.cc = v }

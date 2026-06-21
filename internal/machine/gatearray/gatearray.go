@@ -20,6 +20,11 @@
 //	0xF      ROM système
 package gatearray
 
+import (
+	"github.com/Lesur-ai/dcmo5/internal/cpu6809"
+	"github.com/Lesur-ai/dcmo5/internal/media"
+)
+
 // Tailles des espaces mémoire (réf C : ram[0x80000], car[0x10000], port[0x40]).
 const (
 	ramSize      = 0x80000 // 512 Ko de RAM
@@ -82,6 +87,25 @@ type GateArray struct {
 	latch6846     int
 	timerIRQCount int
 	keybIRQCount  int
+
+	// Son (lot #115) : niveau du haut-parleur 0..0x3F (e7cd), exposé au moteur via
+	// SoundLevel().
+	sound uint8
+
+	// CPU et périphériques (lot #115). cpu : référence pour les handlers d'E/S
+	// (registres A/B/X/Y/S/CC) ; attachée par AttachCPU à l'intégration moteur
+	// (#118). tape/disk/printer : médias montés. xpen/ypen/penbutton : pointeur
+	// (crayon optique / souris), en repère écran TO8D.
+	cpu        *cpu6809.CPU
+	tape       media.Tape
+	disk       media.Disk
+	printer    media.PrinterSink
+	xpen, ypen int
+	penbutton  bool
+
+	// k7bit/k7octet : état du lecteur cassette bit à bit (réf C dcto8ddevices.c).
+	k7bit   uint8
+	k7octet uint8
 }
 
 // videoMode est le mode de décodage vidéo gate-array (sélection par e7dc).
@@ -132,7 +156,20 @@ func (g *GateArray) hardReset() {
 	g.refreshPalette() // initialise la palette rendue depuis x7da
 	g.latch6846 = 65535
 	g.timer6846 = 65535
+	g.sound = 0
+	g.penbutton = false
+	g.xpen, g.ypen = 0, 0
+	g.k7bit, g.k7octet = 0, 0
 }
+
+// AttachCPU relie le CPU utilisé par les handlers d'E/S (lecture/écriture des
+// registres A/B/X/Y/S/CC). Appelé à la construction de la machine TO8D, lors de
+// l'intégration au moteur (#118), avec eng.CPU().
+func (g *GateArray) AttachCPU(cpu *cpu6809.CPU) { g.cpu = cpu }
+
+// SoundLevel retourne le niveau courant du haut-parleur (0..0x3F), échantillonné
+// par le moteur (contrat engine.Device).
+func (g *GateArray) SoundLevel() uint8 { return g.sound }
 
 // initprog reproduit Initprog() (partie mémoire) : recalcule tous les pointeurs
 // de banque depuis l'état des ports. ramuser est fixe (ram - 0x2000).
@@ -415,6 +452,14 @@ func (g *GateArray) writeIO(a uint16, c byte) {
 		g.setVideoMode(c)
 	case 0xe7dd:
 		g.videopageBorder(c)
+	case 0xe7cd:
+		// Registre action/musique : si le bit2 de e7cf sélectionne la musique,
+		// l'octet écrit est le niveau du haut-parleur (réf C). Sinon port standard.
+		if g.port[0x0f]&4 != 0 {
+			g.sound = c & 0x3f
+		} else {
+			g.port[0x0d] = c
+		}
 	case 0xe7c5:
 		g.port[0x05] = c
 		g.timerControl() // recharge le compteur si bit0 armé (réf C Timercontrol)
@@ -439,10 +484,21 @@ func (g *GateArray) readIO(a uint16) byte {
 		}
 		return 0
 	case 0xe7c3:
-		// Registre d'état port C : bit7 toujours armé en lecture. Le bit1
-		// (interrupteur crayon optique, penbutton) sera ajouté au lot crayon #115.
-		// Réf C : port[0x03] | 0x80 | (penbutton << 1).
-		return g.port[0x03] | 0x80
+		// Registre d'état port C : bit7 toujours armé, bit1 = interrupteur crayon
+		// optique / clic souris (penbutton). Réf C : port[0x03]|0x80|(penbutton<<1).
+		v := g.port[0x03] | 0x80
+		if g.penbutton {
+			v |= 0x02
+		}
+		return v
+	case 0xe7cd:
+		// Registre action/musique : en mode musique (e7cf bit2) il reflète le niveau
+		// son courant (réf C : (port[0x0f]&4) ? joysaction|sound : port[0x0d] ; le
+		// joystick n'étant pas encore émulé, joysaction vaut 0).
+		if g.port[0x0f]&4 != 0 {
+			return g.sound
+		}
+		return g.port[0x0d]
 	case 0xe7c6:
 		return byte(g.timer6846 >> 11 & 0xff) // timer, octet de poids fort
 	case 0xe7c7:
