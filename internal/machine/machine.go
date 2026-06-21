@@ -34,8 +34,11 @@ const (
 )
 
 // PointerInput unifie crayon et souris (revue Codex : SetPen était MO5-centré).
-// X/Y sont exprimés dans le repère écran actif de la machine ; X peut atteindre 640
-// en mode 80 colonnes sur la famille TO.
+// X/Y sont exprimés dans le repère du FRAMEBUFFER de la machine (0..w-1 / 0..h-1,
+// bordures incluses), seul repère connu de l'UI via FrameSize()/Layout. Chaque
+// machine convertit vers son repère interne dans SetPointer : le MO5 y retranche
+// sa bordure pour obtenir l'écran actif du crayon ; la famille TO mappera de même
+// (X peut alors atteindre 640 en mode 80 colonnes).
 type PointerInput struct {
 	Kind   PointerKind
 	X, Y   int

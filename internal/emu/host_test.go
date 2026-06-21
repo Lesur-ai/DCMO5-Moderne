@@ -146,7 +146,7 @@ func TestHost_ConcurrentAccessNoRace(t *testing.T) {
 	audioR := h.AudioReader()
 	pcm := make([]byte, 512)
 	worker(func() { audioR.Read(pcm) })
-	fb := make([]uint32, spec.FrameWidth*spec.FrameHeight)
+	fb := make([]uint32, core.FrameWidth*core.FrameHeight)
 	worker(func() { h.Framebuffer(fb) })
 	worker(func() { h.Reset(); time.Sleep(5 * time.Millisecond) })
 

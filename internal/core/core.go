@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/Lesur-ai/dcmo5/internal/cpu6809"
+	"github.com/Lesur-ai/dcmo5/internal/engine"
+	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/media"
 	"github.com/Lesur-ai/dcmo5/internal/spec"
 )
@@ -52,14 +54,15 @@ type Options struct {
 
 // Machine représente le Thomson MO5 complet.
 type Machine struct {
-	cpu  *cpu6809.CPU
+	eng  *engine.Engine // boucle d'émulation partagée (CPU, audio, trame, IRQ)
+	cpu  *cpu6809.CPU   // = eng.CPU() ; raccourci pour les handlers d'E/S (io.go)
 	opts Options
 
 	// Mémoire physique
-	ram  [spec.RAMTotalSize]uint8 // 48 Ko RAM (vidéo + utilisateur)
-	rom  [0x4000]uint8            // 16 Ko ROM système (0xC000–0xFFFF)
-	car  [0x10000]uint8           // 4 banques × 16 Ko cartouche
-	port [spec.PortSize]uint8     // 64 octets ports E/S
+	ram  [RAMTotalSize]uint8 // 48 Ko RAM (vidéo + utilisateur)
+	rom  [0x4000]uint8       // 16 Ko ROM système (0xC000–0xFFFF)
+	car  [0x10000]uint8      // 4 banques × 16 Ko cartouche
+	port [PortSize]uint8     // 64 octets ports E/S
 
 	// État mémoire banked
 	cartype  int   // 0=simple 1=MEMO5 switch 2=OS-9
@@ -77,17 +80,11 @@ type Machine struct {
 	k7octet uint8 // octet cassette courant en cours de lecture bit à bit
 
 	// Son (ref: dcmo5main.c). sound = niveau courant du haut-parleur (0..0x3F),
-	// mis à jour par les ports 0xA7C1/0xA7CD. Échantillonné dans Step() à
-	// spec.AudioSampleRate via un accumulateur de cycles, dans samples.
-	sound           uint8   // niveau sonore courant (6 bits)
-	sampleAccum     int64   // accumulateur cycles×SampleRate pour l'échantillonnage
-	samples         []uint8 // tampon d'échantillons audio (niveau 0..0x3F)
-	audioSampleRate int     // taux d'échantillonnage effectif
-
-	// Timing vidéo (ref: dcmo5emulation.c Run())
-	// 64 cycles par ligne, 312 lignes par trame (50 Hz)
-	videolinecycle  int // cycles dans la ligne courante [0,63]
-	videolinenumber int // numéro de ligne courante [0,311]
+	// mis à jour par les ports 0xA7C1/0xA7CD. Exposé au moteur via SoundLevel(),
+	// qui l'échantillonne à audioSampleRate. Le tampon d'échantillons et le
+	// balayage vidéo (trame 50 Hz) sont détenus par le moteur (internal/engine).
+	sound           uint8 // niveau sonore courant (6 bits)
+	audioSampleRate int   // taux d'échantillonnage effectif (transmis au moteur)
 
 	// Instrumentation E/S optionnelle (nil = désactivée, coût nul). Voir iotrace.go.
 	ioTrace *ioTrace
@@ -124,9 +121,14 @@ func NewMachine(opts Options) (*Machine, error) {
 			m.applyDiskControllerPatches() // alignement trap du DOS (cf. rompatch.go)
 		}
 	}
+	// Le moteur partagé crée le CPU sur le bus de cette machine. Comme
+	// cpu6809.New (et la v1 du cœur), il NE réinitialise PAS le CPU : le vecteur
+	// reset n'est chargé que par Reset()/Initprog(), après loadCartridge — ordre
+	// d'amorçage préservé à l'identique.
+	m.eng = engine.New(m, m.audioSampleRate)
+	m.cpu = m.eng.CPU()
 	m.hardReset()
 	m.loadCartridge() // charge opts.Cartridge dans car[] si présente
-	m.cpu = cpu6809.New(m)
 	return m, nil
 }
 
@@ -156,13 +158,12 @@ func (m *Machine) hardReset() {
 	m.cartype = 0
 	m.xpen, m.ypen = 0, 0
 	m.penbutton = false
-	m.videolinecycle = 0
-	m.videolinenumber = 0
-	// État audio : repartir silencieux, sans échantillons périmés ni reliquat
-	// d'accumulateur (sinon DrainAudio rejouerait du son d'avant le reset).
+	// Son coupé ; le tampon d'échantillons et le balayage vidéo (trame 50 Hz)
+	// appartiennent au moteur : on les réamorce via ResetTiming(), qui ne touche
+	// PAS le CPU (le vecteur reset reste piloté par Reset()/Initprog()). Sans ce
+	// flush, DrainAudio rejouerait du son d'avant le reset.
 	m.sound = 0
-	m.sampleAccum = 0
-	m.samples = m.samples[:0]
+	m.eng.ResetTiming()
 	m.k7bit = 0
 	m.k7octet = 0
 	m.mo5VideoRAM()
@@ -336,7 +337,7 @@ func (m *Machine) writePort(addr uint16, v uint8) {
 		m.port[0x0C] = v
 	case 0xA7CD:
 		m.port[0x0D] = v
-		m.sound = v & spec.AudioLevelMax // registre niveau musique/son (6 bits)
+		m.sound = v & AudioLevelMax // registre niveau musique/son (6 bits)
 	case 0xA7CE:
 		m.port[0x0E] = v
 	case 0xA7CF:
@@ -400,99 +401,53 @@ func (m *Machine) Initprog() {
 	m.joysAction = 0xC0
 	m.carflags &= 0xEC // efface bits 0,1 (banque) et 4 (OS-9), garde cart-enabled
 	m.sound = 0
-	m.sampleAccum = 0
-	m.samples = m.samples[:0]
+	m.eng.ResetAudio() // coupe le son sans réamorcer la trame en cours (reset doux)
 	m.k7bit = 0
 	m.k7octet = 0
 	m.cpu.Reset() // CC = 0x10, PC = vecteur reset
 }
 
-const (
-	cyclesPerLine = 64  // cycles par ligne horizontale MO5
-	linesPerFrame = 312 // lignes par trame (50 Hz)
-)
+// Step avance l'émulation d'au plus cycles cycles et retourne les cycles
+// consommés. Le MO5 délègue sa boucle au moteur partagé (internal/engine), qui
+// exécute le CPU, échantillonne l'audio (via SoundLevel), cadence le balayage
+// vidéo et délivre l'IRQ de fin de trame (50 Hz) — exactement la boucle
+// dcmo5emulation.c Run() de la v1, désormais factorisée. Le dispatch d'E/S sur
+// opcode illégal revient ici via Trap().
+func (m *Machine) Step(cycles int) int { return m.eng.Step(cycles) }
 
-// Step avance l'émulation d'au plus n cycles et retourne les cycles consommés.
-// Reproduit fidèlement la boucle dcmo5emulation.c Run() :
-//   - opcode illégal → entreesortie(-code) + 64 cycles (I/O)
-//   - tous les 64 cycles → fin de ligne (videolinecycle, videolinenumber++)
-//   - toutes les 312 lignes → IRQ 50 Hz (trame complète)
-func (m *Machine) Step(cycles int) int {
-	if cycles <= 0 {
-		return 0
-	}
-	consumed := 0
-	for consumed < cycles {
-		c := m.cpu.Step()
-		if c < 0 {
-			m.entreesortie(-c)
-			c = 64
-		} else if c == 0 {
-			c = 2
-		}
-		consumed += c
+// ── Contrat engine.Device : la partie MO5 pilotée par le moteur ───────────────
 
-		// Échantillonnage audio : produit m.audioSampleRate échantillons par
-		// spec.CPUClockHz cycles, en capturant le niveau sonore courant.
-		m.sampleAccum += int64(c) * int64(m.audioSampleRate)
-		for m.sampleAccum >= int64(spec.CPUClockHz) {
-			m.sampleAccum -= int64(spec.CPUClockHz)
-			m.appendSample(m.sound)
-		}
+// Compile-time : le MO5 satisfait le contrat Device du moteur.
+var _ engine.Device = (*Machine)(nil)
 
-		// Timing vidéo (ref: dcmo5emulation.c Run())
-		m.videolinecycle += c
-		for m.videolinecycle >= cyclesPerLine {
-			m.videolinecycle -= cyclesPerLine
-			m.videolinenumber++
-			if m.videolinenumber >= linesPerFrame {
-				m.videolinenumber = 0
-				// IRQ de fin de trame (50 Hz) — non masquable par le code ROM
-				m.cpu.IRQ()
-			}
-		}
+// Trap dispatche un appel d'E/S MO5 (opcode illégal, code = -opcode). Le moteur
+// l'invoque quand cpu.Step() retourne un coût négatif.
+func (m *Machine) Trap(code int) { m.entreesortie(code) }
 
-		if consumed >= cycles {
-			break
-		}
-	}
-	return consumed
-}
+// OnInstructionCycles : le MO5 n'a aucun périphérique à cadencer par instruction
+// (sa seule source d'IRQ — la fin de trame — est gérée par le moteur). No-op,
+// fidélité préservée. La famille TO (timer 6846, IRQ clavier) l'utilisera.
+func (m *Machine) OnInstructionCycles(int, *machine.IRQLines) {}
 
-// maxAudioBacklog borne le tampon d'échantillons à ~0,5 s, indépendamment du
-// taux : si l'application ne draine pas (fenêtre inactive, pause), on évite une
-// croissance mémoire illimitée en abandonnant les échantillons les plus anciens.
-func (m *Machine) maxAudioBacklog() int { return m.audioSampleRate / 2 }
+// SoundLevel retourne le niveau courant du haut-parleur (0..0x3F) ; le moteur
+// l'échantillonne à la fréquence audio.
+func (m *Machine) SoundLevel() uint8 { return m.sound }
 
-// appendSample ajoute un échantillon au tampon audio en respectant le plafond.
-func (m *Machine) appendSample(level uint8) {
-	if len(m.samples) >= m.maxAudioBacklog() {
-		// Tampon saturé : on jette le plus ancien (glissement) pour rester borné.
-		copy(m.samples, m.samples[1:])
-		m.samples[len(m.samples)-1] = level
-		return
-	}
-	m.samples = append(m.samples, level)
-}
+// FrameSize retourne la taille (fixe) du framebuffer logique MO5.
+func (m *Machine) FrameSize() (w, h int) { return FrameWidth, FrameHeight }
 
-// DrainAudio copie les échantillons disponibles dans dst et vide le tampon
-// interne. Retourne le nombre d'échantillons écrits (≤ len(dst)). Les niveaux
-// sont sur 6 bits (0..spec.AudioLevelMax) ; la conversion en PCM est à la charge
+// DecodeFrame rend le framebuffer courant dans dst (contrat Device → délègue au
+// rendu MO5 de video.go).
+func (m *Machine) DecodeFrame(dst []uint32) { m.FramebufferInto(dst) }
+
+// DrainAudio copie les échantillons disponibles dans dst et vide le tampon du
+// moteur. Retourne le nombre d'échantillons écrits (≤ len(dst)). Les niveaux
+// sont sur 6 bits (0..AudioLevelMax) ; la conversion en PCM est à la charge
 // de la couche audio. Conçu pour être appelé une fois par frame par l'app.
-func (m *Machine) DrainAudio(dst []uint8) int {
-	n := copy(dst, m.samples)
-	if n >= len(m.samples) {
-		m.samples = m.samples[:0]
-	} else {
-		// Conserver le reliquat non copié au début du tampon.
-		rest := copy(m.samples, m.samples[n:])
-		m.samples = m.samples[:rest]
-	}
-	return n
-}
+func (m *Machine) DrainAudio(dst []uint8) int { return m.eng.DrainAudio(dst) }
 
 // AudioBacklog retourne le nombre d'échantillons en attente (observabilité).
-func (m *Machine) AudioBacklog() int { return len(m.samples) }
+func (m *Machine) AudioBacklog() int { return m.eng.AudioBacklog() }
 
 // AudioSampleRate retourne le taux d'échantillonnage audio effectif.
 func (m *Machine) AudioSampleRate() int { return m.audioSampleRate }

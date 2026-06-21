@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/Lesur-ai/dcmo5/internal/core"
-	"github.com/Lesur-ai/dcmo5/internal/spec"
 )
 
 func TestNewMachineNoROM(t *testing.T) {
@@ -20,7 +19,7 @@ func TestNewMachineNoROM(t *testing.T) {
 func TestFramebufferSize(t *testing.T) {
 	m, _ := core.NewMachine(core.Options{})
 	fb := m.Framebuffer()
-	want := spec.FrameWidth * spec.FrameHeight
+	want := core.FrameWidth * core.FrameHeight
 	if len(fb) != want {
 		t.Errorf("Framebuffer len = %d, want %d", len(fb), want)
 	}

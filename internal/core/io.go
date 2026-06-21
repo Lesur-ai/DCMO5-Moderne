@@ -6,7 +6,6 @@ import (
 	"errors"
 
 	"github.com/Lesur-ai/dcmo5/internal/media"
-	"github.com/Lesur-ai/dcmo5/internal/spec"
 )
 
 // ── Initialisation cartouche ──────────────────────────────────────────────────
@@ -329,7 +328,7 @@ func (m *Machine) formatDisk() {
 // readPenXY écrit les coordonnées du crayon dans la pile CPU (S+6, S+8).
 // Ref: dcmo5devices.c Readpenxy() — Mputw(S+6, xpen); Mputw(S+8, ypen); CC &= 0xfe
 func (m *Machine) readPenXY() {
-	if m.xpen < 0 || m.xpen >= spec.ActiveWidth || m.ypen < 0 || m.ypen >= spec.ActiveHeight {
+	if m.xpen < 0 || m.xpen >= ActiveWidth || m.ypen < 0 || m.ypen >= ActiveHeight {
 		m.cpu.SetRegCC(m.cpu.RegCC() | 0x01) // set carry = erreur (hors zone active)
 		return
 	}

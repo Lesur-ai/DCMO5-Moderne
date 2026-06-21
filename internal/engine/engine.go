@@ -82,18 +82,41 @@ func (e *Engine) CPU() *cpu6809.CPU { return e.cpu }
 // IRQ expose les lignes d'interruption (pour les tests et l'observabilité).
 func (e *Engine) IRQ() *machine.IRQLines { return &e.irq }
 
+// VideoBeam expose la position courante du balayage vidéo (cycle dans la ligne,
+// numéro de ligne). Le Device en a besoin pour ses registres de synchronisation
+// faisceau (MO5 : ports 0xA7C3/D8/E6/E7 via Initn()/Iniln()). L'état reflète la
+// fin de la dernière instruction exécutée, comme dcmo5emulation.c.
+func (e *Engine) VideoBeam() (linecycle, linenumber int) {
+	return e.videolinecycle, e.videolinenumber
+}
+
 // AudioSampleRate retourne le taux d'échantillonnage effectif.
 func (e *Engine) AudioSampleRate() int { return e.audioSampleRate }
 
-// Reset réinitialise le CPU (vecteur reset), l'état audio et les compteurs vidéo.
-// Le contenu mémoire/état de la machine reste à la charge du Device.
+// Reset réinitialise le CPU (vecteur reset) puis tout le timing moteur (audio,
+// compteurs vidéo, lignes d'IRQ). Le contenu mémoire/état de la machine reste à
+// la charge du Device.
 func (e *Engine) Reset() {
 	e.cpu.Reset()
+	e.ResetTiming()
+}
+
+// ResetTiming réinitialise le timing moteur SANS toucher au CPU : compteurs
+// vidéo, état audio et lignes d'IRQ. Le Device l'utilise pour un reset matériel
+// qui pilote le CPU séparément (ordre mémoire → vecteur reste à sa charge).
+func (e *Engine) ResetTiming() {
 	e.videolinecycle = 0
 	e.videolinenumber = 0
+	e.ResetAudio()
+	e.irq.Reset()
+}
+
+// ResetAudio vide le tampon d'échantillons et l'accumulateur, sans toucher au
+// CPU ni au balayage vidéo. Le Device l'utilise pour un reset « doux » (MO5
+// Initprog) qui coupe le son sans réamorcer la trame en cours.
+func (e *Engine) ResetAudio() {
 	e.sampleAccum = 0
 	e.samples = e.samples[:0]
-	e.irq.Reset()
 }
 
 // Step avance l'émulation d'au plus cycles et retourne les cycles consommés.

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/Lesur-ai/dcmo5/internal/core"
-	"github.com/Lesur-ai/dcmo5/internal/spec"
 )
 
 // penTrapROM fabrique une ROM 16 Ko qui place S puis exécute le trap crayon :
@@ -42,7 +41,7 @@ func runPenTrap(t *testing.T, cursorX, cursorY int, pressed bool) (*core.Machine
 	}
 	m.Reset()
 	// Conversion identique à celle de la couche app (repère framebuffer → MO5).
-	px, py := spec.PenFromFramebuffer(cursorX, cursorY)
+	px, py := core.PenFromFramebuffer(cursorX, cursorY)
 	m.SetPen(px, py, pressed)
 	m.Step(100) // LDS + trap + NOPs
 	return m, px, py
@@ -50,7 +49,7 @@ func runPenTrap(t *testing.T, cursorX, cursorY int, pressed bool) (*core.Machine
 
 func TestPenTrap_InZone_WritesCoordsAndClearsCarry(t *testing.T) {
 	// Curseur au milieu de l'écran : framebuffer (8+160, 8+100) → MO5 (160,100).
-	m, px, py := runPenTrap(t, spec.BorderWidth+160, spec.BorderWidth+100, true)
+	m, px, py := runPenTrap(t, core.BorderWidth+160, core.BorderWidth+100, true)
 	if px != 160 || py != 100 {
 		t.Fatalf("conversion: (%d,%d), want (160,100)", px, py)
 	}
@@ -68,11 +67,11 @@ func TestPenTrap_CornersActiveZone(t *testing.T) {
 	// Les quatre coins exacts de la zone active doivent être détectés (carry=0)
 	// avec les coordonnées MO5 attendues.
 	corners := []struct{ cx, cy, wantX, wantY int }{
-		{spec.BorderWidth, spec.BorderWidth, 0, 0},
-		{spec.BorderWidth + spec.ActiveWidth - 1, spec.BorderWidth, spec.ActiveWidth - 1, 0},
-		{spec.BorderWidth, spec.BorderWidth + spec.ActiveHeight - 1, 0, spec.ActiveHeight - 1},
-		{spec.BorderWidth + spec.ActiveWidth - 1, spec.BorderWidth + spec.ActiveHeight - 1,
-			spec.ActiveWidth - 1, spec.ActiveHeight - 1},
+		{core.BorderWidth, core.BorderWidth, 0, 0},
+		{core.BorderWidth + core.ActiveWidth - 1, core.BorderWidth, core.ActiveWidth - 1, 0},
+		{core.BorderWidth, core.BorderWidth + core.ActiveHeight - 1, 0, core.ActiveHeight - 1},
+		{core.BorderWidth + core.ActiveWidth - 1, core.BorderWidth + core.ActiveHeight - 1,
+			core.ActiveWidth - 1, core.ActiveHeight - 1},
 	}
 	for _, c := range corners {
 		m, _, _ := runPenTrap(t, c.cx, c.cy, true)
@@ -91,10 +90,10 @@ func TestPenTrap_OutOfZone_SetsCarry(t *testing.T) {
 	// Curseur dans la bordure ou hors écran → hors zone active → carry=1.
 	outside := []struct{ cx, cy int }{
 		{0, 0},                      // coin fenêtre (bordure)
-		{spec.BorderWidth - 1, 100}, // bordure gauche (x=7)
-		{100, spec.BorderWidth - 1}, // bordure haute (y=7)
-		{spec.BorderWidth + spec.ActiveWidth, 100},  // juste après bord droit
-		{100, spec.BorderWidth + spec.ActiveHeight}, // juste après bord bas
+		{core.BorderWidth - 1, 100}, // bordure gauche (x=7)
+		{100, core.BorderWidth - 1}, // bordure haute (y=7)
+		{core.BorderWidth + core.ActiveWidth, 100},  // juste après bord droit
+		{100, core.BorderWidth + core.ActiveHeight}, // juste après bord bas
 	}
 	for _, c := range outside {
 		m, _, _ := runPenTrap(t, c.cx, c.cy, true)

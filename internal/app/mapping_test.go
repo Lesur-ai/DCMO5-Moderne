@@ -9,21 +9,6 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
-func TestLogicalSizeMatchesSpec(t *testing.T) {
-	w, h := app.LogicalSize()
-	if w != spec.FrameWidth || h != spec.FrameHeight {
-		t.Errorf("LogicalSize() = (%d,%d), want (%d,%d)", w, h, spec.FrameWidth, spec.FrameHeight)
-	}
-}
-
-func TestLogicalSizeStable(t *testing.T) {
-	w1, h1 := app.LogicalSize()
-	w2, h2 := app.LogicalSize()
-	if w1 != w2 || h1 != h2 {
-		t.Errorf("LogicalSize() instable")
-	}
-}
-
 func TestKeyMappingNoDuplicates(t *testing.T) {
 	seen := map[int]string{}
 	// Doublons légitimes : SHIFT (0x38), CNT (0x35), ACC (0x36) ont chacun une

@@ -10,7 +10,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/Lesur-ai/dcmo5/internal/spec"
+	"github.com/Lesur-ai/dcmo5/internal/core"
 )
 
 func TestROM_Long_ExportFramebuffer_3s(t *testing.T) {
@@ -26,10 +26,10 @@ func saveFramebuffer(t *testing.T, m interface {
 }, path string) {
 	t.Helper()
 	fb := m.Framebuffer()
-	img := image.NewRGBA(image.Rect(0, 0, spec.FrameWidth, spec.FrameHeight))
-	for y := 0; y < spec.FrameHeight; y++ {
-		for x := 0; x < spec.FrameWidth; x++ {
-			px := fb[y*spec.FrameWidth+x]
+	img := image.NewRGBA(image.Rect(0, 0, core.FrameWidth, core.FrameHeight))
+	for y := 0; y < core.FrameHeight; y++ {
+		for x := 0; x < core.FrameWidth; x++ {
+			px := fb[y*core.FrameWidth+x]
 			img.Set(x, y, color.RGBA{
 				R: uint8(px), G: uint8(px >> 8),
 				B: uint8(px >> 16), A: uint8(px >> 24),

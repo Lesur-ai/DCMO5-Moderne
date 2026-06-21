@@ -143,7 +143,7 @@ func TestSound_ReadA7CDIncludesLevel(t *testing.T) {
 	m.Write8(0xA7CF, 0x04) // sélectionne le chemin action/musique en lecture
 	m.Write8(0xA7CD, 0x15) // niveau son
 	got := m.Read8(0xA7CD)
-	if got&spec.AudioLevelMax != 0x15 {
+	if got&core.AudioLevelMax != 0x15 {
 		t.Errorf("Read 0xA7CD = 0x%02X, bits son attendus 0x15", got)
 	}
 }
