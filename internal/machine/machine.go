@@ -11,6 +11,7 @@ package machine
 
 import (
 	"github.com/Lesur-ai/dcmo5/internal/cpu6809"
+	"github.com/Lesur-ai/dcmo5/internal/keyboard"
 	"github.com/Lesur-ai/dcmo5/internal/media"
 )
 
@@ -89,4 +90,10 @@ type Machine interface {
 
 	// Observabilité
 	CPUSnapshot() cpu6809.Snapshot
+
+	// Clavier : modèle data-driven (nombre de touches, table caractère → touche,
+	// indices des modificateurs). L'hôte en tire la taille de l'instantané
+	// d'entrées (KeyCount variable selon la machine) ; l'UI s'en sert pour la
+	// saisie live et l'injecteur. Cf. internal/keyboard.Model.
+	KeyboardModel() *keyboard.Model
 }

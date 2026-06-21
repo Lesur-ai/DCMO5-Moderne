@@ -40,7 +40,7 @@ const (
 // InputState est l'instantané des entrées publié par l'UI et appliqué par la
 // goroutine d'émulation avant chaque quantum.
 type InputState struct {
-	Keys    [spec.KeyMax]bool
+	Keys    []bool // état des touches ; taille = KeyCount de la machine (variable)
 	PenX    int
 	PenY    int
 	PenDown bool
@@ -71,8 +71,9 @@ type Host struct {
 	machine machine.Machine
 	stream  *audio.Stream
 
-	inputMu sync.Mutex
-	input   InputState
+	inputMu   sync.Mutex
+	input     InputState // snapshot publié par l'UI (protégé par inputMu)
+	inputKeys []bool     // buffer de travail de la goroutine (copie des touches)
 
 	fbMu    sync.Mutex
 	fbFront []uint32 // dernier framebuffer publié (lu par l'affichage)
@@ -94,15 +95,18 @@ type Host struct {
 func New(m machine.Machine, gain int) *Host {
 	sr := m.AudioSampleRate()
 	fw, fh := m.FrameSize()
+	keyCount := m.KeyboardModel().KeyCount
 	h := &Host{
-		machine:  m,
-		stream:   audio.NewStream(gain, sr*audioRingMaxMS/1000),
-		fbFront:  make([]uint32, fw*fh),
-		fbBack:   make([]uint32, fw*fh),
-		cmds:     make(chan command, 16),
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
-		drainBuf: make([]uint8, sr/30+1),
+		machine:   m,
+		stream:    audio.NewStream(gain, sr*audioRingMaxMS/1000),
+		fbFront:   make([]uint32, fw*fh),
+		fbBack:    make([]uint32, fw*fh),
+		input:     InputState{Keys: make([]bool, keyCount)},
+		inputKeys: make([]bool, keyCount),
+		cmds:      make(chan command, 16),
+		stop:      make(chan struct{}),
+		done:      make(chan struct{}),
+		drainBuf:  make([]uint8, sr/30+1),
 	}
 	m.FramebufferInto(h.fbFront) // image initiale
 	return h
@@ -146,7 +150,16 @@ func (h *Host) Stop() {
 // SetInput publie l'instantané des entrées (appelé par l'UI, thread d'affichage).
 func (h *Host) SetInput(in InputState) {
 	h.inputMu.Lock()
-	h.input = in
+	// Snapshot autonome : Keys est un slice ; stocker son header partagerait le
+	// backing array avec l'appelant (data race avec la goroutine d'émulation). On
+	// copie dans le buffer possédé par le Host (taille = KeyCount, pas de
+	// réallocation). Les touches au-delà de l'instantané fourni sont relâchées
+	// (sinon une touche pressée resterait coincée).
+	h.input.PenX, h.input.PenY, h.input.PenDown = in.PenX, in.PenY, in.PenDown
+	n := copy(h.input.Keys, in.Keys)
+	for i := n; i < len(h.input.Keys); i++ {
+		h.input.Keys[i] = false
+	}
 	h.inputMu.Unlock()
 }
 
@@ -252,7 +265,7 @@ func (h *Host) run() {
 // déterministe.
 func (h *Host) tick(cycles int) int {
 	in := h.snapshotInput()
-	for k := 0; k < spec.KeyMax; k++ {
+	for k := range in.Keys {
 		h.machine.SetKey(machine.Key(k), in.Keys[k])
 	}
 	h.machine.SetPointer(machine.PointerInput{Kind: machine.PointerPen, X: in.PenX, Y: in.PenY, Button: in.PenDown})
@@ -282,7 +295,9 @@ func (h *Host) publishFrame() {
 func (h *Host) snapshotInput() InputState {
 	h.inputMu.Lock()
 	in := h.input
+	copy(h.inputKeys, h.input.Keys) // copie le contenu dans le buffer de la goroutine
 	h.inputMu.Unlock()
+	in.Keys = h.inputKeys // la goroutine lit son propre buffer (pas le backing partagé)
 	return in
 }
 

@@ -44,7 +44,7 @@ func TestROM_Cassette_CustomLoader_5emeAxe(t *testing.T) {
 	frame := spec.CPUClockHz / 60
 	m.Step(5 * spec.CPUClockHz)
 
-	inj := keyboard.NewInjector(keyboard.DefaultHoldFrames, keyboard.DefaultGapFrames)
+	inj := keyboard.NewInjector(keyboard.MO5Model(), keyboard.DefaultHoldFrames, keyboard.DefaultGapFrames)
 	inj.EnqueueString(`LOADM""` + "\n")
 	prev := map[int]bool{}
 	apply := func(keys []int) {

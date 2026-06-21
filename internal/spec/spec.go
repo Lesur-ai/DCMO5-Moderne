@@ -35,15 +35,6 @@ const (
 	VectorSWI3  uint16 = 0xFFF2
 )
 
-// Touches clavier MO5 (ref: dcmo5global.h MO5KEY_MAX=58).
-// TODO(#111) : le clavier sera généralisé par machine ; ces constantes
-// quitteront alors spec pour le package de la machine concernée.
-const (
-	KeyMax    = 58 // nombre de touches du clavier MO5
-	JoyKeyMax = 10 // nombre total de contacts des deux manettes
-	JoyMax    = 2  // nombre de manettes
-)
-
 // Paramètres cassette .k7
 const (
 	K7BaudRate = 1200 // débit nominal cassette (bauds)

@@ -22,6 +22,11 @@ const (
 // par un registre 6 bits (ports 0xA7C1/0xA7CD).
 const AudioLevelMax = 0x3F
 
+// KeyCount est le nombre de touches du clavier MO5 (réf : dcmo5global.h
+// MO5KEY_MAX). Borne les indices de touches. La famille TO en a 84 ; cette valeur
+// est désormais portée par la machine (cf. keyboard.Model), plus par spec.
+const KeyCount = 58
+
 // Carte mémoire MO5 — 48 Ko de RAM physique organisée ainsi :
 //
 //	0x0000–0x1FFF  RAM vidéo couleurs  (8 Ko, page 0 ou 1 selon port[0]&1)

@@ -13,6 +13,7 @@ import (
 	"os"
 
 	"github.com/Lesur-ai/dcmo5/internal/core"
+	"github.com/Lesur-ai/dcmo5/internal/keyboard"
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/media"
 )
@@ -52,6 +53,10 @@ func (a *adapter) SetPointer(p machine.PointerInput) {
 // FrameSize : le framebuffer MO5 est de taille fixe (constantes propres au MO5,
 // cf. internal/core/mo5hw.go).
 func (a *adapter) FrameSize() (int, int) { return core.FrameWidth, core.FrameHeight }
+
+// KeyboardModel retourne le modèle clavier du MO5 (table caractère → touche +
+// modificateurs + nombre de touches), consommé par l'hôte et l'UI.
+func (a *adapter) KeyboardModel() *keyboard.Model { return keyboard.MO5Model() }
 
 // MountPrinter / EjectPrinter : montage à chaud de la sortie imprimante (trap 0x51).
 func (a *adapter) MountPrinter(p media.PrinterSink) { a.Machine.SetPrinter(p) }

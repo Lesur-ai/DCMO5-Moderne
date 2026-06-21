@@ -32,7 +32,7 @@ const (
 
 // charKey décrit la combinaison MO5 produisant un caractère donné.
 type charKey struct {
-	key   int  // index touche MO5 [0, spec.KeyMax)
+	key   int  // index de touche (borné par Model.KeyCount)
 	shift bool // true si SHIFT doit être maintenu
 }
 
@@ -111,6 +111,7 @@ const (
 // est maintenue holdFrames puis suivie d'un trou de gapFrames, pour que le scan
 // clavier de la ROM distingue deux frappes identiques consécutives.
 type Injector struct {
+	model      *Model
 	queue      []charKey
 	holdFrames int
 	gapFrames  int
@@ -121,9 +122,12 @@ type Injector struct {
 	timer   int
 }
 
-// NewInjector crée un injecteur avec les durées fournies (frames).
-func NewInjector(holdFrames, gapFrames int) *Injector {
+// NewInjector crée un injecteur pour le modèle clavier donné, avec les durées
+// fournies (frames). Le modèle porte la table caractère → touche et les indices
+// des modificateurs (data-driven).
+func NewInjector(model *Model, holdFrames, gapFrames int) *Injector {
 	return &Injector{
+		model:      model,
 		holdFrames: holdFrames,
 		gapFrames:  gapFrames,
 		queueMax:   DefaultQueueMax,
@@ -133,7 +137,7 @@ func NewInjector(holdFrames, gapFrames int) *Injector {
 // Enqueue ajoute le caractère à la file s'il a un équivalent MO5. La file est
 // bornée : au-delà, la frappe la plus ancienne est abandonnée.
 func (i *Injector) Enqueue(r rune) {
-	key, shift, ok := CharToMO5Key(r)
+	key, shift, ok := i.model.CharToKey(r)
 	if !ok {
 		return
 	}
@@ -187,13 +191,13 @@ func (i *Injector) Tick() []int {
 	case phaseHold:
 		keys := []int{i.current.key}
 		if i.current.shift {
-			keys = append(keys, Mo5KeyShift)
+			keys = append(keys, i.model.ShiftKey)
 		}
 		i.timer--
 		if i.timer <= 0 {
 			i.phase = phaseGap
 			i.timer = i.gapFrames
-			if i.current.key == Mo5KeyENT {
+			if i.current.key == i.model.ENTKey {
 				i.timer = enterGapFrames // laisser le BASIC traiter la ligne
 			}
 		}

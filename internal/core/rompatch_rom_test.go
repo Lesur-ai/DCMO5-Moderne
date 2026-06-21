@@ -35,7 +35,7 @@ func typeLoadAndRun(t *testing.T, m *core.Machine) map[uint16]int {
 
 	m.Step(5 * spec.CPUClockHz) // boot jusqu'au prompt BASIC
 
-	inj := keyboard.NewInjector(keyboard.DefaultHoldFrames, keyboard.DefaultGapFrames)
+	inj := keyboard.NewInjector(keyboard.MO5Model(), keyboard.DefaultHoldFrames, keyboard.DefaultGapFrames)
 	inj.EnqueueString(`LOAD""` + "\n")
 
 	prev := map[int]bool{}
