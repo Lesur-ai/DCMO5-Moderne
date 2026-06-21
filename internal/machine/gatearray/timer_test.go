@@ -140,6 +140,22 @@ func TestTimerDisabledNoIRQ(t *testing.T) {
 	}
 }
 
+func TestKeyboardIRQAcknowledge(t *testing.T) {
+	g := newGA()
+	var irq machine.IRQLines
+	g.TriggerKeyboardIRQ()
+	g.OnInstructionCycles(10, &irq)
+	if !irq.IsAsserted(machine.IRQKeyboard) {
+		t.Fatal("IRQ clavier devrait être assertée après TriggerKeyboardIRQ")
+	}
+	// Acquittement firmware : écriture e7c3 avec le bit p5 (0x20) effacé.
+	g.Write8(0xE7C3, 0x00)
+	g.OnInstructionCycles(1, &irq)
+	if irq.IsAsserted(machine.IRQKeyboard) {
+		t.Error("IRQ clavier non relâchée après acquittement e7c3 (bit 0x20 effacé)")
+	}
+}
+
 func TestCSRCompositeRead(t *testing.T) {
 	g := newGA()
 	var irq machine.IRQLines

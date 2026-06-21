@@ -385,6 +385,12 @@ func (g *GateArray) writeIO(a uint16, c byte) {
 	case 0xe7c3:
 		// p0=page vidéo, p2=commutation ROM, p4=banque système (cf. réf C).
 		g.port[0x03] = c & 0x3d
+		// p5 (0x20) = acknowledge réception d'un code touche : l'effacer acquitte
+		// l'IRQ clavier (réf C : if((c & 0x20) == 0) keyb_irqcount = 0). Sans cela
+		// la ligne IRQKeyboard resterait assertée jusqu'au timeout (~500 ms).
+		if c&0x20 == 0 {
+			g.keybIRQCount = 0
+		}
 		g.updateVideoRAM()
 		g.updateROMBank()
 	case 0xe7c9:
