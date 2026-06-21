@@ -102,8 +102,7 @@ func (m *Machine) composeLine(fb []uint32, dst, ramOffset int) {
 // 0 sinon. Utilisé par les ports 0xA7C3, 0xA7D8, 0xA7E7.
 // Ref: dcmo5emulation.c Initn() — zone active = lignes 56..255
 func (m *Machine) initn() int {
-	n := m.videolinenumber
-	c := m.videolinecycle
+	c, n := m.eng.VideoBeam()
 	if n < 56 || n > 255 {
 		return 0
 	}
@@ -120,7 +119,8 @@ func (m *Machine) initn() int {
 // 0 sinon. Utilisé par le port 0xA7E6.
 // Ref: dcmo5emulation.c Iniln() — zone active = cycles 23..63
 func (m *Machine) iniln() int {
-	if m.videolinecycle < 23 {
+	c, _ := m.eng.VideoBeam()
+	if c < 23 {
 		return 0
 	}
 	return 0x20
