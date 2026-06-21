@@ -54,7 +54,7 @@ func TestCharToMO5Key_Unknown(t *testing.T) {
 }
 
 func TestInjector_HoldThenGap(t *testing.T) {
-	ki := NewInjector(2, 1)
+	ki := NewInjector(MO5Model(), 2, 1)
 	ki.Enqueue('a') // 0x2D
 	if got := ki.Tick(); len(got) != 1 || got[0] != 0x2D {
 		t.Fatalf("frame 1: got %v, want [0x2D]", got)
@@ -71,7 +71,7 @@ func TestInjector_HoldThenGap(t *testing.T) {
 }
 
 func TestInjector_ShiftEmitted(t *testing.T) {
-	ki := NewInjector(1, 1)
+	ki := NewInjector(MO5Model(), 1, 1)
 	ki.Enqueue('"') // 0x27 + SHIFT
 	got := ki.Tick()
 	hasKey, hasShift := false, false
@@ -91,7 +91,7 @@ func TestInjector_ShiftEmitted(t *testing.T) {
 // TestInjector_EnqueueString vérifie l'expansion d'une séquence, dont \n→ENT et
 // la normalisation CRLF (un seul ENT).
 func TestInjector_EnqueueString(t *testing.T) {
-	ki := NewInjector(1, 1)
+	ki := NewInjector(MO5Model(), 1, 1)
 	ki.EnqueueString("A\r\nB\nC")
 	want := []int{0x2D, 0x34, 0x22, 0x34, 0x32} // A, ENT, B, ENT, C
 	if ki.Pending() != len(want) {
@@ -110,9 +110,9 @@ func TestInjector_EnqueueString(t *testing.T) {
 // TestInjector_EnterGapLonger vérifie que le relâchement après un ENTRÉE est
 // nettement plus long (le BASIC traite la ligne) que le gap normal.
 func TestInjector_EnterGapLonger(t *testing.T) {
-	ki := NewInjector(1, 2) // hold=1, gap=2
-	ki.Enqueue('\n')        // ENT (0x34)
-	ki.Enqueue('a')         // 0x2D
+	ki := NewInjector(MO5Model(), 1, 2) // hold=1, gap=2
+	ki.Enqueue('\n')                    // ENT (0x34)
+	ki.Enqueue('a')                     // 0x2D
 
 	if got := ki.Tick(); len(got) != 1 || got[0] != Mo5KeyENT {
 		t.Fatalf("frame 1: got %v, want [ENT]", got)
@@ -136,7 +136,7 @@ func TestInjector_EnterGapLonger(t *testing.T) {
 }
 
 func TestInjector_QueueBounded(t *testing.T) {
-	ki := NewInjector(DefaultHoldFrames, DefaultGapFrames)
+	ki := NewInjector(MO5Model(), DefaultHoldFrames, DefaultGapFrames)
 	ki.queueMax = 4
 	for i := 0; i < 100; i++ {
 		ki.Enqueue('a')
@@ -147,7 +147,7 @@ func TestInjector_QueueBounded(t *testing.T) {
 }
 
 func TestInjector_IdleReturnsNil(t *testing.T) {
-	ki := NewInjector(DefaultHoldFrames, DefaultGapFrames)
+	ki := NewInjector(MO5Model(), DefaultHoldFrames, DefaultGapFrames)
 	if got := ki.Tick(); got != nil {
 		t.Errorf("injecteur vide: Tick() = %v, want nil", got)
 	}

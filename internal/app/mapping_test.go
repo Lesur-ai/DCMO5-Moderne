@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/Lesur-ai/dcmo5/internal/app"
-	"github.com/Lesur-ai/dcmo5/internal/spec"
+	"github.com/Lesur-ai/dcmo5/internal/keyboard"
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -27,8 +27,8 @@ func TestKeyMappingNoDuplicates(t *testing.T) {
 
 func TestKeyMappingValidRange(t *testing.T) {
 	for eKey, mo5Key := range app.KeyMapping() {
-		if mo5Key < 0 || mo5Key >= spec.KeyMax {
-			t.Errorf("touche %v → index MO5 %d hors-bornes [0,%d)", eKey, mo5Key, spec.KeyMax)
+		if mo5Key < 0 || mo5Key >= keyboard.MO5Model().KeyCount {
+			t.Errorf("touche %v → index MO5 %d hors-bornes [0,%d)", eKey, mo5Key, keyboard.MO5Model().KeyCount)
 		}
 	}
 }

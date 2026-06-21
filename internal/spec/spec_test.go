@@ -24,9 +24,3 @@ func TestVectors(t *testing.T) {
 		t.Errorf("VectorIRQ = 0x%X, want 0xFFF8", spec.VectorIRQ)
 	}
 }
-
-func TestKeyMax(t *testing.T) {
-	if spec.KeyMax != 58 {
-		t.Errorf("KeyMax = %d, want 58", spec.KeyMax)
-	}
-}

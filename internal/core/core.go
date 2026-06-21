@@ -12,7 +12,7 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/spec"
 )
 
-// Key identifie une touche du clavier MO5 (index dans [0, spec.KeyMax)).
+// Key identifie une touche du clavier MO5 (index dans [0, KeyCount)).
 type Key int
 
 // JoystickInput décrit l'état instantané des deux manettes.
@@ -69,9 +69,9 @@ type Machine struct {
 	carflags uint8 // bits0-1=banque bits2=cart-active bit3=write-en bits4=OS9bank
 
 	// Entrées
-	touche       [spec.KeyMax]uint8 // 0x00=pressée 0x80=relâchée
-	joysPosition uint8              // axes manettes
-	joysAction   uint8              // boutons d'action
+	touche       [KeyCount]uint8 // 0x00=pressée 0x80=relâchée
+	joysPosition uint8           // axes manettes
+	joysAction   uint8           // boutons d'action
 	xpen, ypen   int
 	penbutton    bool
 

@@ -57,7 +57,7 @@ func TestHost_TickProducesAudio(t *testing.T) {
 func TestHost_TickAppliesInput(t *testing.T) {
 	m := nopMachine(t)
 	h := New(mo5.Wrap(m), 1)
-	var in InputState
+	in := InputState{Keys: make([]bool, core.KeyCount)}
 	in.Keys[0x20] = true // ESPACE pressé
 	h.SetInput(in)
 	h.tick(64)

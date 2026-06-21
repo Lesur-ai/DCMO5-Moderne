@@ -24,7 +24,6 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/media"
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
 	"github.com/Lesur-ai/dcmo5/internal/menu"
-	"github.com/Lesur-ai/dcmo5/internal/spec"
 	"github.com/hajimehoshi/ebiten/v2"
 	ebaudio "github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -41,14 +40,9 @@ type liveKey struct {
 	r     rune // caractère appris (sert à exclure les répétitions OS des touches tenues)
 }
 
-// mo5KeyACC est la touche ACC (accent, AltGr) du MO5. Comme Shift et CNT, c'est
-// un modificateur : il doit être filtré quand une touche-caractère est tenue.
+// mo5KeyACC est la touche ACC (accent, AltGr) du MO5. Référencée par les tests ;
+// la résolution des touches s'appuie sur le modèle clavier (Model.IsModifier).
 const mo5KeyACC = 0x36
-
-// isMo5Modifier indique si une touche MO5 est un modificateur (Shift/CNT/ACC).
-func isMo5Modifier(mo5 int) bool {
-	return mo5 == keyboard.Mo5KeyShift || mo5 == keyboard.Mo5KeyCNT || mo5 == mo5KeyACC
-}
 
 const (
 	windowTitle  = "DCMO5 Moderne"
@@ -66,6 +60,7 @@ type App struct {
 
 	// Saisie clavier
 	keys       *keyboard.Injector
+	kbModel    *keyboard.Model // modèle clavier de la machine (data-driven)
 	inputChars []rune
 
 	// Touches-caractères « tenues » en live : on apprend l'association touche
@@ -108,6 +103,7 @@ type App struct {
 // l'App est agnostique du modèle émulé.
 func New(m machine.Machine) *App {
 	fw, fh := m.FrameSize()
+	kbModel := m.KeyboardModel()
 	fb := ebiten.NewImage(fw, fh)
 	fb.Fill(color.RGBA{R: 0, G: 0, B: 0, A: 0xFF})
 	a := &App{
@@ -117,7 +113,8 @@ func New(m machine.Machine) *App {
 		fh:       fh,
 		fbPixels: make([]uint32, fw*fh),
 		fbBytes:  make([]byte, fw*fh*4),
-		keys:     keyboard.NewInjector(keyboard.DefaultHoldFrames, keyboard.DefaultGapFrames),
+		keys:     keyboard.NewInjector(kbModel, keyboard.DefaultHoldFrames, keyboard.DefaultGapFrames),
+		kbModel:  kbModel,
 		liveKeys: make(map[ebiten.Key]liveKey),
 		mediaDir: startMediaDir(os.Getwd, os.UserHomeDir),
 	}
@@ -244,12 +241,12 @@ func (a *App) Update() error {
 	// qu'à la saisie scriptée (--exec, collage).
 	a.inputChars = ebiten.AppendInputChars(a.inputChars[:0])
 	a.justPressed = inpututil.AppendJustPressedKeys(a.justPressed[:0])
-	learnLiveKeys(a.liveKeys, a.justPressed, a.inputChars, ebiten.IsKeyPressed)
+	learnLiveKeys(a.kbModel, a.liveKeys, a.justPressed, a.inputChars, ebiten.IsKeyPressed)
 
 	tickKeys := a.keys.Tick()
 	injecting := len(tickKeys) > 0 || a.keys.Pending() > 0
 
-	in := resolveKeys(ebiten.IsKeyPressed, a.liveKeys, injecting, tickKeys)
+	in := resolveKeys(a.kbModel, ebiten.IsKeyPressed, a.liveKeys, injecting, tickKeys)
 	// Le curseur Ebitengine est déjà en repère framebuffer (Layout). On publie ces
 	// coordonnées brutes ; chaque machine les convertit vers son propre repère
 	// écran dans SetPointer (le MO5 y retranche sa bordure). L'UI reste agnostique
@@ -519,7 +516,7 @@ func pasteRequested() bool {
 // sont exclus : ainsi « tenir A puis presser B » apprend bien B→'b' et non B→'a'.
 // Une touche just-pressed qui ne produit aucun caractère MO5 voit son
 // association obsolète purgée (évite de tenir un ancien caractère).
-func learnLiveKeys(learned map[ebiten.Key]liveKey, justPressed []ebiten.Key, chars []rune, pressed func(ebiten.Key) bool) {
+func learnLiveKeys(model *keyboard.Model, learned map[ebiten.Key]liveKey, justPressed []ebiten.Key, chars []rune, pressed func(ebiten.Key) bool) {
 	if len(justPressed) == 0 {
 		return
 	}
@@ -553,7 +550,7 @@ func learnLiveKeys(learned map[ebiten.Key]liveKey, justPressed []ebiten.Key, cha
 			r = candidates[ci]
 			ci++
 		}
-		if mo5, shift, ok := keyboard.CharToMO5Key(r); ok {
+		if mo5, shift, ok := model.CharToKey(r); ok {
 			learned[k] = liveKey{mo5: mo5, shift: shift, r: r}
 		} else {
 			delete(learned, k) // pas de caractère MO5 → purge l'association obsolète
@@ -572,14 +569,14 @@ func learnLiveKeys(learned map[ebiten.Key]liveKey, justPressed []ebiten.Key, cha
 // (ex. AltGr+0 = '@'), le caractère décodé par l'OS encodant déjà tout. Sans
 // touche-caractère tenue, les modificateurs physiques restent positionnels.
 // Pendant une injection (--exec/collage), Shift/CNT physiques sont filtrés.
-func resolveKeys(pressed func(ebiten.Key) bool, learned map[ebiten.Key]liveKey, injecting bool, tickKeys []int) emu.InputState {
-	var in emu.InputState
+func resolveKeys(model *keyboard.Model, pressed func(ebiten.Key) bool, learned map[ebiten.Key]liveKey, injecting bool, tickKeys []int) emu.InputState {
+	in := emu.InputState{Keys: make([]bool, model.KeyCount)}
 
 	liveCharHeld := false
 	shiftFromChars := false
 	if !injecting {
 		for k, lk := range learned {
-			if pressed(k) && lk.mo5 >= 0 && lk.mo5 < spec.KeyMax {
+			if pressed(k) && lk.mo5 >= 0 && lk.mo5 < model.KeyCount {
 				in.Keys[lk.mo5] = true
 				liveCharHeld = true
 				if lk.shift {
@@ -590,25 +587,25 @@ func resolveKeys(pressed func(ebiten.Key) bool, learned map[ebiten.Key]liveKey, 
 	}
 
 	for eKey, mo5Key := range keyMapping {
-		if injecting && (mo5Key == keyboard.Mo5KeyShift || mo5Key == keyboard.Mo5KeyCNT) {
+		if injecting && (mo5Key == model.ShiftKey || mo5Key == model.CNTKey) {
 			continue
 		}
-		if liveCharHeld && isMo5Modifier(mo5Key) {
+		if liveCharHeld && model.IsModifier(mo5Key) {
 			// SHIFT/CNT/ACC physiques ignorés quand une touche-caractère est tenue :
 			// le caractère décodé par l'OS encode déjà le modificateur (anti
 			// double-shift AZERTY ; anti-fuite AltGr → ACC/CNT, ex. AltGr+0 = '@').
 			continue
 		}
-		if pressed(eKey) {
+		if pressed(eKey) && mo5Key < model.KeyCount {
 			in.Keys[mo5Key] = true
 		}
 	}
 	if liveCharHeld && shiftFromChars {
-		in.Keys[keyboard.Mo5KeyShift] = true
+		in.Keys[model.ShiftKey] = true
 	}
 
 	for _, k := range tickKeys {
-		if k >= 0 && k < spec.KeyMax {
+		if k >= 0 && k < model.KeyCount {
 			in.Keys[k] = true
 		}
 	}

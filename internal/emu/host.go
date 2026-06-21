@@ -40,7 +40,7 @@ const (
 // InputState est l'instantané des entrées publié par l'UI et appliqué par la
 // goroutine d'émulation avant chaque quantum.
 type InputState struct {
-	Keys    [spec.KeyMax]bool
+	Keys    []bool // état des touches ; taille = KeyCount de la machine (variable)
 	PenX    int
 	PenY    int
 	PenDown bool
@@ -252,7 +252,7 @@ func (h *Host) run() {
 // déterministe.
 func (h *Host) tick(cycles int) int {
 	in := h.snapshotInput()
-	for k := 0; k < spec.KeyMax; k++ {
+	for k := range in.Keys {
 		h.machine.SetKey(machine.Key(k), in.Keys[k])
 	}
 	h.machine.SetPointer(machine.PointerInput{Kind: machine.PointerPen, X: in.PenX, Y: in.PenY, Button: in.PenDown})
