@@ -168,6 +168,30 @@ func TestTO8DAccIsNormalKey(t *testing.T) {
 	}
 }
 
+func TestTO8DKey4FIsNormalBoundary(t *testing.T) {
+	// 0x4F (« > < ») est la DERNIÈRE touche alphanumérique (réf C : if(n > 0x4f) return).
+	// Verrou anti-mutation : un fix fautif « if n >= 0x4f { return } » la traiterait à
+	// tort comme un modificateur (sans scancode). 0x4F n'est pas une lettre → pas de 0x80.
+	g := newGA()
+	var irq machine.IRQLines
+	selectSysBank1(t, g)
+	g.SetKey(0x4F, true)
+	if v := g.Read8(0xF0F8); v != 0x4F {
+		t.Errorf("scancode 0x4F = 0x%02X, want 0x4F (touche normale, borne haute)", v)
+	}
+	if v := g.Read8(0xE7C8); v&0x01 == 0 {
+		t.Errorf("E7C8 bit0 attendu pour 0x4F (0x%02X)", v)
+	}
+	g.OnInstructionCycles(1, &irq)
+	if !irq.IsAsserted(machine.IRQKeyboard) {
+		t.Error("0x4F doit lever l'IRQ (touche normale)")
+	}
+	g.SetKey(0x4F, false) // relâchement → libération de E7C8
+	if v := g.Read8(0xE7C8); v&0x01 != 0 {
+		t.Errorf("E7C8 bit0 doit s'effacer après relâchement de 0x4F (0x%02X)", v)
+	}
+}
+
 func TestTO8DReleaseAllClearsE7C8(t *testing.T) {
 	g := newGA()
 	g.SetKey(keyUnderscore6, true)
