@@ -70,6 +70,7 @@ type GateArray struct {
 	// distincte de ramvideo qui est la page vue par le CPU). bordercolor : index
 	// palette de la bordure. vmode : mode de décodage courant (e7dc).
 	x7da          [32]byte
+	pcolor        [16]uint32 // palette RGBA RENDUE (latchée), cf. paletteWrite
 	pagevideoBase int
 	bordercolor   int
 	vmode         videoMode
@@ -118,6 +119,7 @@ func (g *GateArray) hardReset() {
 	g.nrambank = 0
 	g.nsystbank = 0
 	g.initprog()
+	g.refreshPalette() // initialise la palette rendue depuis x7da
 }
 
 // initprog reproduit Initprog() (partie mémoire) : recalcule tous les pointeurs
@@ -163,8 +165,17 @@ func (g *GateArray) setVideoMode(c byte) {
 // impair : b en bits0-3). port[0x1b] est l'index auto-incrémenté (modulo 32). La
 // couleur RGBA est recalculée à la volée au décodage (palette24 / DecodeFrame).
 func (g *GateArray) paletteWrite(c byte) {
-	g.x7da[int(g.port[0x1b])&0x1f] = c
-	g.port[0x1b] = byte((int(g.port[0x1b]) + 1) & 0x1f)
+	i := int(g.port[0x1b]) & 0x1f
+	g.x7da[i] = c
+	g.port[0x1b] = byte((i + 1) & 0x1f)
+	// La couleur RENDUE n'est latchée qu'à l'écriture du 2e octet (index impair),
+	// comme la réf C Palettecolor : tant que le 2e octet n'est pas écrit, pcolor
+	// garde l'ancienne valeur. Évite une couleur transitoire fausse en cas
+	// d'écriture fractionnée ou d'animation de palette décodée entre les 2 octets.
+	if i&1 != 0 {
+		even := int(g.x7da[i&0x1e])
+		g.pcolor[i>>1] = rgbaFromRVB(even&0x0f, (even>>4)&0x0f, int(c)&0x0f)
+	}
 }
 
 // Reset relance la machine dans l'état de reset matériel (efface la RAM).

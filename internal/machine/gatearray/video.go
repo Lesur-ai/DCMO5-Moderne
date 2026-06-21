@@ -28,33 +28,36 @@ var intens = [16]int{80, 118, 128, 136, 142, 147, 152, 156, 160, 163, 166, 169, 
 // FrameSize retourne la taille (fixe) du framebuffer logique gate-array.
 func (g *GateArray) FrameSize() (w, h int) { return xbitmap, ybitmap }
 
-// paletteRGBA convertit la couleur n (0–15) de la palette x7da en RGBA Ebitengine
-// (0xAABBGGRR). Octet pair x7da[2n] = r (bits0-3) | v (bits4-7), octet impair
-// x7da[2n+1] = b (bits0-3). Réf C : Palette() — composante = 2*(intens[k]-64)+16.
-func (g *GateArray) paletteRGBA(n int) uint32 {
-	lo := int(g.x7da[(2*n)&0x1f])
-	hi := int(g.x7da[(2*n+1)&0x1f])
-	r := lo & 0x0f
-	v := (lo >> 4) & 0x0f
-	b := hi & 0x0f
-	rc := uint32(2*(intens[r]-64) + 16)
-	gc := uint32(2*(intens[v]-64) + 16)
-	bc := uint32(2*(intens[b]-64) + 16)
+// rgbaFromRVB convertit une couleur EF9369 (r,v,b ∈ [0,15]) en RGBA Ebitengine
+// (0xAABBGGRR) avec la correction gamma datasheet. Réf C : Palette() —
+// composante = 2*(intens[k]-64)+16.
+func rgbaFromRVB(r, v, b int) uint32 {
+	rc := uint32(2*(intens[r&0x0f]-64) + 16)
+	gc := uint32(2*(intens[v&0x0f]-64) + 16)
+	bc := uint32(2*(intens[b&0x0f]-64) + 16)
 	return 0xFF000000 | bc<<16 | gc<<8 | rc
 }
 
-// DecodeFrame rend le framebuffer courant dans dst (≥ xbitmap*ybitmap). Génère la
-// palette une fois, puis chaque ligne : bordure pleine hors zone active, sinon
-// bordure gauche + 40 octets décodés selon le mode + bordure droite.
+// refreshPalette recalcule toute la palette rendue (pcolor) depuis x7da. Appelée
+// au reset ; en fonctionnement, paletteWrite met à jour pcolor entrée par entrée
+// (uniquement à l'écriture du 2e octet, pour respecter le latch EF9369).
+func (g *GateArray) refreshPalette() {
+	for n := 0; n < 16; n++ {
+		lo := int(g.x7da[2*n])
+		hi := int(g.x7da[2*n+1])
+		g.pcolor[n] = rgbaFromRVB(lo&0x0f, (lo>>4)&0x0f, hi&0x0f)
+	}
+}
+
+// DecodeFrame rend le framebuffer courant dans dst (≥ xbitmap*ybitmap). Chaque
+// ligne : bordure pleine hors zone active, sinon bordure gauche + 40 octets
+// décodés selon le mode + bordure droite. Utilise la palette rendue latchée
+// (g.pcolor), maintenue par paletteWrite/refreshPalette.
 func (g *GateArray) DecodeFrame(dst []uint32) {
 	if len(dst) < xbitmap*ybitmap {
 		return
 	}
-	var pal [16]uint32
-	for n := 0; n < 16; n++ {
-		pal[n] = g.paletteRGBA(n)
-	}
-	border := pal[g.bordercolor&0x0f]
+	border := g.pcolor[g.bordercolor&0x0f]
 
 	for y := 0; y < ybitmap; y++ {
 		row := y * xbitmap
@@ -77,7 +80,7 @@ func (g *GateArray) DecodeFrame(dst []uint32) {
 			idx := line*activeBytes + o
 			colorByte := g.ram[g.pagevideoBase+idx]
 			formByte := g.ram[g.pagevideoBase+(idx|0x2000)]
-			g.decodeByte(dst[px:px+segPixels], colorByte, formByte, &pal)
+			g.decodeByte(dst[px:px+segPixels], colorByte, formByte, &g.pcolor)
 			px += segPixels
 		}
 		// Bordure droite (segment 41).

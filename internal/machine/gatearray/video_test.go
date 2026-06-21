@@ -199,3 +199,27 @@ func TestVideoModeSwitch(t *testing.T) {
 		t.Errorf("320x4 (form=color=0xFF → index 3) = 0x%08X, want couleur 3", v)
 	}
 }
+
+// TestPaletteLatch vérifie la sémantique EF9369 : la couleur rendue n'est mise à
+// jour qu'à l'écriture du 2e octet (index impair). Écrire seulement l'octet pair
+// ne doit PAS changer la couleur affichée (anti couleur transitoire).
+func TestPaletteLatch(t *testing.T) {
+	g := newGA()
+	setColor(g, 4, 1, 2, 3) // couleur 4 complète = (1,2,3)
+	g.Write8(0xE7DD, 0x04)  // bordure = couleur 4 (pour l'observer en fb[0])
+
+	// Écrire SEULEMENT l'octet pair de la couleur 4 (nouveaux r/v), pas l'impair.
+	g.Write8(0xE7DB, byte(2*4))
+	g.Write8(0xE7DA, byte(7|(7<<4)))
+	fb := newFrame()
+	g.DecodeFrame(fb)
+	if v := fb[0]; v != wantColor(1, 2, 3) {
+		t.Errorf("octet pair seul : bordure = 0x%08X, want 0x%08X (ancienne couleur latchée)", v, wantColor(1, 2, 3))
+	}
+	// Écrire l'octet impair → la couleur se met à jour.
+	g.Write8(0xE7DA, byte(5))
+	g.DecodeFrame(fb)
+	if v := fb[0]; v != wantColor(7, 7, 5) {
+		t.Errorf("après octet impair : bordure = 0x%08X, want 0x%08X (latch validé)", v, wantColor(7, 7, 5))
+	}
+}
