@@ -126,6 +126,10 @@ func (g *GateArray) LoadCartridge(data []byte) {
 	if n > 0x4000 {
 		g.cartype = 1
 	}
+	// Repartir sur la banque cartouche 0 : sans cela, un (re)chargement après que
+	// le guest a sélectionné une banque non nulle mapperait la nouvelle cartouche
+	// sur une banque obsolète (cf. réf C Loadmemo / core MO5 loadCartridge).
+	g.carflags &= 0xfc
 	g.updateROMBank()
 }
 
@@ -326,6 +330,11 @@ func (g *GateArray) writeIO(a uint16, c byte) {
 
 func (g *GateArray) readIO(a uint16) byte {
 	switch a {
+	case 0xe7c3:
+		// Registre d'état port C : bit7 toujours armé en lecture. Le bit1
+		// (interrupteur crayon optique, penbutton) sera ajouté au lot crayon #115.
+		// Réf C : port[0x03] | 0x80 | (penbutton << 1).
+		return g.port[0x03] | 0x80
 	case 0xe7e4:
 		return g.port[0x1d] & 0xf0
 	case 0xe7e5:

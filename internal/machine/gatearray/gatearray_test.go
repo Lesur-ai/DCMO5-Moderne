@@ -233,3 +233,37 @@ func TestResetClearsRAM(t *testing.T) {
 		t.Error("Reset n'a pas réamorcé la banque RAM (valeur d'avant reset persistante)")
 	}
 }
+
+// TestReadE7C3Status vérifie le registre d'état e7c3 en lecture : bit7 toujours
+// armé (réf C), bits de banking écrits reflétés (masqués 0x3d).
+func TestReadE7C3Status(t *testing.T) {
+	g := newGA()
+	if v := g.Read8(0xE7C3); v&0x80 == 0 {
+		t.Errorf("e7c3 lu = 0x%02X, bit7 (0x80) attendu armé", v)
+	}
+	g.Write8(0xE7C3, 0x14) // ROM interne (bit2) + banque syst (bit4) ; 0x14 & 0x3d = 0x14
+	if v := g.Read8(0xE7C3); v != (0x14 | 0x80) {
+		t.Errorf("e7c3 lu = 0x%02X, want 0x%02X (état + bits écrits)", v, 0x14|0x80)
+	}
+}
+
+// TestLoadCartridgeResetsBank vérifie qu'un (re)chargement de cartouche repart sur
+// la banque 0, même si une banque non nulle était sélectionnée auparavant.
+func TestLoadCartridgeResetsBank(t *testing.T) {
+	g := newGA()
+	cart := make([]byte, 0x10000)
+	for b := 0; b < 4; b++ {
+		for i := 0; i < 0x4000; i++ {
+			cart[b*0x4000+i] = byte(0xE0 + b)
+		}
+	}
+	g.LoadCartridge(cart)
+	g.Write8(0x0003, 0) // sélectionne la banque cartouche 3
+	if v := g.Read8(0x0000); v != 0xE3 {
+		t.Fatalf("préparation : banque 3 = 0x%02X, want 0xE3", v)
+	}
+	g.LoadCartridge(cart) // rechargement → banque 0
+	if v := g.Read8(0x0000); v != 0xE0 {
+		t.Errorf("après rechargement : 0x0000 = 0x%02X, want 0xE0 (banque réinitialisée)", v)
+	}
+}
