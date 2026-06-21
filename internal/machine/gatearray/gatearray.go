@@ -106,6 +106,12 @@ type GateArray struct {
 	// k7bit/k7octet : état du lecteur cassette bit à bit (réf C dcto8ddevices.c).
 	k7bit   uint8
 	k7octet uint8
+
+	// Clavier TO8D (lot #116). touche[k] : état idempotent par scancode TO8D
+	// (0x00 = enfoncée, 0x80 = relâchée ; réf C dcto8demulation.c TO8key). capslock :
+	// verrou majuscules, posé à true au hard reset uniquement (réf C : Hardreset).
+	touche   [keyboardKeyMax]byte
+	capslock bool
 }
 
 // videoMode est le mode de décodage vidéo gate-array (sélection par e7dc).
@@ -153,6 +159,7 @@ func (g *GateArray) hardReset() {
 	g.timerIRQCount = 0
 	g.keybIRQCount = 0
 	g.initprog()
+	g.capslock = true  // réf C : capslock = 1 posé dans Hardreset uniquement (pas Initprog)
 	g.refreshPalette() // initialise la palette rendue depuis x7da
 	g.latch6846 = 65535
 	g.timer6846 = 65535
@@ -174,6 +181,9 @@ func (g *GateArray) SoundLevel() uint8 { return g.sound }
 // initprog reproduit Initprog() (partie mémoire) : recalcule tous les pointeurs
 // de banque depuis l'état des ports. ramuser est fixe (ram - 0x2000).
 func (g *GateArray) initprog() {
+	for i := range g.touche {
+		g.touche[i] = 0x80 // touches relâchées (réf C Initprog : touche[i] = 0x80)
+	}
 	g.carflags &= 0xec
 	g.vmode = mode320x16
 	g.ramuserBase = -0x2000
