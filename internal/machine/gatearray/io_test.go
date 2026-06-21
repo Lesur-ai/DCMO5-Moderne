@@ -69,6 +69,34 @@ func TestSoundLevel(t *testing.T) {
 	}
 }
 
+func TestReadE7CDMusic(t *testing.T) {
+	g := newGA()
+	g.Write8(0xE7CF, 0x04) // mode musique
+	g.Write8(0xE7CD, 0x2A) // niveau son
+	if v := g.Read8(0xE7CD); v != 0x2A {
+		t.Errorf("e7cd lu en mode musique = 0x%02X, want 0x2A (= niveau son)", v)
+	}
+	g.Write8(0xE7CF, 0x00) // mode action : e7cd reflète port[0x0d]
+	g.Write8(0xE7CD, 0x11)
+	if v := g.Read8(0xE7CD); v != 0x11 {
+		t.Errorf("e7cd lu en mode action = 0x%02X, want 0x11", v)
+	}
+}
+
+func TestReadE7C3PenButton(t *testing.T) {
+	g, _ := newGAWithCPU()
+	if g.Read8(0xE7C3)&0x02 != 0 {
+		t.Error("bit1 (penbutton) devrait être 0 au repos")
+	}
+	g.SetPointer(10, 10, true) // bouton pressé
+	if g.Read8(0xE7C3)&0x02 == 0 {
+		t.Error("bit1 (penbutton) devrait refléter le clic dans e7c3")
+	}
+	if g.Read8(0xE7C3)&0x80 == 0 {
+		t.Error("bit7 devrait rester armé")
+	}
+}
+
 // ── Disque ────────────────────────────────────────────────────────────────────
 
 func TestTrapDiskReadSector(t *testing.T) {

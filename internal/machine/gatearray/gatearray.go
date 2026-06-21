@@ -484,10 +484,21 @@ func (g *GateArray) readIO(a uint16) byte {
 		}
 		return 0
 	case 0xe7c3:
-		// Registre d'état port C : bit7 toujours armé en lecture. Le bit1
-		// (interrupteur crayon optique, penbutton) sera ajouté au lot crayon #115.
-		// Réf C : port[0x03] | 0x80 | (penbutton << 1).
-		return g.port[0x03] | 0x80
+		// Registre d'état port C : bit7 toujours armé, bit1 = interrupteur crayon
+		// optique / clic souris (penbutton). Réf C : port[0x03]|0x80|(penbutton<<1).
+		v := g.port[0x03] | 0x80
+		if g.penbutton {
+			v |= 0x02
+		}
+		return v
+	case 0xe7cd:
+		// Registre action/musique : en mode musique (e7cf bit2) il reflète le niveau
+		// son courant (réf C : (port[0x0f]&4) ? joysaction|sound : port[0x0d] ; le
+		// joystick n'étant pas encore émulé, joysaction vaut 0).
+		if g.port[0x0f]&4 != 0 {
+			return g.sound
+		}
+		return g.port[0x0d]
 	case 0xe7c6:
 		return byte(g.timer6846 >> 11 & 0xff) // timer, octet de poids fort
 	case 0xe7c7:
