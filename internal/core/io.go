@@ -108,12 +108,17 @@ func (m *Machine) MountCartridge(c media.Cartridge) {
 }
 
 // EjectCartridge retire la cartouche, désactive le banc cartouche et relance sur
-// la ROM système. Ref C Loadmemo(name="") : carflags = 0 puis Initprog().
+// la ROM système. Ref C Loadmemo(name="") (dcmo5devices.c:229) : carflags = 0
+// puis Initprog() — un reset DOUX complet (touches relâchées, manettes au centre,
+// son coupé, lecture k7 réamorcée) suivi de cpu.Reset(), et NON un cpu.Reset()
+// seul. Identique au chemin nil/vide de MountCartridge ci-dessus. Initprog()
+// préserve la RAM et les ports d'E/S (contrairement à hardReset), fidèle à la
+// réf C. C'est le pendant « éjection » MO5 des correctifs #137 (TO8D) / #139.
 func (m *Machine) EjectCartridge() {
 	m.opts.Cartridge = nil
 	m.carflags = 0
 	m.cartype = 0
-	m.cpu.Reset()
+	m.Initprog()
 }
 
 // SetPrinter branche (p non nil) ou débranche (nil) la sortie imprimante à chaud.
