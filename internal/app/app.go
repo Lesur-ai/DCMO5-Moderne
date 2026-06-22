@@ -441,17 +441,6 @@ func (a *App) closeDisk() {
 	}
 }
 
-// Clés de paramètres conventionnelles (cf. machine.Param.Key) que la couche app
-// sait résoudre : la ROM système (boot-only, consommée par profile.New) et les
-// médias montables à chaud. Volontairement des littéraux : l'app reste data-driven
-// et n'importe AUCUN paquet machine précis (mo5, gatearray…).
-const (
-	paramKeyROM  = "rom"
-	paramKeyTape = "tape"
-	paramKeyDisk = "disk"
-	paramKeyCart = "cart"
-)
-
 // updateLauncher anime l'UI du launcher et, à l'action « Démarrer », instancie la
 // machine puis bascule en mode émulateur. L'ordre est IMPÉRATIF (revue de plan
 // Codex, P1) : attacher la machine → MONTER les médias AVANT host.Start() (un
@@ -475,7 +464,7 @@ func (a *App) updateLauncher() error {
 		return nil
 	}
 	a.attachMachine(m)
-	if rom, _ := cfg[paramKeyROM].(string); rom != "" {
+	if rom, _ := cfg[machine.KeyROM].(string); rom != "" {
 		a.romName = filepath.Base(rom)
 	}
 	a.mountMedia(uimodel.MediaMounts(req.profile, cfg))
@@ -494,7 +483,7 @@ func (a *App) updateLauncher() error {
 func (a *App) mountMedia(mounts []uimodel.MediaMount) {
 	for _, mt := range mounts {
 		switch mt.Key {
-		case paramKeyTape:
+		case machine.KeyTape:
 			if t, err := impl.OpenTape(mt.Path, false); err == nil {
 				a.closeTape()
 				a.host.MountTape(t)
@@ -502,7 +491,7 @@ func (a *App) mountMedia(mounts []uimodel.MediaMount) {
 				a.tapeName = filepath.Base(mt.Path)
 				a.mediaDir = filepath.Dir(mt.Path)
 			}
-		case paramKeyDisk:
+		case machine.KeyDisk:
 			if d, err := impl.OpenDisk(mt.Path, false); err == nil {
 				a.closeDisk()
 				a.host.MountDisk(d)
@@ -510,7 +499,7 @@ func (a *App) mountMedia(mounts []uimodel.MediaMount) {
 				a.diskName = filepath.Base(mt.Path)
 				a.mediaDir = filepath.Dir(mt.Path)
 			}
-		case paramKeyCart:
+		case machine.KeyCart:
 			if c, err := impl.OpenCartridge(mt.Path); err == nil {
 				a.host.MountCartridge(c)
 				a.cartName = filepath.Base(mt.Path)

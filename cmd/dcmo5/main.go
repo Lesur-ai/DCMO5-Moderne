@@ -57,7 +57,23 @@ func main() {
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 	if !directBoot(explicit["rom"], explicit["exec"]) {
-		runLauncher(cfg, *noAudio)
+		// Pré-remplir le launcher : ROM mémorisée en config + médias passés
+		// EXPLICITEMENT en CLI (--tape/--disk/--cart/--disk-rom), pour ne pas perdre
+		// la commodité v1 « dcmo5 --tape jeu.k7 ».
+		initial := machine.Config{}
+		if cfg.ROMPath != "" {
+			initial[machine.KeyROM] = cfg.ROMPath
+		}
+		prefill := func(flagName, key, value string) {
+			if explicit[flagName] && value != "" {
+				initial[key] = value
+			}
+		}
+		prefill("tape", machine.KeyTape, *tapePath)
+		prefill("disk", machine.KeyDisk, *diskPath)
+		prefill("cart", machine.KeyCart, *cartPath)
+		prefill("disk-rom", machine.KeyDiskROM, *diskRomPath)
+		runLauncher(initial, *noAudio)
 		return
 	}
 
@@ -222,14 +238,10 @@ func main() {
 // (plus le profil de démonstration si DCMO5_UI_DEMO est défini), chemin ROM mémorisé
 // pré-rempli, répertoire de départ = répertoire courant. La machine est instanciée à
 // l'action « Démarrer » (cf. internal/app.updateLauncher).
-func runLauncher(cfg config.Config, noAudio bool) {
+func runLauncher(initial machine.Config, noAudio bool) {
 	profiles := machine.Profiles()
 	if os.Getenv("DCMO5_UI_DEMO") != "" {
 		profiles = append(profiles, demoProfile())
-	}
-	initial := machine.Config{}
-	if cfg.ROMPath != "" {
-		initial["rom"] = cfg.ROMPath
 	}
 	dir := "."
 	if wd, err := os.Getwd(); err == nil && wd != "" {
