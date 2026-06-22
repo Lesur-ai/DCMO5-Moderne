@@ -112,6 +112,32 @@ func TestEjectCartridge_DisablesBank(t *testing.T) {
 	}
 }
 
+// TestEjectCartridge_InitprogSoftReset vérifie que l'éjection applique la
+// sémantique de la réf C Loadmemo(name="") (dcmo5devices.c:229 : carflags=0 +
+// Initprog()), donc un reset DOUX complet — et non un cpu.Reset() seul. Initprog()
+// coupe le son (réamorçage), ce que cpu.Reset() seul ne fait pas : on « salit » le
+// niveau sonore avant l'éjection et on vérifie qu'il est coupé après. RED avec
+// l'ancien cpu.Reset() seul (sound préservé), GREEN avec Initprog(). C'est le
+// pendant « éjection » MO5 des correctifs #137 (TO8D) / #139 (MountCartridge MO5).
+func TestEjectCartridge_InitprogSoftReset(t *testing.T) {
+	cart := &stubCartridge{data: make([]byte, 0x4000)}
+	m, _ := core.NewMachine(core.Options{Cartridge: cart})
+	m.Reset()
+
+	// Salir l'état doux : niveau sonore non nul (registre 0xA7CD).
+	m.Write8(0xA7CD, core.AudioLevelMax)
+	if m.SoundLevel() == 0 {
+		t.Fatalf("préparation: SoundLevel doit être non nul après écriture 0xA7CD")
+	}
+
+	// Éjecter : Initprog() (reset doux de Loadmemo name="") coupe le son.
+	m.EjectCartridge()
+	if lvl := m.SoundLevel(); lvl != 0 {
+		t.Errorf("après EjectCartridge: SoundLevel = 0x%02X, want 0 — l'éjection doit "+
+			"faire Initprog() (reset doux qui coupe le son), pas un cpu.Reset() seul", lvl)
+	}
+}
+
 func TestMountCartridge_NoResidueFromPrevious(t *testing.T) {
 	// Première cartouche : 0xAB en 0xB100.
 	first := &stubCartridge{data: make([]byte, 0x4000)}
