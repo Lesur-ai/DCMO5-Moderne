@@ -6,6 +6,45 @@ l'émulateur Thomson MO5 [DCMO5 v11](http://dcmo5.free.fr/)).
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ;
 versionnage [SemVer](https://semver.org/lang/fr/).
 
+## [Non publié] — v2, multi-machines (en développement)
+
+Chantier de généralisation **multi-machines** pour émuler d'autres machines
+Thomson au-delà du MO5, première cible le **TO8D**.
+
+> ⚠️ **Pas encore utilisable de bout en bout** : l'IHM de sélection de machine et
+> le profil TO8D final sont en cours (épopée
+> [#106](https://github.com/Lesur-ai/dcmo5/issues/106)). Le **MO5 (v1) reste
+> pleinement fonctionnel**. Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md).
+
+### Ajouté
+
+- **Architecture multi-machines** : profils de machine (`MachineProfile`) +
+  registre, **moteur d'émulation partagé** (boucle CPU/IRQ/vidéo/audio factorisée),
+  MO5 refactoré en *device* du moteur.
+- **Base d'émulation TO8D** (gate-array) : mémoire 512 Ko + banking, vidéo 5 modes
+  + palette EF9369, timer 6846 + lignes d'IRQ, traps d'E/S (cassette, disquette,
+  crayon optique, souris, imprimante) + son, **clavier TO8D** (scancode + IRQ
+  gate-array, CAPSLOCK).
+- **Clavier généralisé** *data-driven* : modèle de clavier par machine, état
+  d'entrée non figé.
+- **IHM *data-driven*** : couche pure `internal/uimodel` (descripteurs de widgets
+  dérivés des paramètres de profil) + dépendance **ebitenui**, avec garde-fou CI
+  de cross-compilation **Windows `CGO_ENABLED=0`**.
+- **Suivi des ROM/cartouches Thomson** v2/v3 (firmwares TO8D/TO9/… + cartouches
+  MEMO5) dans le dépôt, sous la même réserve de licence que la v1
+  (cf. [`DESIGN/LICENSING.md`](DESIGN/LICENSING.md)).
+
+### Corrigé
+
+- **Montage de cartouche fidèle à la réf C `Loadmemo()`** : `MountCartridge`
+  effectue désormais « RAZ RAM + `Initprog()` » au lieu d'un *hard reset* complet —
+  préservant ports d'E/S, cadençage vidéo et crayon optique — pour le gate-array
+  **TO8D** ([#132](https://github.com/Lesur-ai/dcmo5/issues/132) /
+  [#134](https://github.com/Lesur-ai/dcmo5/pull/134)) **et** le cœur **MO5**
+  ([#138](https://github.com/Lesur-ai/dcmo5/issues/138) /
+  [#139](https://github.com/Lesur-ai/dcmo5/pull/139)). Une cartouche nil/vide
+  désactive le banc (sémantique `Loadmemo(name="")`).
+
 ## [1.0.0] — 2026-06-07
 
 Première version fonctionnelle : un MO5 utilisable de bout en bout (BASIC,
