@@ -173,6 +173,63 @@ func TestMountCartridge_ResetsRAM(t *testing.T) {
 	}
 }
 
+// TestMountCartridge_PreservesPorts vérifie que le montage à chaud d'une cartouche
+// PRÉSERVE les ports d'E/S, fidèle à la réf C Loadmemo() (dcmo5devices.c:221) qui
+// fait « RAZ RAM + Initprog() » et NON un Hardreset(). Un MountCartridge qui passe
+// par Reset()/hardReset remettrait tous les ports à 0 (divergence — sibling MO5 du
+// bug TO8D #132/#134). Calqué sur gatearray.TestMountCartridgePreservesPorts.
+func TestMountCartridge_PreservesPorts(t *testing.T) {
+	m, _ := core.NewMachine(core.Options{})
+	m.Reset()
+
+	// Deux ports dont la lecture sur le bus reflète directement la valeur stockée.
+	// 0xA7C0 (port[0]) : sélection de page RAM vidéo (bit0) + bits PIA système ;
+	// lecture = port[0] | 0x80 (bit fixe) | bit crayon (0 ici). 0x15 & 0x5F = 0x15.
+	// 0xA7C2 (port[2]) : registre PIA système ; lecture directe. 0x2A & 0x3F = 0x2A.
+	m.Write8(0xA7C0, 0x15)
+	m.Write8(0xA7C2, 0x2A)
+	if v := m.Read8(0xA7C0); v != 0x95 {
+		t.Fatalf("préparation: 0xA7C0 = 0x%02X, want 0x95", v)
+	}
+	if v := m.Read8(0xA7C2); v != 0x2A {
+		t.Fatalf("préparation: 0xA7C2 = 0x%02X, want 0x2A", v)
+	}
+
+	m.MountCartridge(&stubCartridge{data: make([]byte, 0x4000)})
+
+	if v := m.Read8(0xA7C0); v != 0x95 {
+		t.Errorf("après MountCartridge: 0xA7C0 = 0x%02X, want 0x95 (port préservé ; "+
+			"un hardReset le remettrait à 0x80)", v)
+	}
+	if v := m.Read8(0xA7C2); v != 0x2A {
+		t.Errorf("après MountCartridge: 0xA7C2 = 0x%02X, want 0x2A (port préservé ; "+
+			"un hardReset le remettrait à 0x00)", v)
+	}
+}
+
+// TestMountCartridge_EmptyDisablesPreviousBank vérifie que monter une cartouche
+// nil/vide DÉSACTIVE le banc d'une cartouche précédente, fidèle à la réf C
+// Loadmemo(name="") (carflags=0 + Initprog). Sans ce traitement, le chemin doux
+// (loadCartridge early-return + Initprog qui préserve cart-enabled) laisserait
+// l'ancienne cartouche mappée. Régression relevée en revue Codex de la PR #139.
+func TestMountCartridge_EmptyDisablesPreviousBank(t *testing.T) {
+	first := &stubCartridge{data: make([]byte, 0x4000)}
+	first.data[0x0100] = 0xAB
+	m, _ := core.NewMachine(core.Options{})
+	m.Reset()
+	m.MountCartridge(first)
+	if v := m.Read8(0xB100); v != 0xAB {
+		t.Fatalf("préparation: 0xB100 = 0x%02X, want 0xAB (cartouche mappée)", v)
+	}
+
+	// Monter une cartouche vide doit désactiver le banc (réf C Loadmemo name="").
+	m.MountCartridge(&stubCartridge{data: nil})
+	if v := m.Read8(0xB100); v == 0xAB {
+		t.Errorf("après MountCartridge(vide): 0xB100 = 0xAB — banc cartouche non " +
+			"désactivé (résidu de la cartouche précédente)")
+	}
+}
+
 // TestInitprog_KeepsRAM vérifie que Initprog (reset doux) PRÉSERVE la RAM et
 // recharge le vecteur reset, contrairement à Reset (qui efface la RAM).
 func TestInitprog_KeepsRAM(t *testing.T) {

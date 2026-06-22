@@ -72,13 +72,39 @@ func (m *Machine) EjectDisk() {
 	m.opts.Disk = nil
 }
 
-// MountCartridge insère une cartouche et relance la machine dans un état propre.
-// Ref C Loadmemo() : réinitialise la RAM puis Initprog(). On délègue à Reset()
-// (hardReset RAM/ports + loadCartridge + cpu.Reset) pour qu'une cartouche montée
-// à chaud ne démarre jamais avec la RAM/entrées d'une session précédente.
+// MountCartridge insère une cartouche en reproduisant la sémantique de la réf C
+// Loadmemo() (dcmo5devices.c:221, chemin de chargement réussi) : RAZ RAM +
+// chargement cartouche + Initprog() — et NON un Hardreset(). Concrètement :
+//   - resetRAM()      : réamorce la RAM (motif 0x00/0xFF) ;
+//   - loadCartridge() : car[] + cartype + carflags=4 (banc cartouche actif) ;
+//   - Initprog()      : reset doux (touches/manettes/banque/son) suivi de cpu.Reset()
+//     — équivalent fidèle d'Initprog()→Reset6809() de la réf C.
+//
+// Passer par Reset()/hardReset serait infidèle : hardReset remet TOUS les ports
+// d'E/S à 0, réamorce le balayage vidéo (ResetTiming) et efface l'état du crayon —
+// que Loadmemo PRÉSERVE. C'est le sibling MO5 du correctif gate-array TO8D #134
+// (annoncé dans #132). La RAM, le routage cartouche et le reset CPU restent garantis.
+//
+// Cartouche nil/vide : réf C Loadmemo avec name="" (ou fichier illisible) →
+// carflags=0 + Initprog(), SANS RAZ RAM (la RAZ RAM n'a lieu que sur le chemin de
+// chargement réussi). Indispensable : sans ce cas, loadCartridge ferait un
+// early-return sans toucher carflags et Initprog préserverait le bit cart-enabled,
+// laissant une cartouche précédente mappée (finding revue Codex PR #139).
 func (m *Machine) MountCartridge(c media.Cartridge) {
 	m.opts.Cartridge = c
-	m.Reset()
+	var data []byte
+	if c != nil {
+		data = c.Bytes()
+	}
+	if len(data) == 0 {
+		m.carflags = 0
+		m.cartype = 0
+		m.Initprog()
+		return
+	}
+	m.resetRAM()
+	m.loadCartridge()
+	m.Initprog()
 }
 
 // EjectCartridge retire la cartouche, désactive le banc cartouche et relance sur
