@@ -10,6 +10,7 @@ package mo5
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/Lesur-ai/dcmo5/internal/core"
@@ -108,10 +109,34 @@ func init() {
 	})
 }
 
+// IOTraceWriter résout la destination de la trace E/S (diagnostic) depuis
+// l'environnement, ou nil si désactivée :
+//   - DCMO5_IO_TRACE_FILE=<path> : journalise dans le fichier (ajout) ;
+//   - DCMO5_IO_TRACE=<non vide>  : journalise sur stderr ;
+//   - sinon                      : désactivé.
+//
+// Exporté pour que le CLI partage EXACTEMENT la même politique que profile.New :
+// l'instrumentation n'est pas un cas spécial du CLI (option A, lot #117).
+func IOTraceWriter() io.Writer {
+	if path := os.Getenv("DCMO5_IO_TRACE_FILE"); path != "" {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "mo5: trace E/S:", err)
+			return nil
+		}
+		return f
+	}
+	if os.Getenv("DCMO5_IO_TRACE") != "" {
+		return os.Stderr
+	}
+	return nil
+}
+
 // newFromConfig résout les ROMs (chemins → octets) depuis la Config et construit le
-// MO5. Les médias (k7/fd/cart) sont montés à chaud par l'hôte/l'UI après création
-// (MountTape/MountDisk/MountCartridge), pas ici. Le câblage complet des médias depuis
-// le launcher est finalisé aux lots 11-12.
+// MO5. profile.New est AUTO-SUFFISANT (option A) : il applique lui-même
+// l'instrumentation E/S (gating env via IOTraceWriter), avant Reset, exactement comme
+// le CLI — le launcher générique en bénéficie sans cas spécial. Les médias (k7/fd/cart)
+// sont montés à chaud par l'hôte/l'UI après création (MountTape/MountDisk/...), pas ici.
 func newFromConfig(cfg machine.Config) (machine.Machine, error) {
 	opts := core.Options{PatchSystemROM: true}
 	if p, _ := cfg[ParamROM].(string); p != "" {
@@ -128,5 +153,13 @@ func newFromConfig(cfg machine.Config) (machine.Machine, error) {
 		}
 		opts.DiskControllerROM = data
 	}
-	return New(opts)
+	m, err := core.NewMachine(opts)
+	if err != nil {
+		return nil, err
+	}
+	if w := IOTraceWriter(); w != nil {
+		m.EnableIOTrace(w) // avant Reset : trace aussi les E/S du reset
+	}
+	m.Reset()
+	return &adapter{Machine: m}, nil
 }
