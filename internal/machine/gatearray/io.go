@@ -59,14 +59,31 @@ func (g *GateArray) MountCartridge(c media.Cartridge) {
 	g.softReset()
 }
 
-// EjectCartridge retire la cartouche et désactive le banc.
+// EjectCartridge retire la cartouche et relance la machine sur la ROM système, en
+// alignant la sémantique sur la réf C Loadmemo(name="") (action UI « [decharger] » :
+// dcto8dinterface.c:873 → dcto8ddevices.c:219). Une éjection ne se contente PAS de
+// recalculer le banc : elle RELANCE le CPU. Les deux variantes plateforme de la réf
+// (Hardreset côté Windows quand fopen(répertoire) échoue ; chemin Initprog côté
+// Linux/macOS où fopen réussit) relancent le 6809 via Reset6809. On reproduit cet
+// invariant avec softReset() = initprog() + cpu.Reset(), exactement comme
+// MountCartridge (#134) et comme le sibling cœur MO5 (internal/core/io.go).
+//
+// On reproduit l'INVARIANT de relance (recalcul des banques + reset CPU), pas les
+// effets RAM platform-dependent de Loadmemo("") (wipe total côté Windows, réamorçage
+// RAM basse côté Linux/macOS) : comme le sibling MO5, l'éjection ne touche pas à la
+// RAM. Seule la relance manquait — c'est le périmètre du fix.
+//
+// On vide car[] AVANT le reset : contrairement au cœur MO5 (dont la lecture teste
+// carflags bit2), le routage ROM du gate-array lit car[] selon e7c3 bit2 SANS tester
+// le bit cart-enabled — sans vidage, l'ancienne cartouche resterait visible après
+// éjection.
 func (g *GateArray) EjectCartridge() {
 	for i := range g.car {
 		g.car[i] = 0
 	}
 	g.carflags = 0
 	g.cartype = 0
-	g.updateROMBank()
+	g.softReset() // réf C Loadmemo("") : Initprog()+Reset6809() — recalcul banques + reset CPU
 }
 
 // SetPointer met à jour le pointeur (crayon optique / souris). Les coordonnées
