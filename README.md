@@ -6,7 +6,8 @@ Portage moderne de l'émulateur Thomson MO5 [DCMO5 v11](http://dcmo5.free.fr/)
 Ce projet est un logiciel libre sous licence **GNU GPL v3+**. Voir `LICENSE`
 et `NOTICE`.
 
-**Version : 1.0.0** — historique des évolutions dans [`CHANGELOG.md`](CHANGELOG.md).
+**Version : 1.0.0** (MO5) — historique dans [`CHANGELOG.md`](CHANGELOG.md). Une
+**v2 multi-machines (TO8D) est en développement** (voir la section dédiée plus bas).
 
 ## Captures d'écran
 
@@ -59,6 +60,24 @@ DCMO5 v11 :
 
 ---
 
+## En développement (v2) — multi-machines
+
+Un chantier de généralisation **multi-machines** est en cours pour émuler d'autres
+machines Thomson au-delà du MO5, avec pour première cible le **TO8D** : architecture
+de profils de machine + moteur d'émulation partagé, base TO8D (gate-array
+mémoire/vidéo/timer/E/S + clavier), clavier généralisé *data-driven* et IHM
+*data-driven* (ebitenui, cross-compilation Windows `CGO_ENABLED=0`).
+
+> ⚠️ **La v2 n'est pas encore utilisable de bout en bout** : l'IHM de sélection de
+> machine et le profil TO8D final sont en cours. Le **MO5 (v1) décrit ci-dessus
+> reste pleinement fonctionnel et inchangé**.
+
+Suivi dans l'épopée [#106](https://github.com/Lesur-ai/dcmo5/issues/106) ; conception
+détaillée dans [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md). Le détail
+des évolutions est tenu dans [`CHANGELOG.md`](CHANGELOG.md) (section « Non publié »).
+
+---
+
 ## Architecture
 
 ```
@@ -72,7 +91,14 @@ cmd/dcmo5
 
 Le cœur d'émulation (`core`, `cpu6809`, `media`, `spec`) ne dépend d'aucune
 bibliothèque graphique, audio ou fichier. Ebitengine est limité à la couche
-application.
+application. *(Schéma du cœur MO5 v1.)*
+
+> **v2 (en cours)** : la généralisation multi-machines ajoute `internal/machine`
+> (profils + registre), `internal/engine` (boucle d'émulation partagée),
+> `internal/keyboard` (clavier *data-driven*) et `internal/uimodel` (IHM
+> *data-driven*), avec le gate-array TO8D sous `internal/machine/gatearray`. La
+> direction de dépendance (cœur sans UI) est préservée. Détails dans
+> [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md).
 
 Voir [`DESIGN/ARCHITECTURE.md`](DESIGN/ARCHITECTURE.md) pour les décisions
 structurantes.
