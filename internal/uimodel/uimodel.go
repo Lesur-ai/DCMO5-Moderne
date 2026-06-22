@@ -38,14 +38,14 @@ func Describe(p machine.MachineProfile, cfg machine.Config) []WidgetDescriptor {
 	out := make([]WidgetDescriptor, 0, len(p.Params))
 	for _, param := range p.Params {
 		out = append(out, WidgetDescriptor{
-			Key:         param.Key,
-			Label:       param.Label,
-			Kind:        param.Kind,
-			Value:       resolveValue(param, cfg),
+			Key:   param.Key,
+			Label: param.Label,
+			Kind:  param.Kind,
+			Value: resolveValue(param, cfg),
 			// Copies défensives : un appelant (UI) ne doit pas pouvoir muter le profil
 			// via le descripteur (cohérent avec le deep-copy du registre machine).
-			Options: append([]machine.Option(nil), param.Options...),
-			FileExt: append([]string(nil), param.FileExt...),
+			Options:     append([]machine.Option(nil), param.Options...),
+			FileExt:     append([]string(nil), param.FileExt...),
 			Required:    param.Required,
 			LiveMutable: param.LiveMutable,
 		})
