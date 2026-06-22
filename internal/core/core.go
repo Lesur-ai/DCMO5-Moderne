@@ -132,17 +132,26 @@ func NewMachine(opts Options) (*Machine, error) {
 	return m, nil
 }
 
-// hardReset initialise la RAM, les ports et l'état interne.
-// Ref: dcmo5emulation.c Hardreset()
-func (m *Machine) hardReset() {
+// resetRAM réamorce la RAM au motif d'init 0x00/0xFF (alternance selon le bit 7 de
+// l'index). Motif partagé par Hardreset() et Loadmemo() de la réf C. Extrait pour
+// que MountCartridge puisse réamorcer la RAM SANS passer par hardReset (qui efface
+// aussi ports/trame/crayon). Pas de paramètre d'étendue : la RAM MO5 fait exactement
+// RAMTotalSize (0xC000) = l'étendue Loadmemo (« i < 0xc000 »), contrairement au TO8D
+// dont la RAM de 512 Ko impose resetRAM(0xc000) (cf. #134).
+func (m *Machine) resetRAM() {
 	for i := range m.ram {
-		// Pattern d'init : alternance 0x00/0xFF selon bit 7 de l'index
 		if i&0x80 != 0 {
 			m.ram[i] = 0xFF
 		} else {
 			m.ram[i] = 0x00
 		}
 	}
+}
+
+// hardReset initialise la RAM, les ports et l'état interne.
+// Ref: dcmo5emulation.c Hardreset()
+func (m *Machine) hardReset() {
+	m.resetRAM()
 	for i := range m.port {
 		m.port[i] = 0
 	}
