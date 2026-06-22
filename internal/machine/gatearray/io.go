@@ -35,15 +35,28 @@ func (g *GateArray) EjectDisk() { g.disk = nil }
 func (g *GateArray) MountPrinter(p media.PrinterSink) { g.printer = p }
 func (g *GateArray) EjectPrinter()                    { g.printer = nil }
 
-// MountCartridge insère une cartouche et relance la machine dans un état propre
-// (réf C Loadmemo : recharge la RAM puis Initprog).
+// MountCartridge insère une cartouche en reproduisant la sémantique de la réf C
+// Loadmemo() (dcto8ddevices.c:219, chemin de chargement réussi) : RAZ partielle de
+// la RAM + chargement cartouche + Initprog() — et NON un Hardreset(). Concrètement :
+//   - resetRAM(0xc000) : réamorce SEULEMENT les premiers 0xc000 octets (réf C
+//     Loadmemo : i < 0xc000) ; les banques RAM hautes (≥ 0xc000) sont préservées ;
+//   - LoadCartridge()  : car[] + cartype + banc cartouche 0 ;
+//   - softReset()      : Initprog() (recalcul banques + touches relâchées) suivi
+//     de cpu.Reset() — équivalent fidèle d'Initprog()→Reset6809().
+//
+// Un Hardreset() serait infidèle : il réamorcerait TOUTE la RAM (banques hautes
+// comprises), remettrait à zéro TOUS les ports et forcerait capslock=true (que
+// Loadmemo ne touche pas), tout en n'effectuant PAS le reset CPU que Loadmemo
+// réalise via Initprog. Le montage doux préserve donc les banques RAM hautes,
+// l'état des ports et de capslock, et relance le CPU sur le vecteur reset.
 func (g *GateArray) MountCartridge(c media.Cartridge) {
 	var data []byte
 	if c != nil {
 		data = c.Bytes()
 	}
-	g.Reset()
+	g.resetRAM(0xc000)
 	g.LoadCartridge(data)
+	g.softReset()
 }
 
 // EjectCartridge retire la cartouche et désactive le banc.
