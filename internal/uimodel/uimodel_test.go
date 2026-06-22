@@ -84,12 +84,27 @@ func TestValidate_ValidatePropagates(t *testing.T) {
 
 func TestBuildConfig_FillsDefaultsAndValidates(t *testing.T) {
 	p := fakeProfile()
-	cfg, err := uimodel.BuildConfig(p, machine.Config{"rom": "boot.rom"})
+	in := machine.Config{"rom": "boot.rom"}
+	cfg, err := uimodel.BuildConfig(p, in)
 	if err != nil {
 		t.Fatalf("BuildConfig (valide) → err = %v", err)
 	}
 	if cfg["ram"] != 512 || cfg["turbo"] != false || cfg["speed"] != 1 || cfg["rom"] != "boot.rom" {
 		t.Errorf("BuildConfig défauts/valeurs = %+v", cfg)
+	}
+	if len(in) != 1 { // l'entrée ne doit pas être mutée (défauts ajoutés à la copie seulement)
+		t.Errorf("BuildConfig a muté la config d'entrée : %+v", in)
+	}
+}
+
+func TestFakeProfileNeverRegistered(t *testing.T) {
+	// Invariant : uimodel prend le profil EN PARAMÈTRE ; le profil factice ne doit
+	// JAMAIS apparaître dans le registre global (sinon il polluerait le launcher).
+	_ = fakeProfile()
+	for _, p := range machine.Profiles() {
+		if p.ID == "fake" {
+			t.Fatal("le profil factice ne doit pas être enregistré dans machine.Profiles()")
+		}
 	}
 }
 
@@ -120,6 +135,9 @@ func TestDiffLive_OnlyLiveMutable(t *testing.T) {
 	}
 	if len(got) != 2 {
 		t.Errorf("2 changements live attendus, got %d (%+v)", len(got), got)
+	}
+	if got[0].Key != "turbo" || got[1].Key != "tape" { // ordre = ordre des Params du profil
+		t.Errorf("ordre des changements live = [%s, %s], want [turbo, tape]", got[0].Key, got[1].Key)
 	}
 }
 

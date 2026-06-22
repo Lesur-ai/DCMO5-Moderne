@@ -14,6 +14,7 @@ package uimodel
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 )
@@ -41,8 +42,10 @@ func Describe(p machine.MachineProfile, cfg machine.Config) []WidgetDescriptor {
 			Label:       param.Label,
 			Kind:        param.Kind,
 			Value:       resolveValue(param, cfg),
-			Options:     param.Options,
-			FileExt:     param.FileExt,
+			// Copies défensives : un appelant (UI) ne doit pas pouvoir muter le profil
+			// via le descripteur (cohérent avec le deep-copy du registre machine).
+			Options: append([]machine.Option(nil), param.Options...),
+			FileExt: append([]string(nil), param.FileExt...),
 			Required:    param.Required,
 			LiveMutable: param.LiveMutable,
 		})
@@ -122,7 +125,9 @@ func DiffLive(p machine.MachineProfile, old, next machine.Config) []LiveChange {
 		if !param.LiveMutable {
 			continue // boot-only : jamais applicable à chaud
 		}
-		if old[param.Key] != next[param.Key] {
+		// DeepEqual : Config porte des `any` ; une comparaison `!=` paniquerait sur
+		// une valeur non comparable (slice, map). Le contrat générique l'autorise.
+		if !reflect.DeepEqual(old[param.Key], next[param.Key]) {
 			out = append(out, LiveChange{Key: param.Key, Value: next[param.Key]})
 		}
 	}
