@@ -50,6 +50,17 @@ func main() {
 		cfg, _ = store.Load()
 	}
 
+	// Routage démarrage (lot #117) : sans flag explicite --rom/--exec, on ouvre le
+	// LAUNCHER (sélection machine + paramètres, data-driven). La décision se fonde sur
+	// les flags EXPLICITEMENT fournis (pas le fallback config) pour que « dcmo5 » seul
+	// ouvre toujours le launcher, même si une ROM est mémorisée.
+	explicit := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+	if !directBoot(explicit["rom"], explicit["exec"]) {
+		runLauncher(cfg, *noAudio)
+		return
+	}
+
 	// Résoudre les chemins : CLI prioritaire, puis config
 	if *romPath == "" {
 		*romPath = cfg.ROMPath
@@ -201,6 +212,30 @@ func main() {
 		a.SetExec(seq, *execDelay)
 	}
 
+	if err := app.Run(a); err != nil && !errors.Is(err, app.ErrUserQuit) {
+		fmt.Fprintln(os.Stderr, "dcmo5:", err)
+		os.Exit(1)
+	}
+}
+
+// runLauncher démarre l'application en mode launcher : liste des profils enregistrés
+// (plus le profil de démonstration si DCMO5_UI_DEMO est défini), chemin ROM mémorisé
+// pré-rempli, répertoire de départ = répertoire courant. La machine est instanciée à
+// l'action « Démarrer » (cf. internal/app.updateLauncher).
+func runLauncher(cfg config.Config, noAudio bool) {
+	profiles := machine.Profiles()
+	if os.Getenv("DCMO5_UI_DEMO") != "" {
+		profiles = append(profiles, demoProfile())
+	}
+	initial := machine.Config{}
+	if cfg.ROMPath != "" {
+		initial["rom"] = cfg.ROMPath
+	}
+	dir := "."
+	if wd, err := os.Getwd(); err == nil && wd != "" {
+		dir = wd
+	}
+	a := app.NewLauncher(profiles, dir, noAudio, initial)
 	if err := app.Run(a); err != nil && !errors.Is(err, app.ErrUserQuit) {
 		fmt.Fprintln(os.Stderr, "dcmo5:", err)
 		os.Exit(1)
