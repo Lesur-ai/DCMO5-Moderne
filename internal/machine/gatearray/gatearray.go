@@ -136,16 +136,26 @@ func New(romMon, romBasic []byte) *GateArray {
 	return g
 }
 
-// hardReset reproduit Hardreset() : RAM en motif 0x00/0xFF (bit 7 de l'adresse),
-// ports à zéro sauf e7c9 (port[0x09]=0x0f), cartouche effacée, puis Initprog.
-func (g *GateArray) hardReset() {
-	for i := range g.ram {
+// resetRAM réamorce les n premiers octets de la RAM dans le motif de mise sous
+// tension : 0x00 si le bit 7 de l'index physique est à 0, 0xFF sinon (réf C :
+// ram[i] = -((i & 0x80) >> 7)). L'étendue distingue les deux appelants : Hardreset
+// réamorce TOUTE la RAM (n = len(ram)), tandis que Loadmemo (montage cartouche)
+// n'en réamorce que les premiers 0xc000 octets, laissant les banques RAM hautes
+// intactes (réf C dcto8ddevices.c:237).
+func (g *GateArray) resetRAM(n int) {
+	for i := 0; i < n; i++ {
 		if i&0x80 != 0 {
 			g.ram[i] = 0xFF
 		} else {
 			g.ram[i] = 0x00
 		}
 	}
+}
+
+// hardReset reproduit Hardreset() : RAM en motif 0x00/0xFF (bit 7 de l'adresse),
+// ports à zéro sauf e7c9 (port[0x09]=0x0f), cartouche effacée, puis Initprog.
+func (g *GateArray) hardReset() {
+	g.resetRAM(len(g.ram))
 	for i := range g.port {
 		g.port[i] = 0
 	}
@@ -185,6 +195,11 @@ func (g *GateArray) initprog() {
 		g.touche[i] = 0x80 // touches relâchées (réf C Initprog : touche[i] = 0x80)
 	}
 	g.carflags &= 0xec
+	// Mode de décodage forcé en standard, SANS relire e7dc (réf C Initprog :
+	// Decodevideo = Decode320x16, dcto8demulation.c:330). Le registre e7dc (port[0x1c])
+	// n'est pas réaligné ici : après un Initprog déclenché par MountCartridge (qui
+	// préserve les ports, réf C Loadmemo), le décodage repasse en 320x16 tandis que
+	// e7dc garde sa valeur — état post-Initprog fidèle, que le firmware réécrit ensuite.
 	g.vmode = mode320x16
 	g.ramuserBase = -0x2000
 	g.videopageBorder(g.port[0x1d])
