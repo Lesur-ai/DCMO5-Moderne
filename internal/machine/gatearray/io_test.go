@@ -270,3 +270,52 @@ func TestTrapPrinter(t *testing.T) {
 		t.Error("carry devrait être clear après impression")
 	}
 }
+
+// ── Éjection cartouche ──────────────────────────────────────────────────────────
+
+// TestEjectCartridgeRelaunchesMachine prouve que l'éjection RELANCE la machine (réf C
+// Loadmemo("") : Initprog→Reset6809), et ne se borne pas à recalculer le banc.
+//
+// Discriminant non-complaisant : après éjection le CPU est resété — CC ← ResetCC et
+// PC ← vecteur de reset (la machine repart sur la ROM système). L'ancien code
+// (updateROMBank seul) ne touche JAMAIS au CPU : il laisse CC et PC « sales » (RED).
+func TestEjectCartridgeRelaunchesMachine(t *testing.T) {
+	g, cpu := newGAWithCPU()
+
+	// Cartouche 64 Ko (4 banques distinctes) + sélection d'une banque non nulle :
+	// on simule une machine en train d'exécuter du code cartouche. LoadCartridge est
+	// la primitive BAS NIVEAU (sans reset CPU), pour laisser l'état CPU « sale ».
+	cart := make([]byte, 0x10000)
+	for b := 0; b < 4; b++ {
+		for i := 0; i < 0x4000; i++ {
+			cart[b*0x4000+i] = byte(0xE0 + b)
+		}
+	}
+	g.LoadCartridge(cart)
+	g.Write8(0x0003, 0) // écriture espace ROM → commute la banque cartouche 3
+	if v := g.Read8(0x0000); v != 0xE3 {
+		t.Fatalf("préparation : banque cartouche 3 = 0x%02X, want 0xE3", v)
+	}
+
+	// Vecteur de reset attendu (ROM moniteur) + état CPU « sale » avant éjection.
+	wantPC := uint16(g.Read8(0xFFFE))<<8 | uint16(g.Read8(0xFFFF))
+	cpu.SetRegCC(0xAB) // sentinelle ≠ ResetCC
+	if cpu.Snapshot().PC == wantPC {
+		t.Fatalf("précondition cassée : PC vaut déjà le vecteur reset 0x%04X avant éjection", wantPC)
+	}
+
+	g.EjectCartridge()
+
+	// 1) Relance CPU (le discriminant du correctif).
+	if got := cpu.Snapshot().PC; got != wantPC {
+		t.Errorf("après éjection : PC = 0x%04X, want 0x%04X (vecteur reset → relance ROM système)", got, wantPC)
+	}
+	if got := cpu.RegCC(); got != cpu6809.ResetCC {
+		t.Errorf("après éjection : CC = 0x%02X, want 0x%02X (ResetCC)", got, cpu6809.ResetCC)
+	}
+
+	// 2) Non-régression : cartouche réellement éjectée (banc revenu à 0, car[] effacé).
+	if v := g.Read8(0x0000); v != 0x00 {
+		t.Errorf("après éjection : 0x0000 = 0x%02X, want 0x00 (cartouche effacée, banc 0)", v)
+	}
+}
