@@ -42,6 +42,20 @@ Les dependances Go runtime devront etre verifiees pour compatibilite GPLv3+
 au fur et a mesure de leur introduction (Ebitengine est sous Apache-2.0,
 compatible GPLv3+).
 
+### 2.1 Dependances runtime introduites
+
+| Dependance | Version | Licence | Compat GPLv3+ | Note |
+|---|---|---|---|---|
+| `github.com/hajimehoshi/ebiten/v2` | v2.9.9 | Apache-2.0 | oui | Moteur 2D. |
+| `github.com/ebitenui/ebitenui` | v0.7.3 | MIT | oui | IHM (lot #117). 100 % Go, sans cgo. |
+| `github.com/frustra/bbcode` | transitive (figee go.sum) | MIT | oui | Transitive d'ebitenui (texte enrichi). Pas de release taguee : maintenance faible, a surveiller. |
+| `golang.org/x/exp` | transitive (figee go.sum) | BSD-3 | oui | Transitive d'ebitenui. **Experimentale, sans promesse de compatibilite Go 1** — risque a documenter (suivi conformite). |
+| `golang.org/x/sync` | v0.20.0 | BSD-3 | oui | Upgrade transitif (0.17.0 -> 0.20.0). |
+
+Toutes ces dependances sont pures Go : la cible Windows compile en
+`CGO_ENABLED=0` (garde-fou CI). Licences MIT / Apache-2.0 / BSD-3, compatibles
+GPLv3+. Empreinte verrouillee dans `go.sum` (`go mod verify`).
+
 ## 3. Classification des assets
 
 > **Mise a jour (2026-06-06).** Decision du mainteneur : `rom/` et `software/`
