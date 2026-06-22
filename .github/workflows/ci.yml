@@ -55,6 +55,14 @@ jobs:
           pkgs=$(go list ./... 2>/dev/null || true)
           if [ -n "$pkgs" ]; then go build ./...; fi
 
+      - name: cross-compile Windows (CGO_ENABLED=0)
+        run: |
+          # Garde-fou de distribution : la cible Windows est buildée en
+          # CGO_ENABLED=0 (backend purego, sans GLFW). Cette étape échoue tôt si
+          # une dépendance réintroduit du cgo sur Windows (ex. l'ajout d'ebitenui
+          # au lot #117). Build pur (pas d'exécution) : indépendant de l'OS runner.
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build ./...
+
       - name: test
         run: |
           # internal/app importe Ebitengine dont l'init() initialise GLFW/Metal
