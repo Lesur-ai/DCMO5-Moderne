@@ -12,6 +12,7 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/app"
 	"github.com/Lesur-ai/dcmo5/internal/app/config"
 	"github.com/Lesur-ai/dcmo5/internal/core"
+	"github.com/Lesur-ai/dcmo5/internal/launch"
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/machine/mo5"
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
@@ -56,7 +57,7 @@ func main() {
 	// ouvre toujours le launcher, même si une ROM est mémorisée.
 	explicit := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
-	if !directBoot(explicit["rom"], explicit["exec"]) {
+	if !launch.DirectBoot(explicit["rom"], explicit["exec"]) {
 		// Pré-remplir le launcher : ROM mémorisée en config + médias passés
 		// EXPLICITEMENT en CLI (--tape/--disk/--cart/--disk-rom), pour ne pas perdre
 		// la commodité v1 « dcmo5 --tape jeu.k7 ».
@@ -241,7 +242,7 @@ func main() {
 func runLauncher(initial machine.Config, noAudio bool) {
 	profiles := machine.Profiles()
 	if os.Getenv("DCMO5_UI_DEMO") != "" {
-		profiles = append(profiles, demoProfile())
+		profiles = append(profiles, launch.DemoProfile())
 	}
 	dir := "."
 	if wd, err := os.Getwd(); err == nil && wd != "" {
