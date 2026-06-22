@@ -207,6 +207,29 @@ func TestMountCartridge_PreservesPorts(t *testing.T) {
 	}
 }
 
+// TestMountCartridge_EmptyDisablesPreviousBank vérifie que monter une cartouche
+// nil/vide DÉSACTIVE le banc d'une cartouche précédente, fidèle à la réf C
+// Loadmemo(name="") (carflags=0 + Initprog). Sans ce traitement, le chemin doux
+// (loadCartridge early-return + Initprog qui préserve cart-enabled) laisserait
+// l'ancienne cartouche mappée. Régression relevée en revue Codex de la PR #139.
+func TestMountCartridge_EmptyDisablesPreviousBank(t *testing.T) {
+	first := &stubCartridge{data: make([]byte, 0x4000)}
+	first.data[0x0100] = 0xAB
+	m, _ := core.NewMachine(core.Options{})
+	m.Reset()
+	m.MountCartridge(first)
+	if v := m.Read8(0xB100); v != 0xAB {
+		t.Fatalf("préparation: 0xB100 = 0x%02X, want 0xAB (cartouche mappée)", v)
+	}
+
+	// Monter une cartouche vide doit désactiver le banc (réf C Loadmemo name="").
+	m.MountCartridge(&stubCartridge{data: nil})
+	if v := m.Read8(0xB100); v == 0xAB {
+		t.Errorf("après MountCartridge(vide): 0xB100 = 0xAB — banc cartouche non " +
+			"désactivé (résidu de la cartouche précédente)")
+	}
+}
+
 // TestInitprog_KeepsRAM vérifie que Initprog (reset doux) PRÉSERVE la RAM et
 // recharge le vecteur reset, contrairement à Reset (qui efface la RAM).
 func TestInitprog_KeepsRAM(t *testing.T) {
