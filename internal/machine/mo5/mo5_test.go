@@ -1,6 +1,7 @@
 package mo5_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/Lesur-ai/dcmo5/internal/core"
@@ -67,5 +68,32 @@ func TestNewFromConfigEmpty(t *testing.T) {
 	}
 	if w, _ := m.FrameSize(); w != core.FrameWidth {
 		t.Errorf("FrameSize w = %d", w)
+	}
+}
+
+func TestNewFromConfigEnablesIOTrace(t *testing.T) {
+	// Option A : profile.New(mo5) doit activer l'instrumentation E/S quand l'env la
+	// demande, SANS cas spécial dans le CLI. La trace ne se déclenche que sur un trap
+	// d'E/S : on en provoque un (imprimante 0x51) et on vérifie via le compteur
+	// observable IOTraceCounts — sans dépendre du flush fichier ni d'un boot ROM.
+	t.Setenv("DCMO5_IO_TRACE_FILE", filepath.Join(t.TempDir(), "iotrace.log"))
+	p, ok := machine.ByID("mo5")
+	if !ok {
+		t.Fatal("profil mo5 absent")
+	}
+	m, err := p.New(machine.Config{})
+	if err != nil {
+		t.Fatalf("New = %v", err)
+	}
+	traced, ok := m.(interface {
+		Entreesortie(io int)
+		IOTraceCounts() map[int]int
+	})
+	if !ok {
+		t.Fatal("la machine MO5 n'expose pas Entreesortie/IOTraceCounts")
+	}
+	traced.Entreesortie(0x51) // trap imprimante → compté si l'instrumentation est active
+	if traced.IOTraceCounts()[0x51] == 0 {
+		t.Error("profile.New(mo5) n'a pas activé l'IO-trace (trap non compté) — option A non respectée")
 	}
 }

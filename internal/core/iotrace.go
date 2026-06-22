@@ -6,8 +6,9 @@
 //
 // La trace est entièrement OPT-IN : tant que EnableIOTrace n'a pas été appelé,
 // le hook est nil et le coût est nul. Le gating par variable d'environnement est
-// fait au bord (cmd/dcmo5), jamais dans le cœur — qui reste pur et sans dépendance
-// au système de fichiers ni à l'environnement.
+// fait au bord (mo5.IOTraceWriter, partagé par le CLI et le launcher #117 — option
+// A), jamais dans le cœur, qui reste pur et sans dépendance au système de fichiers
+// ni à l'environnement.
 package core
 
 import (
