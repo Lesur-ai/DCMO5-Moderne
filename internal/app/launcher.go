@@ -9,27 +9,61 @@
 // Enum=cycle, Int=±, File=navigateur). On évite ainsi TextInput/Checkbox d'ebitenui,
 // qui exigent un thème complet et paniquent sur un paramètre manquant (revue de plan
 // Codex). Cela rend néanmoins les 4 ParamKind visibles, ce que valide l'owner.
+//
+// Présentation : carte centrée sur fond sombre, typographie vectorielle (goregular /
+// gobold via text/v2), en-tête, sélecteur de machines (état sélectionné en accent),
+// grille « libellé : contrôle » alignée, séparateurs, et action « Démarrer » primaire
+// pleine largeur. La structure visuelle est portée ICI ; le schéma reste data-driven.
 package app
 
 import (
+	"bytes"
 	"fmt"
 	"image/color"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/ebitenui/ebitenui"
 	eimage "github.com/ebitenui/ebitenui/image"
 	"github.com/ebitenui/ebitenui/widget"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"golang.org/x/image/font/basicfont"
+	"golang.org/x/image/font/gofont/gobold"
+	"golang.org/x/image/font/gofont/goregular"
 
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/uimodel"
 )
 
 const (
-	launcherWidth  = 720
-	launcherHeight = 520
+	launcherWidth  = 760
+	launcherHeight = 640
+	cardWidth      = 600 // largeur stable de la carte (sinon elle « danse » avec le contenu)
+
+	// Limites de troncature (purement visuelles, dépendantes de cardWidth) pour
+	// éviter tout débordement hors de la carte.
+	maxFileNameRunes = 30 // nom de fichier affiché dans un champ
+	maxPathRunes     = 58 // chemin du répertoire courant dans le navigateur
+)
+
+// Palette : thème sombre cohérent + un accent bleu pour les actions/états primaires.
+var (
+	colBG       = color.NRGBA{R: 0x12, G: 0x14, B: 0x1c, A: 0xff}
+	colPanel    = color.NRGBA{R: 0x1f, G: 0x22, B: 0x30, A: 0xff}
+	colBorder   = color.NRGBA{R: 0x34, G: 0x39, B: 0x52, A: 0xff}
+	colText     = color.NRGBA{R: 0xe9, G: 0xec, B: 0xf5, A: 0xff}
+	colMuted    = color.NRGBA{R: 0x96, G: 0x9c, B: 0xb4, A: 0xff}
+	colAccent   = color.NRGBA{R: 0x5b, G: 0x8c, B: 0xff, A: 0xff}
+	colAccentHi = color.NRGBA{R: 0x78, G: 0xa2, B: 0xff, A: 0xff}
+	colAccentLo = color.NRGBA{R: 0x46, G: 0x70, B: 0xd8, A: 0xff}
+	colBtn      = color.NRGBA{R: 0x2b, G: 0x2f, B: 0x44, A: 0xff}
+	colBtnHi    = color.NRGBA{R: 0x3a, G: 0x3f, B: 0x5c, A: 0xff}
+	colBtnLo    = color.NRGBA{R: 0x22, G: 0x25, B: 0x36, A: 0xff}
+	colField    = color.NRGBA{R: 0x16, G: 0x18, B: 0x22, A: 0xff} // fond de champ (inset)
+	colFieldHi  = color.NRGBA{R: 0x23, G: 0x27, B: 0x38, A: 0xff} // survol d'une zone de champ
+	colDanger   = color.NRGBA{R: 0xff, G: 0x6b, B: 0x6b, A: 0xff}
+	colWhite    = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 )
 
 // startRequest : profil + valeurs saisies, transmis à l'App à l'action « Démarrer ».
@@ -61,10 +95,31 @@ type launcher struct {
 	start    bool
 	startReq startRequest
 
-	// Ressources de rendu partagées (police text/v2, images de bouton, couleurs).
-	face     *text.Face
-	btnImg   *widget.ButtonImage
-	txtColor *widget.ButtonTextColor
+	// Ressources de rendu partagées (polices text/v2, images de bouton, couleurs).
+	// ebitenui attend des *text.Face (pointeur sur l'interface).
+	faceTitle *text.Face
+	faceLabel *text.Face
+	faceBtn   *text.Face
+	btnImg    *widget.ButtonImage // bouton standard
+	btnSel    *widget.ButtonImage // accent : machine sélectionnée / action primaire
+	fieldImg  *widget.ButtonImage // zone de champ « plate » (nom de fichier, chevron, croix)
+	txtColor  *widget.ButtonTextColor
+	txtOnSel  *widget.ButtonTextColor
+}
+
+// loadFace charge une police vectorielle TTF embarquée dans golang.org/x/image (Go
+// fonts, BSD — ce ne sont PAS des assets Thomson sous réserve). En cas d'échec de
+// parsing (ne devrait jamais arriver), on retombe sur la police bitmap basicfont
+// plutôt que de paniquer : l'UI reste affichée, juste plus laide.
+func loadFace(ttf []byte, size float64) *text.Face {
+	var f text.Face
+	if src, err := text.NewGoTextFaceSource(bytes.NewReader(ttf)); err != nil {
+		fmt.Fprintf(os.Stderr, "launcher: police vectorielle indisponible (%v), repli bitmap\n", err)
+		f = text.NewGoXFace(basicfont.Face7x13)
+	} else {
+		f = &text.GoTextFace{Source: src, Size: size}
+	}
+	return &f
 }
 
 // osListerUI liste un répertoire réel pour le navigateur du launcher (uimodel.Lister).
@@ -83,18 +138,30 @@ func osListerUI(dir string) ([]uimodel.Entry, error) {
 // newLauncher construit l'UI ebitenui à partir des profils. initial pré-remplit les
 // valeurs du profil sélectionné par défaut (ex. chemin ROM mémorisé en config).
 func newLauncher(profiles []machine.MachineProfile, mediaDir string, lister uimodel.Lister, initial machine.Config) *launcher {
-	var face text.Face = text.NewGoXFace(basicfont.Face7x13)
 	l := &launcher{
-		profiles: profiles,
-		mediaDir: mediaDir,
-		lister:   lister,
-		face:     &face,
+		profiles:  profiles,
+		mediaDir:  mediaDir,
+		lister:    lister,
+		faceTitle: loadFace(gobold.TTF, 26),
+		faceLabel: loadFace(goregular.TTF, 15),
+		faceBtn:   loadFace(goregular.TTF, 15),
 		btnImg: &widget.ButtonImage{
-			Idle:    eimage.NewNineSliceColor(color.NRGBA{R: 0x3a, G: 0x3a, B: 0x4a, A: 0xff}),
-			Hover:   eimage.NewNineSliceColor(color.NRGBA{R: 0x4a, G: 0x4a, B: 0x60, A: 0xff}),
-			Pressed: eimage.NewNineSliceColor(color.NRGBA{R: 0x2a, G: 0x2a, B: 0x36, A: 0xff}),
+			Idle:    eimage.NewNineSliceColor(colBtn),
+			Hover:   eimage.NewNineSliceColor(colBtnHi),
+			Pressed: eimage.NewNineSliceColor(colBtnLo),
 		},
-		txtColor: &widget.ButtonTextColor{Idle: color.White, Hover: color.White, Pressed: color.White},
+		btnSel: &widget.ButtonImage{
+			Idle:    eimage.NewNineSliceColor(colAccent),
+			Hover:   eimage.NewNineSliceColor(colAccentHi),
+			Pressed: eimage.NewNineSliceColor(colAccentLo),
+		},
+		fieldImg: &widget.ButtonImage{
+			Idle:    eimage.NewNineSliceColor(colField),
+			Hover:   eimage.NewNineSliceColor(colFieldHi),
+			Pressed: eimage.NewNineSliceColor(colFieldHi),
+		},
+		txtColor: &widget.ButtonTextColor{Idle: colText, Hover: colWhite, Pressed: colText},
+		txtOnSel: &widget.ButtonTextColor{Idle: colWhite, Hover: colWhite, Pressed: colWhite},
 	}
 	// Valeurs initiales du profil par défaut + surcharge depuis la config (initial).
 	if len(profiles) > 0 {
@@ -106,13 +173,10 @@ func newLauncher(profiles []machine.MachineProfile, mediaDir string, lister uimo
 		l.values = machine.Config{}
 	}
 
+	// Racine plein écran : fond sombre + ancrage centré de la carte.
 	l.root = widget.NewContainer(
-		widget.ContainerOpts.BackgroundImage(eimage.NewNineSliceColor(color.NRGBA{R: 0x1e, G: 0x1e, B: 0x28, A: 0xff})),
-		widget.ContainerOpts.Layout(widget.NewRowLayout(
-			widget.RowLayoutOpts.Direction(widget.DirectionVertical),
-			widget.RowLayoutOpts.Padding(widget.NewInsetsSimple(16)),
-			widget.RowLayoutOpts.Spacing(8),
-		)),
+		widget.ContainerOpts.BackgroundImage(eimage.NewNineSliceColor(colBG)),
+		widget.ContainerOpts.Layout(widget.NewAnchorLayout()),
 	)
 	l.ui = &ebitenui.UI{Container: l.root}
 	l.rebuild()
@@ -143,33 +207,75 @@ func (l *launcher) setError(err error) {
 	l.rebuild()
 }
 
+// stretchH étire un widget sur toute la largeur dans un RowLayout vertical (l'axe
+// transverse). ebitenui n'expose pas d'option Stretch globale sur RowLayout : c'est
+// une donnée de placement portée par CHAQUE enfant.
+func stretchH() widget.WidgetOpt {
+	return widget.WidgetOpts.LayoutData(widget.RowLayoutData{Stretch: true})
+}
+
+// card construit le conteneur « carte » centré (panneau sombre, padding, colonne
+// verticale ; les enfants pleine largeur portent stretchH()).
+func (l *launcher) card() *widget.Container {
+	return widget.NewContainer(
+		widget.ContainerOpts.BackgroundImage(eimage.NewNineSliceColor(colPanel)),
+		widget.ContainerOpts.WidgetOpts(
+			widget.WidgetOpts.MinSize(cardWidth, 0),
+			widget.WidgetOpts.LayoutData(widget.AnchorLayoutData{
+				HorizontalPosition: widget.AnchorLayoutPositionCenter,
+				VerticalPosition:   widget.AnchorLayoutPositionCenter,
+			}),
+		),
+		widget.ContainerOpts.Layout(widget.NewRowLayout(
+			widget.RowLayoutOpts.Direction(widget.DirectionVertical),
+			widget.RowLayoutOpts.Padding(&widget.Insets{Top: 26, Bottom: 26, Left: 28, Right: 28}),
+			widget.RowLayoutOpts.Spacing(14),
+		)),
+	)
+}
+
 // rebuild reconstruit l'arbre de widgets selon l'état (vue principale ou navigateur).
 func (l *launcher) rebuild() {
 	l.root.RemoveChildren()
+	card := l.card()
 	if l.browseKey != "" {
-		l.buildBrowser()
-		return
+		l.buildBrowser(card)
+	} else {
+		l.buildMain(card)
 	}
-	l.buildMain()
+	l.root.AddChild(card)
 }
 
-// buildMain rend la vue principale : sélecteur de machine + paramètres + Démarrer.
-func (l *launcher) buildMain() {
-	l.root.AddChild(l.text("DCMO5 Moderne — choix de la machine"))
+// buildMain rend la vue principale : en-tête + sélecteur de machine + paramètres +
+// action « Démarrer ».
+func (l *launcher) buildMain(card *widget.Container) {
+	// En-tête : titre + sous-titre.
+	header := widget.NewContainer(
+		widget.ContainerOpts.Layout(widget.NewRowLayout(
+			widget.RowLayoutOpts.Direction(widget.DirectionVertical),
+			widget.RowLayoutOpts.Spacing(2),
+		)),
+	)
+	header.AddChild(widget.NewText(widget.TextOpts.Text("DCMO5", l.faceTitle, colText)))
+	header.AddChild(widget.NewText(widget.TextOpts.Text("Émulateur Thomson — choix de la machine", l.faceLabel, colMuted)))
+	card.AddChild(header)
+	card.AddChild(l.separator())
 
-	// Sélecteur de machine : un bouton par profil (surligné si sélectionné).
+	// Sélecteur de machine : un bouton par profil (accent si sélectionné).
+	card.AddChild(l.sectionLabel("Machine"))
 	machines := widget.NewContainer(
 		widget.ContainerOpts.Layout(widget.NewRowLayout(
 			widget.RowLayoutOpts.Direction(widget.DirectionHorizontal),
-			widget.RowLayoutOpts.Spacing(6),
+			widget.RowLayoutOpts.Spacing(8),
 		)),
 	)
 	for i, p := range l.profiles {
 		idx, name := i, p.Name
+		img, txt := l.btnImg, l.txtColor
 		if i == l.selected {
-			name = "▶ " + name
+			img, txt = l.btnSel, l.txtOnSel
 		}
-		machines.AddChild(l.button(name, func() {
+		machines.AddChild(l.button(name, img, txt, func() {
 			if idx == l.selected {
 				return
 			}
@@ -179,81 +285,123 @@ func (l *launcher) buildMain() {
 			l.rebuild()
 		}))
 	}
-	l.root.AddChild(machines)
+	card.AddChild(machines)
 
-	// Paramètres du profil sélectionné, rendus génériquement via uimodel.Describe.
+	// Paramètres du profil sélectionné, rendus génériquement via uimodel.Describe,
+	// dans une grille 2 colonnes « libellé : contrôle » alignée.
 	prof := l.currentProfile()
-	for _, d := range uimodel.Describe(prof, l.values) {
-		l.root.AddChild(l.paramRow(d))
+	descs := uimodel.Describe(prof, l.values)
+	if len(descs) > 0 {
+		card.AddChild(l.separator())
+		card.AddChild(l.sectionLabel("Paramètres"))
+		grid := widget.NewContainer(
+			widget.ContainerOpts.WidgetOpts(stretchH()),
+			widget.ContainerOpts.Layout(widget.NewGridLayout(
+				widget.GridLayoutOpts.Columns(2),
+				widget.GridLayoutOpts.Spacing(16, 10),
+				widget.GridLayoutOpts.Stretch([]bool{false, true}, nil),
+			)),
+		)
+		for _, d := range descs {
+			l.addParam(grid, d)
+		}
+		card.AddChild(grid)
+		card.AddChild(l.hint("*  paramètre requis"))
 	}
 
-	l.root.AddChild(l.button("Démarrer", func() {
+	card.AddChild(l.separator())
+
+	if l.errText != "" {
+		card.AddChild(widget.NewText(
+			widget.TextOpts.Text("⚠  "+l.errText, l.faceLabel, colDanger),
+			widget.TextOpts.MaxWidth(cardWidth-56),
+		))
+	}
+
+	// Action primaire : pleine largeur (étirée), accent.
+	card.AddChild(l.primaryButton("Démarrer", func() {
 		l.startReq = startRequest{profile: l.currentProfile(), values: cloneConfig(l.values)}
 		l.start = true
 	}))
-
-	if l.errText != "" {
-		l.root.AddChild(widget.NewText(widget.TextOpts.Text("⚠ "+l.errText, l.face, color.NRGBA{R: 0xff, G: 0x80, B: 0x80, A: 0xff})))
-	}
 }
 
-// paramRow rend une ligne « libellé : [contrôle] » pour un descripteur, selon son Kind.
-func (l *launcher) paramRow(d uimodel.WidgetDescriptor) *widget.Container {
-	row := widget.NewContainer(
-		widget.ContainerOpts.Layout(widget.NewRowLayout(
-			widget.RowLayoutOpts.Direction(widget.DirectionHorizontal),
-			widget.RowLayoutOpts.Spacing(8),
-		)),
-	)
+// addParam ajoute à la grille la paire (libellé, contrôle) d'un descripteur, selon
+// son Kind. Le libellé occupe la colonne gauche, le contrôle la colonne droite.
+func (l *launcher) addParam(grid *widget.Container, d uimodel.WidgetDescriptor) {
 	label := d.Label
 	if d.Required {
-		label += " *"
+		label += "  *"
 	}
-	row.AddChild(l.text(label + " :"))
+	grid.AddChild(widget.NewText(
+		widget.TextOpts.Text(label, l.faceLabel, colMuted),
+		widget.TextOpts.Position(widget.TextPositionStart, widget.TextPositionCenter),
+	))
 
 	switch d.Kind {
 	case machine.ParamFile:
-		row.AddChild(l.button(fileLabel(d.Value), func() {
-			l.browseKey = d.Key
-			l.browseExt = append([]string(nil), d.FileExt...)
-			l.browseDir = l.mediaDir
-			l.rebuild()
-		}))
+		grid.AddChild(l.fileField(d))
 	case machine.ParamBool:
 		on, _ := d.Value.(bool)
-		row.AddChild(l.button(boolLabel(on), func() {
+		img, txt := l.btnImg, l.txtColor
+		if on {
+			img, txt = l.btnSel, l.txtOnSel
+		}
+		grid.AddChild(l.button(boolLabel(on), img, txt, func() {
 			l.values[d.Key] = !on
 			l.rebuild()
 		}))
 	case machine.ParamEnum:
-		row.AddChild(l.button(enumLabel(d), func() {
+		grid.AddChild(l.button(enumLabel(d)+"   »", l.btnImg, l.txtColor, func() {
 			l.values[d.Key] = nextEnum(d)
 			l.rebuild()
 		}))
 	case machine.ParamInt:
 		cur, _ := d.Value.(int)
-		row.AddChild(l.button("-", func() { l.values[d.Key] = cur - 1; l.rebuild() }))
-		row.AddChild(l.text(fmt.Sprintf("%d", cur)))
-		row.AddChild(l.button("+", func() { l.values[d.Key] = cur + 1; l.rebuild() }))
+		ctrl := widget.NewContainer(
+			widget.ContainerOpts.Layout(widget.NewRowLayout(
+				widget.RowLayoutOpts.Direction(widget.DirectionHorizontal),
+				widget.RowLayoutOpts.Spacing(8),
+			)),
+		)
+		ctrl.AddChild(l.squareButton("−", func() { l.values[d.Key] = cur - 1; l.rebuild() }))
+		ctrl.AddChild(widget.NewText(
+			widget.TextOpts.Text(fmt.Sprintf("%d", cur), l.faceBtn, colText),
+			widget.TextOpts.Position(widget.TextPositionCenter, widget.TextPositionCenter),
+		))
+		ctrl.AddChild(l.squareButton("+", func() { l.values[d.Key] = cur + 1; l.rebuild() }))
+		grid.AddChild(ctrl)
 	}
-	return row
 }
 
 // buildBrowser rend le navigateur de fichiers pour le Param File en cours (browseKey),
 // alimenté par uimodel.ListDir (logique pure, testée en CI).
-func (l *launcher) buildBrowser() {
-	l.root.AddChild(l.text("Choisir un fichier — " + l.browseDir))
-	l.root.AddChild(l.button("← Annuler", func() {
+func (l *launcher) buildBrowser(card *widget.Container) {
+	card.AddChild(widget.NewText(widget.TextOpts.Text("Choisir un fichier", l.faceTitle, colText)))
+	// Chemin courant tronqué par la gauche (« …/dossier ») : un chemin sans espace ne
+	// se coupe pas tout seul et déborderait sinon de la carte.
+	card.AddChild(widget.NewText(widget.TextOpts.Text(shortenPath(l.browseDir, maxPathRunes), l.faceLabel, colMuted)))
+	card.AddChild(l.separator())
+	card.AddChild(l.button("« Annuler", l.btnImg, l.txtColor, func() {
 		l.browseKey = ""
 		l.rebuild()
 	}))
+
+	list := widget.NewContainer(
+		widget.ContainerOpts.WidgetOpts(stretchH()),
+		widget.ContainerOpts.Layout(widget.NewRowLayout(
+			widget.RowLayoutOpts.Direction(widget.DirectionVertical),
+			widget.RowLayoutOpts.Spacing(4),
+		)),
+	)
 	for _, e := range uimodel.ListDir(l.lister, l.browseDir, l.browseExt) {
 		entry := e
-		name := entry.Name
+		// Dossiers en accent (suffixe « / ») vs fichiers en bouton standard : distinction
+		// sans emoji (gofont n'a pas de glyphe « 📁 », il s'afficherait en tofu).
+		name, img, txt := entry.Name, l.btnImg, l.txtColor
 		if entry.IsDir {
-			name += "/"
+			name, img, txt = entry.Name+"/", l.btnSel, l.txtOnSel
 		}
-		l.root.AddChild(l.button(name, func() {
+		list.AddChild(l.entryButton(name, img, txt, func() {
 			target := filepath.Join(l.browseDir, entry.Name)
 			if entry.IsDir {
 				l.browseDir = filepath.Clean(target)
@@ -266,29 +414,170 @@ func (l *launcher) buildBrowser() {
 			l.rebuild()
 		}))
 	}
+	card.AddChild(list)
 }
 
 // ── Helpers de rendu et de libellé ─────────────────────────────────────────────
 
-func (l *launcher) text(s string) *widget.Text {
-	return widget.NewText(widget.TextOpts.Text(s, l.face, color.White))
+// separator : fine ligne horizontale (1px) remplissant la largeur de la carte.
+func (l *launcher) separator() *widget.Container {
+	return widget.NewContainer(
+		widget.ContainerOpts.BackgroundImage(eimage.NewNineSliceColor(colBorder)),
+		widget.ContainerOpts.WidgetOpts(stretchH(), widget.WidgetOpts.MinSize(0, 1)),
+	)
 }
 
-func (l *launcher) button(label string, onClick func()) *widget.Button {
+// sectionLabel : intitulé de section discret (gris).
+func (l *launcher) sectionLabel(s string) *widget.Text {
+	return widget.NewText(widget.TextOpts.Text(s, l.faceLabel, colMuted))
+}
+
+// hint : note d'aide discrète sous un groupe.
+func (l *launcher) hint(s string) *widget.Text {
+	return widget.NewText(widget.TextOpts.Text(s, l.faceLabel, colMuted))
+}
+
+// button : bouton standard (image + couleur de texte fournies), hauteur stable.
+func (l *launcher) button(label string, img *widget.ButtonImage, txt *widget.ButtonTextColor, onClick func()) *widget.Button {
 	return widget.NewButton(
-		widget.ButtonOpts.Image(l.btnImg),
-		widget.ButtonOpts.Text(label, l.face, l.txtColor),
-		widget.ButtonOpts.TextPadding(widget.NewInsetsSimple(6)),
+		widget.ButtonOpts.Image(img),
+		widget.ButtonOpts.Text(label, l.faceBtn, txt),
+		widget.ButtonOpts.TextPadding(&widget.Insets{Top: 8, Bottom: 8, Left: 14, Right: 14}),
+		widget.ButtonOpts.WidgetOpts(widget.WidgetOpts.MinSize(0, 34)),
 		widget.ButtonOpts.ClickedHandler(func(*widget.ButtonClickedEventArgs) { onClick() }),
 	)
 }
 
-// fileLabel affiche le nom de base du fichier choisi, ou « (parcourir…) » si vide.
-func fileLabel(v any) string {
-	if s, _ := v.(string); s != "" {
-		return filepath.Base(s)
+// squareButton : petit bouton carré (incréments Int).
+func (l *launcher) squareButton(label string, onClick func()) *widget.Button {
+	return widget.NewButton(
+		widget.ButtonOpts.Image(l.btnImg),
+		widget.ButtonOpts.Text(label, l.faceBtn, l.txtColor),
+		widget.ButtonOpts.WidgetOpts(widget.WidgetOpts.MinSize(34, 34)),
+		widget.ButtonOpts.ClickedHandler(func(*widget.ButtonClickedEventArgs) { onClick() }),
+	)
+}
+
+// primaryButton : action principale en accent, pleine largeur, plus haute.
+func (l *launcher) primaryButton(label string, onClick func()) *widget.Button {
+	return widget.NewButton(
+		widget.ButtonOpts.Image(l.btnSel),
+		widget.ButtonOpts.Text(label, l.faceBtn, l.txtOnSel),
+		widget.ButtonOpts.TextPadding(&widget.Insets{Top: 11, Bottom: 11, Left: 14, Right: 14}),
+		widget.ButtonOpts.WidgetOpts(stretchH(), widget.WidgetOpts.MinSize(0, 42)),
+		widget.ButtonOpts.ClickedHandler(func(*widget.ButtonClickedEventArgs) { onClick() }),
+	)
+}
+
+// fileField rend un paramètre fichier comme un CHAMP : nom de base à gauche (ou
+// « Aucun fichier » en gris si vide), chevron « » » à droite pour ouvrir le
+// navigateur, et croix « × » pour effacer si un fichier est posé. Toute la zone du
+// nom est cliquable (= parcourir). Remplace l'ancien bouton « (parcourir…) » centré.
+func (l *launcher) fileField(d uimodel.WidgetDescriptor) *widget.Container {
+	s, _ := d.Value.(string)
+	name, nameCol := "Aucun fichier", colMuted
+	if s != "" {
+		name, nameCol = ellipsizeName(filepath.Base(s), maxFileNameRunes), colText
 	}
-	return "(parcourir…)"
+	browse := func() {
+		l.browseKey = d.Key
+		l.browseExt = append([]string(nil), d.FileExt...)
+		l.browseDir = l.mediaDir
+		l.rebuild()
+	}
+
+	field := widget.NewContainer(
+		widget.ContainerOpts.BackgroundImage(eimage.NewNineSliceColor(colField)),
+		widget.ContainerOpts.WidgetOpts(widget.WidgetOpts.MinSize(0, 34)),
+		widget.ContainerOpts.Layout(widget.NewGridLayout(
+			widget.GridLayoutOpts.Columns(2),
+			widget.GridLayoutOpts.Stretch([]bool{true, false}, []bool{true}),
+			widget.GridLayoutOpts.Padding(&widget.Insets{Left: 12, Right: 6}),
+			widget.GridLayoutOpts.Spacing(4, 0),
+		)),
+	)
+	// Colonne 1 (étirée) : nom du fichier, bouton plat aligné à gauche, clic = parcourir.
+	field.AddChild(widget.NewButton(
+		widget.ButtonOpts.Image(l.fieldImg),
+		widget.ButtonOpts.Text(name, l.faceBtn, &widget.ButtonTextColor{Idle: nameCol, Hover: colWhite, Pressed: nameCol}),
+		widget.ButtonOpts.TextPosition(widget.TextPositionStart, widget.TextPositionCenter),
+		widget.ButtonOpts.TextPadding(&widget.Insets{Right: 8, Top: 6, Bottom: 6}),
+		widget.ButtonOpts.WidgetOpts(widget.WidgetOpts.MinSize(0, 34)),
+		widget.ButtonOpts.ClickedHandler(func(*widget.ButtonClickedEventArgs) { browse() }),
+	))
+	// Colonne 2 : actions à droite — « × » (effacer, si fichier) puis « » » (parcourir).
+	actions := widget.NewContainer(
+		widget.ContainerOpts.Layout(widget.NewRowLayout(
+			widget.RowLayoutOpts.Direction(widget.DirectionHorizontal),
+			widget.RowLayoutOpts.Spacing(2),
+		)),
+	)
+	if s != "" {
+		actions.AddChild(l.glyphButton("×", colMuted, func() {
+			delete(l.values, d.Key)
+			l.rebuild()
+		}))
+	}
+	actions.AddChild(l.glyphButton("»", colAccent, browse))
+	field.AddChild(actions)
+	return field
+}
+
+// glyphButton : petit bouton « plat » (fond de champ) portant un glyphe (× ou »).
+func (l *launcher) glyphButton(glyph string, col color.Color, onClick func()) *widget.Button {
+	return widget.NewButton(
+		widget.ButtonOpts.Image(l.fieldImg),
+		widget.ButtonOpts.Text(glyph, l.faceBtn, &widget.ButtonTextColor{Idle: col, Hover: colWhite, Pressed: col}),
+		widget.ButtonOpts.WidgetOpts(widget.WidgetOpts.MinSize(28, 34)),
+		widget.ButtonOpts.ClickedHandler(func(*widget.ButtonClickedEventArgs) { onClick() }),
+	)
+}
+
+// entryButton : ligne du navigateur de fichiers — pleine largeur, texte aligné à
+// gauche (lisibilité d'une liste).
+func (l *launcher) entryButton(label string, img *widget.ButtonImage, txt *widget.ButtonTextColor, onClick func()) *widget.Button {
+	return widget.NewButton(
+		widget.ButtonOpts.Image(img),
+		widget.ButtonOpts.Text(label, l.faceBtn, txt),
+		widget.ButtonOpts.TextPosition(widget.TextPositionStart, widget.TextPositionCenter),
+		widget.ButtonOpts.TextPadding(&widget.Insets{Top: 8, Bottom: 8, Left: 14, Right: 14}),
+		widget.ButtonOpts.WidgetOpts(stretchH(), widget.WidgetOpts.MinSize(0, 34)),
+		widget.ButtonOpts.ClickedHandler(func(*widget.ButtonClickedEventArgs) { onClick() }),
+	)
+}
+
+// ellipsizeName tronque un nom de fichier trop long en préservant le DÉBUT et la FIN
+// (donc l'extension) : « longnomdefichi…age.rom ».
+func ellipsizeName(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	const tail = 8
+	head := max - 1 - tail
+	if head < 1 {
+		head = 1
+	}
+	return string(r[:head]) + "…" + string(r[len(r)-tail:])
+}
+
+// shortenPath raccourcit un chemin trop long par la GAUCHE, en coupant sur les
+// séparateurs : « …/parent/dossier ». Garantit l'absence de débordement hors carte.
+func shortenPath(p string, max int) string {
+	if len([]rune(p)) <= max {
+		return p
+	}
+	sep := string(os.PathSeparator)
+	parts := strings.Split(p, sep)
+	tail := parts[len(parts)-1]
+	for i := len(parts) - 2; i >= 0; i-- {
+		cand := parts[i] + sep + tail
+		if len([]rune("…"+sep+cand)) > max {
+			break
+		}
+		tail = cand
+	}
+	return "…" + sep + tail
 }
 
 func boolLabel(on bool) string {
