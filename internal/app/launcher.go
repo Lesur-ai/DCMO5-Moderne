@@ -17,7 +17,6 @@
 package app
 
 import (
-	"bytes"
 	"fmt"
 	"image"
 	"image/color"
@@ -28,10 +27,6 @@ import (
 	"github.com/ebitenui/ebitenui"
 	eimage "github.com/ebitenui/ebitenui/image"
 	"github.com/ebitenui/ebitenui/widget"
-	"github.com/hajimehoshi/ebiten/v2/text/v2"
-	"golang.org/x/image/font/basicfont"
-	"golang.org/x/image/font/gofont/gobold"
-	"golang.org/x/image/font/gofont/goregular"
 
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/uimodel"
@@ -107,31 +102,10 @@ type launcher struct {
 	start    bool
 	startReq startRequest
 
-	// Ressources de rendu partagées (polices text/v2, images de bouton, couleurs).
-	// ebitenui attend des *text.Face (pointeur sur l'interface).
-	faceTitle *text.Face
-	faceLabel *text.Face
-	faceBtn   *text.Face
-	btnImg    *widget.ButtonImage // bouton standard
-	btnSel    *widget.ButtonImage // accent : machine sélectionnée / action primaire
-	fieldImg  *widget.ButtonImage // zone de champ « plate » (nom de fichier, chevron, croix)
-	txtColor  *widget.ButtonTextColor
-	txtOnSel  *widget.ButtonTextColor
-}
-
-// loadFace charge une police vectorielle TTF embarquée dans golang.org/x/image (Go
-// fonts, BSD — ce ne sont PAS des assets Thomson sous réserve). En cas d'échec de
-// parsing (ne devrait jamais arriver), on retombe sur la police bitmap basicfont
-// plutôt que de paniquer : l'UI reste affichée, juste plus laide.
-func loadFace(ttf []byte, size float64) *text.Face {
-	var f text.Face
-	if src, err := text.NewGoTextFaceSource(bytes.NewReader(ttf)); err != nil {
-		fmt.Fprintf(os.Stderr, "launcher: police vectorielle indisponible (%v), repli bitmap\n", err)
-		f = text.NewGoXFace(basicfont.Face7x13)
-	} else {
-		f = &text.GoTextFace{Source: src, Size: size}
-	}
-	return &f
+	// uiKit embarqué : ressources de rendu (polices, images de bouton, couleurs) et
+	// primitives de widgets partagées avec l'overlay (cf. uikit.go). La promotion de
+	// champ garde les appels l.button(...)/l.card()/l.faceTitle inchangés.
+	*uiKit
 }
 
 // osListerUI liste un répertoire réel pour le navigateur du launcher (uimodel.Lister).
@@ -155,30 +129,11 @@ func newLauncher(profiles []machine.MachineProfile, mediaDir string, lister uimo
 		selected = 0
 	}
 	l := &launcher{
-		profiles:  profiles,
-		selected:  selected,
-		mediaDir:  mediaDir,
-		lister:    lister,
-		faceTitle: loadFace(gobold.TTF, 26),
-		faceLabel: loadFace(goregular.TTF, 15),
-		faceBtn:   loadFace(goregular.TTF, 15),
-		btnImg: &widget.ButtonImage{
-			Idle:    eimage.NewNineSliceColor(colBtn),
-			Hover:   eimage.NewNineSliceColor(colBtnHi),
-			Pressed: eimage.NewNineSliceColor(colBtnLo),
-		},
-		btnSel: &widget.ButtonImage{
-			Idle:    eimage.NewNineSliceColor(colAccent),
-			Hover:   eimage.NewNineSliceColor(colAccentHi),
-			Pressed: eimage.NewNineSliceColor(colAccentLo),
-		},
-		fieldImg: &widget.ButtonImage{
-			Idle:    eimage.NewNineSliceColor(colField),
-			Hover:   eimage.NewNineSliceColor(colFieldHi),
-			Pressed: eimage.NewNineSliceColor(colFieldHi),
-		},
-		txtColor: &widget.ButtonTextColor{Idle: colText, Hover: colWhite, Pressed: colText},
-		txtOnSel: &widget.ButtonTextColor{Idle: colWhite, Hover: colWhite, Pressed: colWhite},
+		profiles: profiles,
+		selected: selected,
+		mediaDir: mediaDir,
+		lister:   lister,
+		uiKit:    newUIKit(),
 	}
 	// Valeurs initiales du profil sélectionné + surcharge depuis la config (initial).
 	if len(profiles) > 0 {
@@ -229,26 +184,6 @@ func (l *launcher) setError(err error) {
 // une donnée de placement portée par CHAQUE enfant.
 func stretchH() widget.WidgetOpt {
 	return widget.WidgetOpts.LayoutData(widget.RowLayoutData{Stretch: true})
-}
-
-// card construit le conteneur « carte » centré (panneau sombre, padding, colonne
-// verticale ; les enfants pleine largeur portent stretchH()).
-func (l *launcher) card() *widget.Container {
-	return widget.NewContainer(
-		widget.ContainerOpts.BackgroundImage(eimage.NewNineSliceColor(colPanel)),
-		widget.ContainerOpts.WidgetOpts(
-			widget.WidgetOpts.MinSize(cardWidth, 0),
-			widget.WidgetOpts.LayoutData(widget.AnchorLayoutData{
-				HorizontalPosition: widget.AnchorLayoutPositionCenter,
-				VerticalPosition:   widget.AnchorLayoutPositionCenter,
-			}),
-		),
-		widget.ContainerOpts.Layout(widget.NewRowLayout(
-			widget.RowLayoutOpts.Direction(widget.DirectionVertical),
-			widget.RowLayoutOpts.Padding(&widget.Insets{Top: 26, Bottom: 26, Left: 28, Right: 28}),
-			widget.RowLayoutOpts.Spacing(14),
-		)),
-	)
 }
 
 // rebuild reconstruit l'arbre de widgets selon l'état (vue principale ou navigateur).
@@ -560,56 +495,6 @@ func (l *launcher) fileList(entries []uimodel.Entry) *widget.Container {
 
 // ── Helpers de rendu et de libellé ─────────────────────────────────────────────
 
-// separator : fine ligne horizontale (1px) remplissant la largeur de la carte.
-func (l *launcher) separator() *widget.Container {
-	return widget.NewContainer(
-		widget.ContainerOpts.BackgroundImage(eimage.NewNineSliceColor(colBorder)),
-		widget.ContainerOpts.WidgetOpts(stretchH(), widget.WidgetOpts.MinSize(0, 1)),
-	)
-}
-
-// sectionLabel : intitulé de section discret (gris).
-func (l *launcher) sectionLabel(s string) *widget.Text {
-	return widget.NewText(widget.TextOpts.Text(s, l.faceLabel, colMuted))
-}
-
-// hint : note d'aide discrète sous un groupe.
-func (l *launcher) hint(s string) *widget.Text {
-	return widget.NewText(widget.TextOpts.Text(s, l.faceLabel, colMuted))
-}
-
-// button : bouton standard (image + couleur de texte fournies), hauteur stable.
-func (l *launcher) button(label string, img *widget.ButtonImage, txt *widget.ButtonTextColor, onClick func()) *widget.Button {
-	return widget.NewButton(
-		widget.ButtonOpts.Image(img),
-		widget.ButtonOpts.Text(label, l.faceBtn, txt),
-		widget.ButtonOpts.TextPadding(&widget.Insets{Top: 8, Bottom: 8, Left: 14, Right: 14}),
-		widget.ButtonOpts.WidgetOpts(widget.WidgetOpts.MinSize(0, 34)),
-		widget.ButtonOpts.ClickedHandler(func(*widget.ButtonClickedEventArgs) { onClick() }),
-	)
-}
-
-// squareButton : petit bouton carré (incréments Int).
-func (l *launcher) squareButton(label string, onClick func()) *widget.Button {
-	return widget.NewButton(
-		widget.ButtonOpts.Image(l.btnImg),
-		widget.ButtonOpts.Text(label, l.faceBtn, l.txtColor),
-		widget.ButtonOpts.WidgetOpts(widget.WidgetOpts.MinSize(34, 34)),
-		widget.ButtonOpts.ClickedHandler(func(*widget.ButtonClickedEventArgs) { onClick() }),
-	)
-}
-
-// primaryButton : action principale en accent, pleine largeur, plus haute.
-func (l *launcher) primaryButton(label string, onClick func()) *widget.Button {
-	return widget.NewButton(
-		widget.ButtonOpts.Image(l.btnSel),
-		widget.ButtonOpts.Text(label, l.faceBtn, l.txtOnSel),
-		widget.ButtonOpts.TextPadding(&widget.Insets{Top: 11, Bottom: 11, Left: 14, Right: 14}),
-		widget.ButtonOpts.WidgetOpts(stretchH(), widget.WidgetOpts.MinSize(0, 42)),
-		widget.ButtonOpts.ClickedHandler(func(*widget.ButtonClickedEventArgs) { onClick() }),
-	)
-}
-
 // fileField rend un paramètre fichier comme un CHAMP : nom de base à gauche (ou
 // « Aucun fichier » en gris si vide), chevron « » » à droite pour ouvrir le
 // navigateur, et croix « × » pour effacer si un fichier est posé. Toute la zone du
@@ -662,16 +547,6 @@ func (l *launcher) fileField(d uimodel.WidgetDescriptor) *widget.Container {
 	actions.AddChild(l.glyphButton("»", colAccent, browse))
 	field.AddChild(actions)
 	return field
-}
-
-// glyphButton : petit bouton « plat » (fond de champ) portant un glyphe (× ou »).
-func (l *launcher) glyphButton(glyph string, col color.Color, onClick func()) *widget.Button {
-	return widget.NewButton(
-		widget.ButtonOpts.Image(l.fieldImg),
-		widget.ButtonOpts.Text(glyph, l.faceBtn, &widget.ButtonTextColor{Idle: col, Hover: colWhite, Pressed: col}),
-		widget.ButtonOpts.WidgetOpts(widget.WidgetOpts.MinSize(28, 34)),
-		widget.ButtonOpts.ClickedHandler(func(*widget.ButtonClickedEventArgs) { onClick() }),
-	)
 }
 
 // ellipsizeName tronque un nom de fichier trop long en préservant le DÉBUT et la FIN
