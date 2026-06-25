@@ -8,6 +8,8 @@ package launch
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 )
@@ -19,6 +21,28 @@ import (
 // est mémorisée en configuration (revue de plan Codex, P1).
 func DirectBoot(romFlagSet, execFlagSet bool) bool {
 	return romFlagSet || execFlagSet
+}
+
+// SelectIndex résout l'index du profil dont l'ID == machineID dans profiles, pour
+// PRÉSÉLECTIONNER la machine demandée via --machine au launcher (au lieu de l'ignorer).
+// explicit indique si --machine a été fourni EXPLICITEMENT : un ID inconnu fourni
+// explicitement est une ERREUR (parité avec la validation du boot direct) ; sinon (valeur
+// par défaut, ex. "mo5") on retombe silencieusement sur le premier profil. Sépare ainsi
+// « typo signalée » de « défaut tolérant ».
+func SelectIndex(profiles []machine.MachineProfile, machineID string, explicit bool) (int, error) {
+	for i, p := range profiles {
+		if p.ID == machineID {
+			return i, nil
+		}
+	}
+	if explicit {
+		ids := make([]string, 0, len(profiles))
+		for _, p := range profiles {
+			ids = append(ids, p.ID)
+		}
+		return 0, fmt.Errorf("machine inconnue %q. Disponibles : %s", machineID, strings.Join(ids, ", "))
+	}
+	return 0, nil
 }
 
 // DemoProfile est un profil de DÉMONSTRATION couvrant les 4 ParamKind (Enum, Bool,

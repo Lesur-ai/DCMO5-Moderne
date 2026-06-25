@@ -123,11 +123,12 @@ func New(m machine.Machine) *App {
 // uimodel) au lieu d'émuler. La machine est instanciée à l'action « Démarrer »
 // (cf. updateLauncher). profiles est la liste proposée (machine.Profiles(), plus
 // éventuellement un profil de démonstration) ; initial pré-remplit les valeurs du
-// premier profil (ex. chemin ROM mémorisé en config). noAudio diffère/inhibe l'audio.
-func NewLauncher(profiles []machine.MachineProfile, mediaDir string, noAudio bool, initial machine.Config) *App {
+// profil présélectionné selected (cf. --machine, résolu par launch.SelectIndex ; ex.
+// chemin ROM mémorisé en config). noAudio diffère/inhibe l'audio.
+func NewLauncher(profiles []machine.MachineProfile, mediaDir string, noAudio bool, initial machine.Config, selected int) *App {
 	a := &App{mediaDir: mediaDir, audioDisabled: noAudio}
 	a.menu = menu.NewModel(osLister)
-	a.launcher = newLauncher(profiles, mediaDir, osListerUI, initial)
+	a.launcher = newLauncher(profiles, mediaDir, osListerUI, initial, selected)
 	return a
 }
 

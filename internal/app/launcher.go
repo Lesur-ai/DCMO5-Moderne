@@ -147,11 +147,16 @@ func osListerUI(dir string) ([]uimodel.Entry, error) {
 	return out, nil
 }
 
-// newLauncher construit l'UI ebitenui à partir des profils. initial pré-remplit les
-// valeurs du profil sélectionné par défaut (ex. chemin ROM mémorisé en config).
-func newLauncher(profiles []machine.MachineProfile, mediaDir string, lister uimodel.Lister, initial machine.Config) *launcher {
+// newLauncher construit l'UI ebitenui à partir des profils. selected est l'index du
+// profil présélectionné (cf. --machine, résolu par launch.SelectIndex), borné au domaine
+// valide. initial pré-remplit les valeurs de ce profil (ex. chemin ROM mémorisé en config).
+func newLauncher(profiles []machine.MachineProfile, mediaDir string, lister uimodel.Lister, initial machine.Config, selected int) *launcher {
+	if selected < 0 || selected >= len(profiles) {
+		selected = 0
+	}
 	l := &launcher{
 		profiles:  profiles,
+		selected:  selected,
 		mediaDir:  mediaDir,
 		lister:    lister,
 		faceTitle: loadFace(gobold.TTF, 26),
@@ -175,9 +180,9 @@ func newLauncher(profiles []machine.MachineProfile, mediaDir string, lister uimo
 		txtColor: &widget.ButtonTextColor{Idle: colText, Hover: colWhite, Pressed: colText},
 		txtOnSel: &widget.ButtonTextColor{Idle: colWhite, Hover: colWhite, Pressed: colWhite},
 	}
-	// Valeurs initiales du profil par défaut + surcharge depuis la config (initial).
+	// Valeurs initiales du profil sélectionné + surcharge depuis la config (initial).
 	if len(profiles) > 0 {
-		l.values = uimodel.InitialValues(profiles[0])
+		l.values = uimodel.InitialValues(profiles[selected])
 		for k, v := range initial {
 			l.values[k] = v
 		}
