@@ -96,6 +96,22 @@ func (g *GateArray) SetPointer(x, y int, button bool) {
 	g.penbutton = button
 }
 
+// Géométrie de l'écran actif dans le framebuffer logique (672×216) : 1 segment de
+// bordure de chaque côté (16 px) et 8 lignes de bordure haut/bas. Dérivée des
+// constantes de décodage (video.go) : la zone active fait activeBytes×segPixels ×
+// activeLines = 640×200.
+const (
+	borderLeft = (xbitmap - activeBytes*segPixels) / 2 // 16 px
+	borderTop  = (ybitmap - activeLines) / 2           // 8 px
+)
+
+// PenFromFramebuffer convertit des coordonnées du framebuffer logique (672×216,
+// bordures incluses) vers le repère de l'écran actif TO8D (x ∈ [0,639], y ∈ [0,199]),
+// attendu par SetPointer/readPenXY. Hors zone active, les coordonnées sortent de
+// l'intervalle ; readPenXY signale alors « pas de détection ». La justesse fine de
+// cette conversion (bordure exacte par mode) relève du suivi #86, partagé avec le MO5.
+func PenFromFramebuffer(x, y int) (sx, sy int) { return x - borderLeft, y - borderTop }
+
 // ── Traps d'E/S (Entreesortie) ────────────────────────────────────────────────
 
 // Trap dispatche un appel d'E/S de la famille TO (opcode illégal, code = -opcode).

@@ -96,7 +96,14 @@ type GateArray struct {
 	// (registres A/B/X/Y/S/CC) ; attachée par AttachCPU à l'intégration moteur
 	// (#118). tape/disk/printer : médias montés. xpen/ypen/penbutton : pointeur
 	// (crayon optique / souris), en repère écran TO8D.
-	cpu        *cpu6809.CPU
+	cpu *cpu6809.CPU
+
+	// beam fournit la position courante du balayage vidéo (cycle dans la ligne,
+	// numéro de ligne). Nécessaire aux registres de synchro faisceau lus par le
+	// firmware : e7e7 (Initn trame | Iniln ligne) et e7ca. Injecté par la machine à
+	// l'intégration moteur via AttachBeam(eng.VideoBeam) (#118) ; nil ⇒ (0,0) pour
+	// les tests isolés du gate-array.
+	beam       func() (linecycle, linenumber int)
 	tape       media.Tape
 	disk       media.Disk
 	printer    media.PrinterSink
@@ -184,6 +191,47 @@ func (g *GateArray) hardReset() {
 // l'intégration au moteur (#118), avec eng.CPU().
 func (g *GateArray) AttachCPU(cpu *cpu6809.CPU) { g.cpu = cpu }
 
+// AttachBeam injecte la source de position du balayage vidéo (typiquement
+// engine.Engine.VideoBeam), lue par les registres de synchro faisceau e7e7 et e7ca.
+// Sans elle, le firmware boucle indéfiniment sur la synchro vidéo au boot (#118).
+func (g *GateArray) AttachBeam(beam func() (linecycle, linenumber int)) { g.beam = beam }
+
+// videoBeam retourne la position courante du balayage, ou (0,0) si non câblée
+// (gate-array testé en isolation, sans moteur).
+func (g *GateArray) videoBeam() (linecycle, linenumber int) {
+	if g.beam == nil {
+		return 0, 0
+	}
+	return g.beam()
+}
+
+// iniln reproduit Iniln() (dcto8demulation.c) : 0x20 dans la fenêtre active de ligne
+// (cycles 11..51), 0 sinon (synchro horizontale).
+func (g *GateArray) iniln() int {
+	c, _ := g.videoBeam()
+	if c < 11 || c > 51 {
+		return 0
+	}
+	return 0x20
+}
+
+// initn reproduit Initn() (dcto8demulation.c) : 0x80 dans la zone active de trame
+// (lignes 56..255, avec les bords de ligne sur les lignes limites), 0 sinon (synchro
+// verticale / VBL).
+func (g *GateArray) initn() int {
+	c, n := g.videoBeam()
+	if n < 56 || n > 255 {
+		return 0
+	}
+	if n == 56 && c < 12 {
+		return 0
+	}
+	if n == 255 && c > 50 {
+		return 0
+	}
+	return 0x80
+}
+
 // SoundLevel retourne le niveau courant du haut-parleur (0..0x3F), échantillonné
 // par le moteur (contrat engine.Device).
 func (g *GateArray) SoundLevel() uint8 { return g.sound }
@@ -254,6 +302,11 @@ func (g *GateArray) paletteWrite(c byte) {
 
 // Reset relance la machine dans l'état de reset matériel (efface la RAM).
 func (g *GateArray) Reset() { g.hardReset() }
+
+// Initprog effectue un reset DOUX (RAM et ports conservés) : recalcule les pointeurs
+// de banque depuis l'état des ports et recharge le vecteur reset du CPU. C'est le
+// pendant public de softReset, pour le contrat machine.Machine (famille TO, #118).
+func (g *GateArray) Initprog() { g.softReset() }
 
 // LoadCartridge copie une cartouche (≤ 64 Ko) dans l'espace car[] et fixe le type
 // (simple ≤ 16 Ko / commutation de banque au-delà). Le routage ROM interne ↔
@@ -540,10 +593,18 @@ func (g *GateArray) readIO(a uint16) byte {
 		return g.port[0x25] & 0x1f
 	case 0xe7e6:
 		return g.port[0x26] & 0x7f
+	case 0xe7ca:
+		// Registre de contrôle PIA (réf C Mgetto8d) : 2 hors zone affichable
+		// (videolinenumber ≥ 200), 0 sinon. Synchro trame scrutée par le firmware.
+		if _, n := g.videoBeam(); n < 200 {
+			return 0
+		}
+		return 2
 	case 0xe7e7:
-		// Bits de synchro vidéo (Initn/Iniln) ajoutés au lot #113 ; ici le seul
-		// bit significatif est port[0x24] bit0.
-		return g.port[0x24] & 0x01
+		// bit0 (port[0x24]) + bits de synchro faisceau : Initn (trame) | Iniln (ligne).
+		// Réf C Mgetto8d : (port[0x24] & 0x01) | Initn() | Iniln(). Indispensable au
+		// boot : le moniteur scrute ce registre pour se caler sur le balayage (#118).
+		return g.port[0x24]&0x01 | byte(g.initn()) | byte(g.iniln())
 	default:
 		if a < 0xe7c0 {
 			return g.romsysRead(int(a))

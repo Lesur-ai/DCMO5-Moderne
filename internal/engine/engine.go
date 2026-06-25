@@ -51,6 +51,16 @@ type Device interface {
 	DecodeFrame(dst []uint32)
 }
 
+// frameIRQSuppressor permet à un Device de désactiver l'IRQ de fin de trame 50 Hz
+// générée par le moteur. Le MO5 (modèle par défaut) en a besoin : sa VBL est délivrée
+// par cette IRQ de trame (dcmo5emulation.c). La famille gate-array (TO8D/TO9+) n'a PAS
+// d'IRQ de trame — son interruption périodique vient du timer 6846 (cf.
+// gatearray.OnInstructionCycles, dcto8demulation.c Run() : aucun dc6809_irq de trame).
+// Un Device qui n'implémente pas cette interface conserve l'IRQ de trame (défaut MO5).
+type frameIRQSuppressor interface {
+	SuppressFrameIRQ() bool
+}
+
 // Engine exécute une machine via son Device. Il possède le CPU, l'accumulateur
 // d'échantillonnage audio, les compteurs de balayage vidéo et les lignes d'IRQ.
 type Engine struct {
@@ -64,6 +74,8 @@ type Engine struct {
 
 	videolinecycle  int
 	videolinenumber int
+
+	frameIRQ bool // false si le Device supprime l'IRQ de trame (famille gate-array)
 }
 
 // New crée un moteur pilotant dev. audioSampleRate ≤ 0 retombe sur le défaut spec.
@@ -71,7 +83,10 @@ func New(dev Device, audioSampleRate int) *Engine {
 	if audioSampleRate <= 0 {
 		audioSampleRate = spec.AudioSampleRate
 	}
-	e := &Engine{dev: dev, audioSampleRate: audioSampleRate}
+	e := &Engine{dev: dev, audioSampleRate: audioSampleRate, frameIRQ: true}
+	if s, ok := dev.(frameIRQSuppressor); ok && s.SuppressFrameIRQ() {
+		e.frameIRQ = false
+	}
 	e.cpu = cpu6809.New(dev)
 	return e
 }
@@ -169,7 +184,9 @@ func (e *Engine) Step(cycles int) int {
 			e.videolinenumber++
 			if e.videolinenumber >= linesPerFrame {
 				e.videolinenumber = 0
-				e.cpu.IRQ() // IRQ 50 Hz de fin de trame (commune à toutes les machines)
+				if e.frameIRQ {
+					e.cpu.IRQ() // IRQ 50 Hz de fin de trame (MO5 ; supprimée pour la famille gate-array)
+				}
 			}
 		}
 
