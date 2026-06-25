@@ -54,6 +54,26 @@ func TestDescribe(t *testing.T) {
 	}
 }
 
+func TestDescribeLive_OnlyLiveMutable(t *testing.T) {
+	p := fakeProfile()
+	// fakeProfile : LiveMutable = turbo (Bool) + tape (File) ; boot-only = ram, speed, rom.
+	got := uimodel.DescribeLive(p, machine.Config{})
+	if len(got) != 2 {
+		t.Fatalf("DescribeLive = %d descripteurs, want 2 (turbo, tape) : %+v", len(got), got)
+	}
+	if got[0].Key != "turbo" || got[1].Key != "tape" { // ordre = ordre des Params du profil
+		t.Errorf("ordre/clés DescribeLive = [%s, %s], want [turbo, tape]", got[0].Key, got[1].Key)
+	}
+	for _, d := range got {
+		if !d.LiveMutable {
+			t.Errorf("DescribeLive a laissé passer un Param boot-only : %+v", d)
+		}
+		if d.Key == "rom" || d.Key == "ram" || d.Key == "speed" {
+			t.Errorf("DescribeLive ne doit JAMAIS inclure le boot-only %q", d.Key)
+		}
+	}
+}
+
 func TestValidate_RequiredMissing(t *testing.T) {
 	p := fakeProfile()
 	errs := uimodel.Validate(p, machine.Config{"speed": 1}) // rom (Required) absent
