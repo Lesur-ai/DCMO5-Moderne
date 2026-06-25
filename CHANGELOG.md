@@ -11,8 +11,10 @@ versionnage [SemVer](https://semver.org/lang/fr/).
 Chantier de généralisation **multi-machines** pour émuler d'autres machines
 Thomson au-delà du MO5, première cible le **TO8D**.
 
-> ⚠️ **Pas encore utilisable de bout en bout** : l'IHM de sélection de machine et
-> le profil TO8D final sont en cours (épopée
+> ⚠️ **En cours de finition** : le **TO8D boote** et se sélectionne au launcher
+> (présélectionnable via `--machine to8d`), mais l'affichage n'est pas encore au bon ratio
+> ([#147](https://github.com/Lesur-ai/dcmo5/issues/147)) et la finition (overlay
+> d'options en jeu, validation complète des médias) reste à faire (épopée
 > [#106](https://github.com/Lesur-ai/dcmo5/issues/106)). Le **MO5 (v1) reste
 > pleinement fonctionnel**. Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md).
 
@@ -25,6 +27,14 @@ Thomson au-delà du MO5, première cible le **TO8D**.
   + palette EF9369, timer 6846 + lignes d'IRQ, traps d'E/S (cassette, disquette,
   crayon optique, souris, imprimante) + son, **clavier TO8D** (scancode + IRQ
   gate-array, CAPSLOCK).
+- **TO8D *bootable*** : profil TO8D sélectionnable au launcher (présélectionnable
+  via `--machine to8d`), intégration au moteur partagé (synchronisation du faisceau vidéo *gate-array* ;
+  IRQ de fin de trame 50 Hz neutralisée pour la famille *gate-array*, l'interruption
+  provenant du timer 6846) et chargement de `rom/to8d.rom` (BASIC + moniteur, patchs
+  *trap* appliqués en mémoire, tout-ou-rien et idempotents) — le **moniteur TO8D
+  démarre à l'écran** ([#118](https://github.com/Lesur-ai/dcmo5/issues/118) /
+  [#146](https://github.com/Lesur-ai/dcmo5/pull/146)). Le ratio d'affichage reste
+  à corriger ([#147](https://github.com/Lesur-ai/dcmo5/issues/147)).
 - **Clavier généralisé** *data-driven* : modèle de clavier par machine, état
   d'entrée non figé.
 - **IHM *data-driven*** : couche pure `internal/uimodel` (descripteurs de widgets
