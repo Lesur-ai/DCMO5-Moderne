@@ -1,6 +1,10 @@
 package uimodel
 
-import "github.com/Lesur-ai/dcmo5/internal/machine"
+import (
+	"path/filepath"
+
+	"github.com/Lesur-ai/dcmo5/internal/machine"
+)
 
 // launch.go — coutures PURES du démarrage depuis le launcher (lot #117, PR-C2).
 // Aucune dépendance Ebitengine/ebitenui : testable en CI, contrairement au rendu
@@ -32,6 +36,28 @@ func MediaMounts(p machine.MachineProfile, cfg machine.Config) []MediaMount {
 		}
 	}
 	return out
+}
+
+// ResolveDiskROM auto-détecte la ROM contrôleur de disquette « cd90-640.rom » à côté de
+// la ROM système, MIROIR du boot CLI (cmd/dcmo5) : sans elle, un disque .fd choisi au
+// launcher démarrerait sans contrôleur → DOS inopérant, alors que « dcmo5 --rom … --disk … »
+// fonctionne avec les mêmes fichiers. Elle ne fait rien si une disk-rom est déjà fournie
+// explicitement (pas d'écrasement) ou si aucune ROM n'est choisie. exists découple du
+// disque pour la testabilité (os.Stat en production). Retourne le chemin à injecter dans
+// la config (clé machine.KeyDiskROM) avant profile.New, ou "" s'il n'y a rien à faire.
+func ResolveDiskROM(cfg machine.Config, exists func(string) bool) string {
+	if dr, _ := cfg[machine.KeyDiskROM].(string); dr != "" {
+		return "" // disk-rom explicite : ne pas écraser le choix de l'utilisateur
+	}
+	rom, _ := cfg[machine.KeyROM].(string)
+	if rom == "" {
+		return "" // pas de ROM système → rien à quoi adosser l'auto-détection
+	}
+	candidate := filepath.Join(filepath.Dir(rom), "cd90-640.rom")
+	if exists(candidate) {
+		return candidate
+	}
+	return ""
 }
 
 // InitialValues retourne les valeurs de départ d'un profil : le Default de chaque

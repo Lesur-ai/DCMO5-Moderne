@@ -1,6 +1,7 @@
 package uimodel_test
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/Lesur-ai/dcmo5/internal/machine"
@@ -75,5 +76,40 @@ func TestInitialValues_NoLeakBetweenProfiles(t *testing.T) {
 	}
 	if vo["couleur"] != true { // seul Default non nil d'other
 		t.Errorf("InitialValues(other) = %+v, want couleur=true", vo)
+	}
+}
+
+// TestResolveDiskROM vérifie l'auto-détection de la ROM contrôleur cd90-640.rom à côté de
+// la ROM système (miroir du boot CLI) : détectée si présente ; jamais d'écrasement d'une
+// disk-rom explicite ; rien sans ROM ou sans fichier voisin.
+func TestResolveDiskROM(t *testing.T) {
+	const romDir = "/roms"
+	rom := filepath.Join(romDir, "mo5.rom")
+	candidate := filepath.Join(romDir, "cd90-640.rom")
+	existsOnly := func(want string) func(string) bool {
+		return func(p string) bool { return p == want }
+	}
+
+	// disk-rom fournie explicitement → ne pas écraser.
+	if got := uimodel.ResolveDiskROM(
+		machine.Config{machine.KeyROM: rom, machine.KeyDiskROM: "/x/custom.rom"},
+		existsOnly(candidate),
+	); got != "" {
+		t.Errorf("disk-rom explicite : got %q, want \"\"", got)
+	}
+
+	// ROM + cd90-640.rom voisin présent → auto-détecté.
+	if got := uimodel.ResolveDiskROM(machine.Config{machine.KeyROM: rom}, existsOnly(candidate)); got != candidate {
+		t.Errorf("auto-détection : got %q, want %q", got, candidate)
+	}
+
+	// ROM mais aucun cd90-640.rom voisin → rien.
+	if got := uimodel.ResolveDiskROM(machine.Config{machine.KeyROM: rom}, func(string) bool { return false }); got != "" {
+		t.Errorf("cd90-640 absent : got %q, want \"\"", got)
+	}
+
+	// Pas de ROM système → rien à quoi adosser l'auto-détection.
+	if got := uimodel.ResolveDiskROM(machine.Config{}, existsOnly(candidate)); got != "" {
+		t.Errorf("sans ROM : got %q, want \"\"", got)
 	}
 }

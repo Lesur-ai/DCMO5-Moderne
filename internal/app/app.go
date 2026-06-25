@@ -470,6 +470,13 @@ func (a *App) updateLauncher() error {
 		a.launcher.setError(err)
 		return nil
 	}
+	// Auto-détection de la ROM contrôleur cd90-640 à côté de la ROM choisie (miroir du
+	// boot CLI) : sinon un disque .fd lancé depuis le launcher démarrerait sans contrôleur
+	// (DOS inopérant), contrairement à « dcmo5 --rom … --disk … ». N'écrase pas une
+	// disk-rom fournie explicitement.
+	if dr := uimodel.ResolveDiskROM(cfg, fileExists); dr != "" {
+		cfg[machine.KeyDiskROM] = dr
+	}
 	m, err := req.profile.New(cfg)
 	if err != nil {
 		a.launcher.setError(err)
@@ -630,6 +637,13 @@ func KeyMapping() map[ebiten.Key]int { return keyMapping }
 
 // pressedLastFrame mémorise les touches pressées au tick précédent.
 var pressedLastFrame = map[ebiten.Key]bool{}
+
+// fileExists indique si un chemin existe (os.Stat sans erreur). Sert à l'auto-détection
+// de la ROM contrôleur disquette au launcher (cf. updateLauncher, uimodel.ResolveDiskROM).
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
 
 // inputJustPressed détecte une pression nouvelle (non maintenue).
 func inputJustPressed(k ebiten.Key) bool {
