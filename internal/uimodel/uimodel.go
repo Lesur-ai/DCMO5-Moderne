@@ -53,6 +53,23 @@ func Describe(p machine.MachineProfile, cfg machine.Config) []WidgetDescriptor {
 	return out
 }
 
+// DescribeLive est la projection de Describe pour l'OVERLAY Échap : uniquement les
+// Params LiveMutable (modifiables à chaud), dans l'ordre du profil. Les Params
+// boot-only (ROM système, ROM contrôleur) en sont EXCLUS — ils exigent un
+// redémarrage via le launcher, pas l'overlay. C'est la source data-driven de la
+// liste affichée par l'overlay (médias + tout futur réglage LiveMutable),
+// symétrique MO5/TO8D : aucune connaissance d'un modèle précis.
+func DescribeLive(p machine.MachineProfile, cfg machine.Config) []WidgetDescriptor {
+	all := Describe(p, cfg)
+	out := make([]WidgetDescriptor, 0, len(all))
+	for _, d := range all {
+		if d.LiveMutable {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
 // resolveValue retourne la valeur courante d'un Param : cfg[Key] si présent, sinon
 // son Default.
 func resolveValue(param machine.Param, cfg machine.Config) any {
