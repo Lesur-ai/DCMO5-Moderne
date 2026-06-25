@@ -132,13 +132,23 @@ func IOTraceWriter() io.Writer {
 	return nil
 }
 
+// ioErrorReporter est le puits par défaut des erreurs d'E/S MO5 (codes BASIC) pour les
+// machines construites via le profil : impression sur stderr, PARITÉ avec le boot CLI
+// (qui installe son propre Options.OnError). Variable de paquet pour la testabilité
+// (override en test). Sans elle, les sessions lancées par le launcher perdaient toute
+// remontée d'erreur E/S (cassette/disque), contrairement au CLI (#144).
+var ioErrorReporter = func(code int) {
+	fmt.Fprintf(os.Stderr, "mo5: erreur E/S %d (%s)\n", code, core.IOErrorLabel(code))
+}
+
 // newFromConfig résout les ROMs (chemins → octets) depuis la Config et construit le
 // MO5. profile.New est AUTO-SUFFISANT (option A) : il applique lui-même
-// l'instrumentation E/S (gating env via IOTraceWriter), avant Reset, exactement comme
-// le CLI — le launcher générique en bénéficie sans cas spécial. Les médias (k7/fd/cart)
-// sont montés à chaud par l'hôte/l'UI après création (MountTape/MountDisk/...), pas ici.
+// l'instrumentation E/S (gating env via IOTraceWriter) ET la remontée d'erreurs E/S
+// (OnError), avant Reset, exactement comme le CLI — le launcher générique en bénéficie
+// sans cas spécial. Les médias (k7/fd/cart) sont montés à chaud par l'hôte/l'UI après
+// création (MountTape/MountDisk/...), pas ici.
 func newFromConfig(cfg machine.Config) (machine.Machine, error) {
-	opts := core.Options{PatchSystemROM: true}
+	opts := core.Options{PatchSystemROM: true, OnError: ioErrorReporter}
 	if p, _ := cfg[ParamROM].(string); p != "" {
 		data, err := os.ReadFile(p)
 		if err != nil {
