@@ -12,6 +12,7 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/app"
 	"github.com/Lesur-ai/dcmo5/internal/app/config"
 	"github.com/Lesur-ai/dcmo5/internal/core"
+	"github.com/Lesur-ai/dcmo5/internal/launch"
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/machine/mo5"
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
@@ -48,6 +49,33 @@ func main() {
 	var cfg config.Config
 	if store != nil {
 		cfg, _ = store.Load()
+	}
+
+	// Routage démarrage (lot #117) : sans flag explicite --rom/--exec, on ouvre le
+	// LAUNCHER (sélection machine + paramètres, data-driven). La décision se fonde sur
+	// les flags EXPLICITEMENT fournis (pas le fallback config) pour que « dcmo5 » seul
+	// ouvre toujours le launcher, même si une ROM est mémorisée.
+	explicit := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+	if !launch.DirectBoot(explicit["rom"], explicit["exec"]) {
+		// Pré-remplir le launcher : ROM mémorisée en config + médias passés
+		// EXPLICITEMENT en CLI (--tape/--disk/--cart/--disk-rom), pour ne pas perdre
+		// la commodité v1 « dcmo5 --tape jeu.k7 ».
+		initial := machine.Config{}
+		if cfg.ROMPath != "" {
+			initial[machine.KeyROM] = cfg.ROMPath
+		}
+		prefill := func(flagName, key, value string) {
+			if explicit[flagName] && value != "" {
+				initial[key] = value
+			}
+		}
+		prefill("tape", machine.KeyTape, *tapePath)
+		prefill("disk", machine.KeyDisk, *diskPath)
+		prefill("cart", machine.KeyCart, *cartPath)
+		prefill("disk-rom", machine.KeyDiskROM, *diskRomPath)
+		runLauncher(initial, *noAudio, store)
+		return
 	}
 
 	// Résoudre les chemins : CLI prioritaire, puis config
@@ -201,6 +229,41 @@ func main() {
 		a.SetExec(seq, *execDelay)
 	}
 
+	if err := app.Run(a); err != nil && !errors.Is(err, app.ErrUserQuit) {
+		fmt.Fprintln(os.Stderr, "dcmo5:", err)
+		os.Exit(1)
+	}
+}
+
+// runLauncher démarre l'application en mode launcher : liste des profils enregistrés
+// (plus le profil de démonstration si DCMO5_UI_DEMO est défini), chemin ROM mémorisé
+// pré-rempli, répertoire de départ = répertoire courant. La machine est instanciée à
+// l'action « Démarrer » (cf. internal/app.updateLauncher).
+func runLauncher(initial machine.Config, noAudio bool, store *config.Store) {
+	profiles := machine.Profiles()
+	if os.Getenv("DCMO5_UI_DEMO") != "" {
+		profiles = append(profiles, launch.DemoProfile())
+	}
+	dir := "."
+	if wd, err := os.Getwd(); err == nil && wd != "" {
+		dir = wd
+	}
+	a := app.NewLauncher(profiles, dir, noAudio, initial)
+	// Persiste la ROM choisie au launcher (comme le chemin CLI direct le fait plus
+	// haut), pour que « dcmo5 » seul la propose en pré-remplissage au lancement suivant.
+	// Seul le chemin ROM est mémorisé, par cohérence avec le chemin CLI.
+	a.SetOnStart(func(cfg machine.Config) {
+		if store == nil {
+			return
+		}
+		rom, _ := cfg[machine.KeyROM].(string)
+		if rom == "" {
+			return
+		}
+		c, _ := store.Load()
+		c.ROMPath = rom
+		store.Save(c)
+	})
 	if err := app.Run(a); err != nil && !errors.Is(err, app.ErrUserQuit) {
 		fmt.Fprintln(os.Stderr, "dcmo5:", err)
 		os.Exit(1)

@@ -24,6 +24,7 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/media"
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
 	"github.com/Lesur-ai/dcmo5/internal/menu"
+	"github.com/Lesur-ai/dcmo5/internal/uimodel"
 	"github.com/hajimehoshi/ebiten/v2"
 	ebaudio "github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
@@ -77,6 +78,14 @@ type App struct {
 	execDelayFrames int
 	typeAhead       []rune
 
+	// Launcher (lot #117, PR-C2) : écran de sélection machine + paramètres rendu
+	// avec ebitenui. Non-nil ⇒ mode launcher (host==nil, aucune émulation). À
+	// l'action « Démarrer », l'App instancie la machine, monte les médias, démarre
+	// le Host puis repasse launcher=nil (mode émulateur).
+	launcher    *launcher
+	onStart     func(machine.Config) // hook de persistance config à l'action « Démarrer » (mode launcher)
+	hostStarted bool                 // host.Start() a été appelé (garde le Stop différé)
+
 	// Menu de pilotage
 	menu     *menu.Model
 	mediaDir string // répertoire de départ du navigateur de fichiers
@@ -98,28 +107,53 @@ type App struct {
 	cartName   string
 }
 
-// New crée une application pilotant la machine donnée via un emu.Host. Les tampons
-// d'affichage sont dimensionnés selon FrameSize() de la machine (fixe par instance) :
-// l'App est agnostique du modèle émulé.
+// New crée une application pilotant la machine donnée via un emu.Host (mode
+// émulateur, chemin CLI à boot direct). Les tampons d'affichage sont dimensionnés
+// selon FrameSize() de la machine (fixe par instance) : l'App est agnostique du
+// modèle émulé.
 func New(m machine.Machine) *App {
+	a := &App{mediaDir: startMediaDir(os.Getwd, os.UserHomeDir)}
+	a.menu = menu.NewModel(osLister)
+	a.attachMachine(m)
+	return a
+}
+
+// NewLauncher crée une application en MODE LAUNCHER (host==nil) : elle affiche
+// l'écran de sélection de machine + paramètres (rendu ebitenui, data-driven via
+// uimodel) au lieu d'émuler. La machine est instanciée à l'action « Démarrer »
+// (cf. updateLauncher). profiles est la liste proposée (machine.Profiles(), plus
+// éventuellement un profil de démonstration) ; initial pré-remplit les valeurs du
+// premier profil (ex. chemin ROM mémorisé en config). noAudio diffère/inhibe l'audio.
+func NewLauncher(profiles []machine.MachineProfile, mediaDir string, noAudio bool, initial machine.Config) *App {
+	a := &App{mediaDir: mediaDir, audioDisabled: noAudio}
+	a.menu = menu.NewModel(osLister)
+	a.launcher = newLauncher(profiles, mediaDir, osListerUI, initial)
+	return a
+}
+
+// SetOnStart enregistre un hook appelé avec la config validée au moment où
+// l'utilisateur lance une machine depuis le launcher (transition launcher→émulateur).
+// Permet à la couche cmd de persister le choix (ex. chemin ROM) sans coupler l'App au
+// package config. Sans effet en mode émulateur (chemin CLI à boot direct).
+func (a *App) SetOnStart(fn func(machine.Config)) { a.onStart = fn }
+
+// attachMachine câble une machine sur l'App (tampons d'affichage, Host, modèle
+// clavier). Partagé par New (CLI direct) et par la transition launcher→émulateur.
+// N'appelle PAS host.Start() : le démarrage (et le montage des médias) reste à la
+// charge de l'appelant, qui doit monter les médias AVANT Start().
+func (a *App) attachMachine(m machine.Machine) {
 	fw, fh := m.FrameSize()
 	kbModel := m.KeyboardModel()
 	fb := ebiten.NewImage(fw, fh)
 	fb.Fill(color.RGBA{R: 0, G: 0, B: 0, A: 0xFF})
-	a := &App{
-		host:     emu.New(m, defaultAudioGain),
-		fb:       fb,
-		fw:       fw,
-		fh:       fh,
-		fbPixels: make([]uint32, fw*fh),
-		fbBytes:  make([]byte, fw*fh*4),
-		keys:     keyboard.NewInjector(kbModel, keyboard.DefaultHoldFrames, keyboard.DefaultGapFrames),
-		kbModel:  kbModel,
-		liveKeys: make(map[ebiten.Key]liveKey),
-		mediaDir: startMediaDir(os.Getwd, os.UserHomeDir),
-	}
-	a.menu = menu.NewModel(osLister)
-	return a
+	a.host = emu.New(m, defaultAudioGain)
+	a.fb = fb
+	a.fw, a.fh = fw, fh
+	a.fbPixels = make([]uint32, fw*fh)
+	a.fbBytes = make([]byte, fw*fh*4)
+	a.keys = keyboard.NewInjector(kbModel, keyboard.DefaultHoldFrames, keyboard.DefaultGapFrames)
+	a.kbModel = kbModel
+	a.liveKeys = make(map[ebiten.Key]liveKey)
 }
 
 // startMediaDir choisit le répertoire de départ du navigateur du menu : le
@@ -180,6 +214,13 @@ func (a *App) SetStartupMediaClosers(tape, disk io.Closer) {
 // Update est appelé à chaque tick (60 Hz) : il publie les entrées vers le Host
 // et pilote le menu. L'émulation, elle, avance dans la goroutine du Host.
 func (a *App) Update() error {
+	// Mode launcher : aucune émulation (host==nil). On rend/anime l'UI ebitenui et,
+	// si l'utilisateur a validé « Démarrer », on instancie la machine. Branché TOUT
+	// EN HAUT, avant tout accès à menu/host/keys (qui sont nil/inactifs ici).
+	if a.launcher != nil {
+		return a.updateLauncher()
+	}
+
 	// ÉCHAP pilote le menu : ouvre s'il est fermé, remonte d'un niveau sinon.
 	if inputJustPressed(ebiten.KeyEscape) {
 		if a.menu.IsOpen() {
@@ -407,6 +448,89 @@ func (a *App) closeDisk() {
 	}
 }
 
+// updateLauncher anime l'UI du launcher et, à l'action « Démarrer », instancie la
+// machine puis bascule en mode émulateur. L'ordre est IMPÉRATIF (revue de plan
+// Codex, P1) : attacher la machine → MONTER les médias AVANT host.Start() (un
+// montage après Start passe par le canal de commandes et pourrait laisser le boot
+// démarrer sans média) → fixer la taille fenêtre sur le framebuffer → initialiser
+// l'audio → démarrer le Host.
+func (a *App) updateLauncher() error {
+	// ÉCHAP (non géré par ebitenui) : en navigateur de fichiers → annule (retour vue
+	// principale) ; en vue principale → quitte l'application.
+	if inputJustPressed(ebiten.KeyEscape) && !a.launcher.escapePressed() {
+		return ErrUserQuit
+	}
+	a.launcher.ui.Update()
+	req, ok := a.launcher.takeStart()
+	if !ok {
+		return nil
+	}
+	cfg, err := uimodel.BuildConfig(req.profile, req.values)
+	if err != nil {
+		a.launcher.setError(err)
+		return nil
+	}
+	// Auto-détection de la ROM contrôleur cd90-640 à côté de la ROM choisie (miroir du
+	// boot CLI) : sinon un disque .fd lancé depuis le launcher démarrerait sans contrôleur
+	// (DOS inopérant), contrairement à « dcmo5 --rom … --disk … ». N'écrase pas une
+	// disk-rom fournie explicitement.
+	if dr := uimodel.ResolveDiskROM(cfg, fileExists); dr != "" {
+		cfg[machine.KeyDiskROM] = dr
+	}
+	m, err := req.profile.New(cfg)
+	if err != nil {
+		a.launcher.setError(err)
+		return nil
+	}
+	a.attachMachine(m)
+	if rom, _ := cfg[machine.KeyROM].(string); rom != "" {
+		a.romName = filepath.Base(rom)
+	}
+	if a.onStart != nil {
+		a.onStart(cfg) // persistance config (ex. chemin ROM mémorisé) côté cmd
+	}
+	a.mountMedia(uimodel.MediaMounts(req.profile, cfg))
+	ebiten.SetWindowSize(windowScaleX*a.fw, windowScaleY*a.fh)
+	a.initAudio()
+	a.host.Start()
+	a.hostStarted = true
+	a.launcher = nil // → mode émulateur
+	a.updateTitle()
+	return nil
+}
+
+// mountMedia ouvre et monte (à chaud, AVANT host.Start) les médias choisis dans le
+// launcher, en traduisant chaque clé de paramètre en appel de montage typé. Un
+// fichier illisible est ignoré (l'émulation démarre sans ce média).
+func (a *App) mountMedia(mounts []uimodel.MediaMount) {
+	for _, mt := range mounts {
+		switch mt.Key {
+		case machine.KeyTape:
+			if t, err := impl.OpenTape(mt.Path, false); err == nil {
+				a.closeTape()
+				a.host.MountTape(t)
+				a.tapeCloser = t
+				a.tapeName = filepath.Base(mt.Path)
+				a.mediaDir = filepath.Dir(mt.Path)
+			}
+		case machine.KeyDisk:
+			if d, err := impl.OpenDisk(mt.Path, false); err == nil {
+				a.closeDisk()
+				a.host.MountDisk(d)
+				a.diskCloser = d
+				a.diskName = filepath.Base(mt.Path)
+				a.mediaDir = filepath.Dir(mt.Path)
+			}
+		case machine.KeyCart:
+			if c, err := impl.OpenCartridge(mt.Path); err == nil {
+				a.host.MountCartridge(c)
+				a.cartName = filepath.Base(mt.Path)
+				a.mediaDir = filepath.Dir(mt.Path)
+			}
+		}
+	}
+}
+
 // compile-time : *impl types satisfont media + io.Closer (sécurité de typage).
 var (
 	_ media.Tape = (*impl.FileTape)(nil)
@@ -415,6 +539,10 @@ var (
 
 // Draw rend l'instantané du framebuffer du Host dans la surface Ebitengine.
 func (a *App) Draw(screen *ebiten.Image) {
+	if a.launcher != nil {
+		a.launcher.ui.Draw(screen)
+		return
+	}
 	if a.romMissing {
 		screen.Fill(color.RGBA{R: 20, G: 0, B: 0, A: 0xFF})
 		return
@@ -437,9 +565,17 @@ func (a *App) Draw(screen *ebiten.Image) {
 	drawMenu(screen, a.menu)
 }
 
-// Layout retourne les dimensions logiques du framebuffer de la machine émulée
-// (fixées au New() via FrameSize()).
-func (a *App) Layout(_, _ int) (int, int) { return a.fw, a.fh }
+// Layout retourne les dimensions logiques de l'écran. En mode launcher, on rend
+// l'UI ebitenui à la résolution réelle de la fenêtre (outW,outH). En mode émulateur,
+// on retourne le framebuffer logique de la machine (fixé via FrameSize()). La
+// transition launcher→émulateur force aussi SetWindowSize pour éviter un premier
+// rendu MO5 mal échelonné dans la fenêtre du launcher.
+func (a *App) Layout(outW, outH int) (int, int) {
+	if a.launcher != nil {
+		return outW, outH
+	}
+	return a.fw, a.fh
+}
 
 // updateTitle met à jour le titre de fenêtre selon l'état courant.
 func (a *App) updateTitle() {
@@ -467,13 +603,25 @@ func (a *App) updateTitle() {
 	ebiten.SetWindowTitle(title)
 }
 
-// Run configure et lance la boucle Ebitengine.
+// Run configure et lance la boucle Ebitengine. En mode émulateur (CLI direct), il
+// dimensionne la fenêtre sur le framebuffer, initialise l'audio et démarre le Host.
+// En mode launcher, il dimensionne une fenêtre de launcher et NE démarre rien :
+// l'audio et le Host sont mis en route à la transition « Démarrer » (updateLauncher).
 func Run(a *App) error {
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
-	ebiten.SetWindowSize(windowScaleX*a.fw, windowScaleY*a.fh)
-	a.initAudio()  // après que main a pu désactiver l'audio (--no-audio)
-	a.host.Start() // lance la goroutine d'émulation
-	defer a.host.Stop()
+	if a.launcher != nil {
+		ebiten.SetWindowSize(launcherWidth, launcherHeight)
+	} else {
+		ebiten.SetWindowSize(windowScaleX*a.fw, windowScaleY*a.fh)
+		a.initAudio()  // après que main a pu désactiver l'audio (--no-audio)
+		a.host.Start() // lance la goroutine d'émulation
+		a.hostStarted = true
+	}
+	defer func() {
+		if a.host != nil && a.hostStarted {
+			a.host.Stop()
+		}
+	}()
 	a.updateTitle()
 	err := ebiten.RunGame(a)
 	if errors.Is(err, ErrUserQuit) {
@@ -489,6 +637,13 @@ func KeyMapping() map[ebiten.Key]int { return keyMapping }
 
 // pressedLastFrame mémorise les touches pressées au tick précédent.
 var pressedLastFrame = map[ebiten.Key]bool{}
+
+// fileExists indique si un chemin existe (os.Stat sans erreur). Sert à l'auto-détection
+// de la ROM contrôleur disquette au launcher (cf. updateLauncher, uimodel.ResolveDiskROM).
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
 
 // inputJustPressed détecte une pression nouvelle (non maintenue).
 func inputJustPressed(k ebiten.Key) bool {

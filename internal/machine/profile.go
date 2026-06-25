@@ -40,8 +40,21 @@ type Option struct {
 // Param décrit UN paramètre configurable, rendu GÉNÉRIQUEMENT par le launcher et
 // l'overlay. LiveMutable et Validate (revue Codex) permettent de distinguer un
 // réglage modifiable à chaud d'un réglage boot-only, et de valider/coercer la valeur.
+// Clés de paramètres CONVENTIONNELLES reconnues par la couche app (internal/app) :
+// la ROM système (boot-only, consommée par MachineProfile.New) et les médias montés
+// à chaud après New. Un profil qui veut qu'un média soit effectivement monté par l'UI
+// doit réutiliser ces clés ; une autre clé serait rendue dans le launcher mais jamais
+// montée. Contrat non typé, partagé MO5/TO8D (#118).
+const (
+	KeyROM     = "rom"      // ROM système (File, Required, boot-only)
+	KeyDiskROM = "disk-rom" // ROM contrôleur disquette (File, boot-only)
+	KeyTape    = "tape"     // cassette .k7 (File, LiveMutable)
+	KeyDisk    = "disk"     // disquette .fd (File, LiveMutable)
+	KeyCart    = "cart"     // cartouche .rom (File, LiveMutable)
+)
+
 type Param struct {
-	Key         string          // "ram","rom","tape","disk","video",...
+	Key         string          // "ram","rom","tape","disk","video",... (cf. Key* conventionnels)
 	Label       string          // libellé affiché
 	Kind        ParamKind       //
 	Default     any             // valeur par défaut
