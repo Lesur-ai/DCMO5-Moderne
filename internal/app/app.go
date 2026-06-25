@@ -83,8 +83,8 @@ type App struct {
 	// l'action « Démarrer », l'App instancie la machine, monte les médias, démarre
 	// le Host puis repasse launcher=nil (mode émulateur).
 	launcher    *launcher
-	onStart     func(machine.Config) // hook de persistance config à l'action « Démarrer » (mode launcher)
-	hostStarted bool                 // host.Start() a été appelé (garde le Stop différé)
+	onStart     func(profileID string, cfg machine.Config) // hook de persistance config à l'action « Démarrer » (mode launcher)
+	hostStarted bool                                       // host.Start() a été appelé (garde le Stop différé)
 
 	// Menu de pilotage
 	menu     *menu.Model
@@ -132,11 +132,12 @@ func NewLauncher(profiles []machine.MachineProfile, mediaDir string, noAudio boo
 	return a
 }
 
-// SetOnStart enregistre un hook appelé avec la config validée au moment où
-// l'utilisateur lance une machine depuis le launcher (transition launcher→émulateur).
-// Permet à la couche cmd de persister le choix (ex. chemin ROM) sans coupler l'App au
-// package config. Sans effet en mode émulateur (chemin CLI à boot direct).
-func (a *App) SetOnStart(fn func(machine.Config)) { a.onStart = fn }
+// SetOnStart enregistre un hook appelé avec l'ID du profil sélectionné et la config
+// validée au moment où l'utilisateur lance une machine depuis le launcher (transition
+// launcher→émulateur). L'ID permet à la couche cmd de persister le choix PAR machine
+// (ex. chemin ROM) sans coupler l'App au package config. Sans effet en mode émulateur
+// (chemin CLI à boot direct).
+func (a *App) SetOnStart(fn func(profileID string, cfg machine.Config)) { a.onStart = fn }
 
 // attachMachine câble une machine sur l'App (tampons d'affichage, Host, modèle
 // clavier). Partagé par New (CLI direct) et par la transition launcher→émulateur.
@@ -488,7 +489,7 @@ func (a *App) updateLauncher() error {
 		a.romName = filepath.Base(rom)
 	}
 	if a.onStart != nil {
-		a.onStart(cfg) // persistance config (ex. chemin ROM mémorisé) côté cmd
+		a.onStart(req.profile.ID, cfg) // persistance config PAR machine (ex. ROM mémorisée) côté cmd
 	}
 	a.mountMedia(uimodel.MediaMounts(req.profile, cfg))
 	ebiten.SetWindowSize(windowScaleX*a.fw, windowScaleY*a.fh)

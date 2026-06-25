@@ -63,8 +63,10 @@ func main() {
 		// EXPLICITEMENT en CLI (--tape/--disk/--cart/--disk-rom), pour ne pas perdre
 		// la commodité v1 « dcmo5 --tape jeu.k7 ».
 		initial := machine.Config{}
-		if cfg.ROMPath != "" {
-			initial[machine.KeyROM] = cfg.ROMPath
+		// ROM mémorisée pour la machine PRÉSÉLECTIONNÉE (--machine, défaut mo5) : chaque
+		// machine a sa ROM, donc on ne pré-remplit pas le TO8D avec la ROM MO5 ni l'inverse.
+		if rom := cfg.ROMFor(*machineID); rom != "" {
+			initial[machine.KeyROM] = rom
 		}
 		prefill := func(flagName, key, value string) {
 			if explicit[flagName] && value != "" {
@@ -79,9 +81,11 @@ func main() {
 		return
 	}
 
-	// Résoudre les chemins : CLI prioritaire, puis config
+	// Résoudre les chemins : CLI prioritaire, puis config. Le boot direct est MO5-only
+	// (core.NewMachine) → on prend la ROM mémorisée du MO5, jamais celle d'une autre
+	// machine (sinon une ROM TO8D 80 Ko ferait échouer la construction MO5).
 	if *romPath == "" {
-		*romPath = cfg.ROMPath
+		*romPath = cfg.ROMFor("mo5")
 	}
 	if *tapePath == "" {
 		*tapePath = cfg.LastTape
@@ -210,7 +214,7 @@ func main() {
 	// On ne persiste pas les médias non encore fonctionnels pour ne pas
 	// induire l'utilisateur en erreur.
 	if store != nil && !romMissing {
-		cfg.ROMPath = *romPath
+		cfg.SetROMFor("mo5", *romPath) // boot direct = MO5
 		store.Save(cfg)
 	}
 
@@ -261,7 +265,7 @@ func runLauncher(initial machine.Config, noAudio bool, store *config.Store, mach
 	// Persiste la ROM choisie au launcher (comme le chemin CLI direct le fait plus
 	// haut), pour que « dcmo5 » seul la propose en pré-remplissage au lancement suivant.
 	// Seul le chemin ROM est mémorisé, par cohérence avec le chemin CLI.
-	a.SetOnStart(func(cfg machine.Config) {
+	a.SetOnStart(func(profileID string, cfg machine.Config) {
 		if store == nil {
 			return
 		}
@@ -270,7 +274,7 @@ func runLauncher(initial machine.Config, noAudio bool, store *config.Store, mach
 			return
 		}
 		c, _ := store.Load()
-		c.ROMPath = rom
+		c.SetROMFor(profileID, rom) // mémorise la ROM PAR machine (n'écrase pas les autres)
 		store.Save(c)
 	})
 	if err := app.Run(a); err != nil && !errors.Is(err, app.ErrUserQuit) {
