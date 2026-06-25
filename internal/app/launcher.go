@@ -19,6 +19,7 @@ package app
 import (
 	"bytes"
 	"fmt"
+	"image"
 	"image/color"
 	"os"
 	"path/filepath"
@@ -45,6 +46,11 @@ const (
 	// éviter tout débordement hors de la carte.
 	maxFileNameRunes = 30 // nom de fichier affiché dans un champ
 	maxPathRunes     = 58 // chemin du répertoire courant dans le navigateur
+
+	// Dimensions du navigateur de fichiers : au-delà de browserListMaxPx, la liste
+	// défile à la molette au lieu de déborder hors de la fenêtre.
+	browserItemPx    = 38  // hauteur approx. d'une entrée (bouton 34 + espacement 4)
+	browserListMaxPx = 360 // hauteur max de la liste avant défilement
 )
 
 // Palette : thème sombre cohérent + un accent bleu pour les actions/états primaires.
@@ -86,9 +92,15 @@ type launcher struct {
 	lister   uimodel.Lister
 
 	// Navigateur de fichiers actif si browseKey != "" (clé du Param File en cours).
-	browseKey string
-	browseDir string
-	browseExt []string
+	browseKey  string
+	browseDir  string
+	browseExt  []string
+	browseList widget.Focuser // widget List du navigateur, cible du focus clavier en mode navigateur
+
+	// lastBuildBrowse mémorise le mode du dernier rebuild (navigateur vs principal). Sert à
+	// décider, après reconstruction, s'il faut réinitialiser le focus (changement de mode)
+	// ou restaurer le contrôle de même rang (même mode) — cf. restoreFocus.
+	lastBuildBrowse bool
 
 	errText string
 
@@ -235,15 +247,77 @@ func (l *launcher) card() *widget.Container {
 }
 
 // rebuild reconstruit l'arbre de widgets selon l'état (vue principale ou navigateur).
+// rebuild recrée TOUS les widgets : le focus clavier natif (ebitenui) serait donc perdu
+// à chaque interaction. On capture le rang du widget focalisé AVANT destruction et on le
+// restaure après (cf. restoreFocus) pour garder le launcher pilotable au clavier.
 func (l *launcher) rebuild() {
+	prevFocusers := l.root.GetFocusers()
+	prevIdx := indexOfFocuser(prevFocusers, l.ui.GetFocusedWidget())
+	wasBrowse := l.lastBuildBrowse
+
 	l.root.RemoveChildren()
+	l.browseList = nil
 	card := l.card()
-	if l.browseKey != "" {
+	browse := l.browseKey != ""
+	if browse {
 		l.buildBrowser(card)
 	} else {
 		l.buildMain(card)
 	}
 	l.root.AddChild(card)
+	l.lastBuildBrowse = browse
+
+	l.restoreFocus(browse, wasBrowse, prevIdx)
+}
+
+// restoreFocus pose un focus clavier cohérent après rebuild : en mode navigateur, la
+// liste (flèches + Enter immédiats) ; en vue principale, le contrôle de même rang qu'avant
+// (l'ordre/le nombre de focusables est stable tant qu'on bascule un paramètre), réinitialisé
+// au 1ᵉʳ contrôle lors d'un changement de mode (rangs incomparables).
+func (l *launcher) restoreFocus(browse, wasBrowse bool, prevIdx int) {
+	if browse {
+		if l.browseList != nil {
+			l.ui.SetFocusedWidget(l.browseList)
+		}
+		return
+	}
+	fs := l.root.GetFocusers()
+	if len(fs) == 0 {
+		return
+	}
+	idx := prevIdx
+	if wasBrowse || idx < 0 {
+		idx = 0
+	}
+	if idx >= len(fs) {
+		idx = len(fs) - 1
+	}
+	l.ui.SetFocusedWidget(fs[idx])
+}
+
+// indexOfFocuser retourne le rang de target dans fs (identité de pointeur), ou -1.
+func indexOfFocuser(fs []widget.Focuser, target widget.Focuser) int {
+	if target == nil {
+		return -1
+	}
+	for i, f := range fs {
+		if f == target {
+			return i
+		}
+	}
+	return -1
+}
+
+// escapePressed traite ÉCHAP : ferme le navigateur de fichiers s'il est ouvert (retour à
+// la vue principale) et renvoie true ; sinon false (l'appelant — updateLauncher — quitte
+// l'application). ebitenui ne gère pas ÉCHAP nativement.
+func (l *launcher) escapePressed() bool {
+	if l.browseKey != "" {
+		l.browseKey = ""
+		l.rebuild()
+		return true
+	}
+	return false
 }
 
 // buildMain rend la vue principale : en-tête + sélecteur de machine + paramètres +
@@ -386,24 +460,71 @@ func (l *launcher) buildBrowser(card *widget.Container) {
 		l.rebuild()
 	}))
 
-	list := widget.NewContainer(
-		widget.ContainerOpts.WidgetOpts(stretchH()),
-		widget.ContainerOpts.Layout(widget.NewRowLayout(
-			widget.RowLayoutOpts.Direction(widget.DirectionVertical),
-			widget.RowLayoutOpts.Spacing(4),
-		)),
-	)
-	for _, e := range uimodel.ListDir(l.lister, l.browseDir, l.browseExt) {
-		entry := e
-		// Dossiers en accent (suffixe « / ») vs fichiers en bouton standard : distinction
-		// sans emoji (gofont n'a pas de glyphe « 📁 », il s'afficherait en tofu).
-		name, img, txt := entry.Name, l.btnImg, l.txtColor
-		if entry.IsDir {
-			name, img, txt = entry.Name+"/", l.btnSel, l.txtOnSel
-		}
-		list.AddChild(l.entryButton(name, img, txt, func() {
-			target := filepath.Join(l.browseDir, entry.Name)
-			if entry.IsDir {
+	entries := uimodel.ListDir(l.lister, l.browseDir, l.browseExt)
+	card.AddChild(l.fileList(entries))
+}
+
+// fileList rend les entrées du répertoire courant dans un widget List ebitenui. Le
+// widget gère NATIVEMENT le défilement (molette + ascenseur) : on lui délègue tout le
+// scroll au lieu de recâbler un slider à la main — l'ancien layout maison ne câblait
+// PAS la molette (finding revue Codex).
+//
+// La hauteur reste BORNÉE par fixedHeightLayout : un List placé dans le RowLayout
+// vertical de la carte réclamerait sinon la hauteur de TOUT le contenu
+// (ScrollContainer.PreferredSize remonte la taille du contenu, pas celle du viewport).
+// Au-delà de browserListMaxPx, le List clippe et défile.
+func (l *launcher) fileList(entries []uimodel.Entry) *widget.Container {
+	items := make([]any, len(entries))
+	for i, e := range entries {
+		items[i] = e
+	}
+
+	list := widget.NewList(
+		widget.ListOpts.Entries(items),
+		widget.ListOpts.EntryFontFace(l.faceBtn),
+		// Dossiers distingués par un suffixe « / » (gofont n'a pas de glyphe dossier ; le
+		// List applique un style uniforme — plus d'accent par entrée comme avant).
+		widget.ListOpts.EntryLabelFunc(func(e any) string {
+			ent := e.(uimodel.Entry)
+			if ent.IsDir {
+				return ent.Name + "/"
+			}
+			return ent.Name
+		}),
+		widget.ListOpts.EntryColor(&widget.ListEntryColor{
+			Unselected:                 colText,
+			Selected:                   colWhite,
+			DisabledUnselected:         colMuted,
+			DisabledSelected:           colMuted,
+			SelectingBackground:        colAccent,
+			SelectedBackground:         colAccent,
+			FocusedBackground:          colAccentLo, // entrée focalisée clavier : bleu net (navigation aux flèches)
+			SelectingFocusedBackground: colAccent,
+			SelectedFocusedBackground:  colAccent,
+			DisabledSelectedBackground: colBtnLo,
+		}),
+		widget.ListOpts.EntryTextPosition(widget.TextPositionStart, widget.TextPositionCenter),
+		widget.ListOpts.EntryTextPadding(&widget.Insets{Top: 8, Bottom: 8, Left: 14, Right: 14}),
+		widget.ListOpts.ScrollContainerImage(&widget.ScrollContainerImage{
+			Idle: eimage.NewNineSliceColor(colField),
+			Mask: eimage.NewNineSliceColor(colWhite),
+		}),
+		widget.ListOpts.SliderParams(&widget.SliderParams{
+			TrackImage: &widget.SliderTrackImage{
+				Idle:  eimage.NewNineSliceColor(colBtnLo),
+				Hover: eimage.NewNineSliceColor(colBtnLo),
+			},
+			HandleImage: &widget.ButtonImage{
+				Idle:    eimage.NewNineSliceColor(colBtn),
+				Hover:   eimage.NewNineSliceColor(colBtnHi),
+				Pressed: eimage.NewNineSliceColor(colAccent),
+			},
+		}),
+		widget.ListOpts.HideHorizontalSlider(),
+		widget.ListOpts.EntrySelectedHandler(func(args *widget.ListEntrySelectedEventArgs) {
+			ent := args.Entry.(uimodel.Entry)
+			target := filepath.Join(l.browseDir, ent.Name)
+			if ent.IsDir {
 				l.browseDir = filepath.Clean(target)
 				l.rebuild()
 				return
@@ -412,9 +533,24 @@ func (l *launcher) buildBrowser(card *widget.Container) {
 			l.mediaDir = filepath.Dir(target)
 			l.browseKey = ""
 			l.rebuild()
-		}))
+		}),
+	)
+	l.browseList = list // cible du focus clavier (cf. restoreFocus)
+
+	// Hauteur bornée (cf. en-tête) : au moins une entrée, au plus browserListMaxPx.
+	h := len(entries) * browserItemPx
+	if h > browserListMaxPx {
+		h = browserListMaxPx
 	}
-	card.AddChild(list)
+	if h < browserItemPx {
+		h = browserItemPx
+	}
+	viewport := widget.NewContainer(
+		widget.ContainerOpts.WidgetOpts(stretchH()),
+		widget.ContainerOpts.Layout(fixedHeightLayout{h: h}),
+	)
+	viewport.AddChild(list)
+	return viewport
 }
 
 // ── Helpers de rendu et de libellé ─────────────────────────────────────────────
@@ -533,19 +669,6 @@ func (l *launcher) glyphButton(glyph string, col color.Color, onClick func()) *w
 	)
 }
 
-// entryButton : ligne du navigateur de fichiers — pleine largeur, texte aligné à
-// gauche (lisibilité d'une liste).
-func (l *launcher) entryButton(label string, img *widget.ButtonImage, txt *widget.ButtonTextColor, onClick func()) *widget.Button {
-	return widget.NewButton(
-		widget.ButtonOpts.Image(img),
-		widget.ButtonOpts.Text(label, l.faceBtn, txt),
-		widget.ButtonOpts.TextPosition(widget.TextPositionStart, widget.TextPositionCenter),
-		widget.ButtonOpts.TextPadding(&widget.Insets{Top: 8, Bottom: 8, Left: 14, Right: 14}),
-		widget.ButtonOpts.WidgetOpts(stretchH(), widget.WidgetOpts.MinSize(0, 34)),
-		widget.ButtonOpts.ClickedHandler(func(*widget.ButtonClickedEventArgs) { onClick() }),
-	)
-}
-
 // ellipsizeName tronque un nom de fichier trop long en préservant le DÉBUT et la FIN
 // (donc l'extension) : « longnomdefichi…age.rom ».
 func ellipsizeName(s string, max int) string {
@@ -619,4 +742,36 @@ func cloneConfig(c machine.Config) machine.Config {
 		out[k] = v
 	}
 	return out
+}
+
+// fixedHeightLayout est un layout ebitenui minimal qui annonce une hauteur FIXE
+// (indépendante du contenu) et place ses enfants dans l'intégralité du rect reçu.
+// Il sert à borner la hauteur du widget List du navigateur de fichiers : sans lui, la
+// taille préférée remonterait celle de tout le contenu (cf. fileList).
+//
+// La largeur préférée DOIT être > 0 : RowLayout.PreferredSize unionne les rects des
+// enfants, et image.Rectangle.Union ignore tout rect de largeur (ou hauteur) nulle
+// (réputé « vide »). Renvoyer une largeur 0 faisait donc disparaître la liste du calcul
+// de hauteur de la carte → la carte ne réservait pas les f.h pixels et la liste
+// débordait sous le panneau. On remonte donc la largeur préférée du contenu (la largeur
+// effective reste pilotée par l'étirement du parent via stretchH()).
+type fixedHeightLayout struct{ h int }
+
+func (f fixedHeightLayout) PreferredSize(widgets []widget.PreferredSizeLocateableWidget) (int, int) {
+	w := 0
+	for _, wd := range widgets {
+		if cw, _ := wd.PreferredSize(); cw > w {
+			w = cw
+		}
+	}
+	if w < 1 {
+		w = 1 // garde-fou : jamais un rect « vide » ignoré par Union (cf. ci-dessus)
+	}
+	return w, f.h
+}
+
+func (f fixedHeightLayout) Layout(widgets []widget.PreferredSizeLocateableWidget, rect image.Rectangle) {
+	for _, w := range widgets {
+		w.SetLocation(rect)
+	}
 }

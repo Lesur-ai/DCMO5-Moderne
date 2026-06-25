@@ -74,7 +74,7 @@ func main() {
 		prefill("disk", machine.KeyDisk, *diskPath)
 		prefill("cart", machine.KeyCart, *cartPath)
 		prefill("disk-rom", machine.KeyDiskROM, *diskRomPath)
-		runLauncher(initial, *noAudio)
+		runLauncher(initial, *noAudio, store)
 		return
 	}
 
@@ -239,7 +239,7 @@ func main() {
 // (plus le profil de démonstration si DCMO5_UI_DEMO est défini), chemin ROM mémorisé
 // pré-rempli, répertoire de départ = répertoire courant. La machine est instanciée à
 // l'action « Démarrer » (cf. internal/app.updateLauncher).
-func runLauncher(initial machine.Config, noAudio bool) {
+func runLauncher(initial machine.Config, noAudio bool, store *config.Store) {
 	profiles := machine.Profiles()
 	if os.Getenv("DCMO5_UI_DEMO") != "" {
 		profiles = append(profiles, launch.DemoProfile())
@@ -249,6 +249,21 @@ func runLauncher(initial machine.Config, noAudio bool) {
 		dir = wd
 	}
 	a := app.NewLauncher(profiles, dir, noAudio, initial)
+	// Persiste la ROM choisie au launcher (comme le chemin CLI direct le fait plus
+	// haut), pour que « dcmo5 » seul la propose en pré-remplissage au lancement suivant.
+	// Seul le chemin ROM est mémorisé, par cohérence avec le chemin CLI.
+	a.SetOnStart(func(cfg machine.Config) {
+		if store == nil {
+			return
+		}
+		rom, _ := cfg[machine.KeyROM].(string)
+		if rom == "" {
+			return
+		}
+		c, _ := store.Load()
+		c.ROMPath = rom
+		store.Save(c)
+	})
 	if err := app.Run(a); err != nil && !errors.Is(err, app.ErrUserQuit) {
 		fmt.Fprintln(os.Stderr, "dcmo5:", err)
 		os.Exit(1)

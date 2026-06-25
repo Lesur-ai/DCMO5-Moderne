@@ -83,7 +83,8 @@ type App struct {
 	// l'action « Démarrer », l'App instancie la machine, monte les médias, démarre
 	// le Host puis repasse launcher=nil (mode émulateur).
 	launcher    *launcher
-	hostStarted bool // host.Start() a été appelé (garde le Stop différé)
+	onStart     func(machine.Config) // hook de persistance config à l'action « Démarrer » (mode launcher)
+	hostStarted bool                 // host.Start() a été appelé (garde le Stop différé)
 
 	// Menu de pilotage
 	menu     *menu.Model
@@ -129,6 +130,12 @@ func NewLauncher(profiles []machine.MachineProfile, mediaDir string, noAudio boo
 	a.launcher = newLauncher(profiles, mediaDir, osListerUI, initial)
 	return a
 }
+
+// SetOnStart enregistre un hook appelé avec la config validée au moment où
+// l'utilisateur lance une machine depuis le launcher (transition launcher→émulateur).
+// Permet à la couche cmd de persister le choix (ex. chemin ROM) sans coupler l'App au
+// package config. Sans effet en mode émulateur (chemin CLI à boot direct).
+func (a *App) SetOnStart(fn func(machine.Config)) { a.onStart = fn }
 
 // attachMachine câble une machine sur l'App (tampons d'affichage, Host, modèle
 // clavier). Partagé par New (CLI direct) et par la transition launcher→émulateur.
@@ -448,6 +455,11 @@ func (a *App) closeDisk() {
 // démarrer sans média) → fixer la taille fenêtre sur le framebuffer → initialiser
 // l'audio → démarrer le Host.
 func (a *App) updateLauncher() error {
+	// ÉCHAP (non géré par ebitenui) : en navigateur de fichiers → annule (retour vue
+	// principale) ; en vue principale → quitte l'application.
+	if inputJustPressed(ebiten.KeyEscape) && !a.launcher.escapePressed() {
+		return ErrUserQuit
+	}
 	a.launcher.ui.Update()
 	req, ok := a.launcher.takeStart()
 	if !ok {
@@ -466,6 +478,9 @@ func (a *App) updateLauncher() error {
 	a.attachMachine(m)
 	if rom, _ := cfg[machine.KeyROM].(string); rom != "" {
 		a.romName = filepath.Base(rom)
+	}
+	if a.onStart != nil {
+		a.onStart(cfg) // persistance config (ex. chemin ROM mémorisé) côté cmd
 	}
 	a.mountMedia(uimodel.MediaMounts(req.profile, cfg))
 	ebiten.SetWindowSize(windowScaleX*a.fw, windowScaleY*a.fh)
