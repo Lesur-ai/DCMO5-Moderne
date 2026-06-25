@@ -37,4 +37,5 @@ chantier
 
 # Règles projet Claude Code (non versionnées)
 .clinerules/
+.claude/
 .aider*
