@@ -67,6 +67,13 @@ func (g *GateArray) OnInstructionCycles(c int, irq *machine.IRQLines) {
 	g.syncIRQ(irq)
 }
 
+// SuppressFrameIRQ indique au moteur de NE PAS générer d'IRQ de fin de trame 50 Hz
+// (modèle MO5). Sur la famille gate-array (TO8D/TO9+), l'interruption périodique est
+// fournie par le timer 6846 (OnInstructionCycles) — la réf C dcto8demulation.c Run()
+// ne déclenche aucune IRQ de trame. Sans cette suppression, le système recevrait un
+// double tick (trame + timer) faussant l'horloge et les cadences.
+func (g *GateArray) SuppressFrameIRQ() bool { return true }
+
 // syncIRQ asserte ou relâche les lignes d'IRQ du moteur selon les drapeaux du CSR
 // (modèle niveau-déclenché : la ligne reste assertée tant que la source l'est).
 func (g *GateArray) syncIRQ(irq *machine.IRQLines) {

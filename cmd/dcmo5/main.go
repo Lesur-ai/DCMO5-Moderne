@@ -15,6 +15,7 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/launch"
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/machine/mo5"
+	_ "github.com/Lesur-ai/dcmo5/internal/machine/to8d" // enregistre le profil TO8D (init)
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
 )
 
