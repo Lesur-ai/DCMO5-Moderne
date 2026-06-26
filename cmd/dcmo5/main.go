@@ -218,7 +218,9 @@ func main() {
 		store.Save(cfg)
 	}
 
-	a := app.New(m)
+	// Boot direct CLI = MO5 uniquement (le switch ci-dessus rejette les autres) :
+	// on passe explicitement FamilyMO comme géométrie d'affichage.
+	a := app.New(m, machine.FamilyMO)
 	a.SetROMStatus(romMissing)
 	a.SetMediaNames(*romPath, *tapePath, *diskPath, *cartPath)
 	a.SetStartupMediaClosers(tapeCloser, diskCloser)

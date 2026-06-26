@@ -45,19 +45,16 @@ type liveKey struct {
 // la résolution des touches s'appuie sur le modèle clavier (Model.IsModifier).
 const mo5KeyACC = 0x36
 
-const (
-	windowTitle  = "DCMO5 Moderne"
-	windowScaleX = 2
-	windowScaleY = 2
-)
+const windowTitle = "DCMO5 Moderne"
 
 // App implémente ebiten.Game et orchestre l'UI autour d'un emu.Host.
 type App struct {
 	host     *emu.Host
 	fb       *ebiten.Image
-	fbPixels []uint32 // tampon framebuffer réutilisé (anti-alloc/GC)
-	fbBytes  []byte   // tampon RGBA réutilisé pour WritePixels
-	fw, fh   int      // dimensions logiques du framebuffer (fixées par la machine)
+	fbPixels []uint32       // tampon framebuffer réutilisé (anti-alloc/GC)
+	fbBytes  []byte         // tampon RGBA réutilisé pour WritePixels
+	fw, fh   int            // dimensions du framebuffer (fixées par la machine via FrameSize())
+	family   machine.Family // famille de la machine attachée : pilote la géométrie d'affichage (Layout/fenêtre/curseur) via uimodel.DisplayGeometry
 
 	// Saisie clavier
 	keys       *keyboard.Injector
@@ -110,11 +107,13 @@ type App struct {
 // New crée une application pilotant la machine donnée via un emu.Host (mode
 // émulateur, chemin CLI à boot direct). Les tampons d'affichage sont dimensionnés
 // selon FrameSize() de la machine (fixe par instance) : l'App est agnostique du
-// modèle émulé.
-func New(m machine.Machine) *App {
+// modèle émulé. family identifie la famille matérielle (pilote la géométrie
+// d'affichage) ; elle vient du MachineProfile, jamais déduite de machine.Machine
+// (l'interface runtime ne porte pas l'identité statique).
+func New(m machine.Machine, family machine.Family) *App {
 	a := &App{mediaDir: startMediaDir(os.Getwd, os.UserHomeDir)}
 	a.menu = menu.NewModel(osLister)
-	a.attachMachine(m)
+	a.attachMachine(m, family)
 	return a
 }
 
@@ -143,7 +142,7 @@ func (a *App) SetOnStart(fn func(profileID string, cfg machine.Config)) { a.onSt
 // clavier). Partagé par New (CLI direct) et par la transition launcher→émulateur.
 // N'appelle PAS host.Start() : le démarrage (et le montage des médias) reste à la
 // charge de l'appelant, qui doit monter les médias AVANT Start().
-func (a *App) attachMachine(m machine.Machine) {
+func (a *App) attachMachine(m machine.Machine, family machine.Family) {
 	fw, fh := m.FrameSize()
 	kbModel := m.KeyboardModel()
 	fb := ebiten.NewImage(fw, fh)
@@ -151,6 +150,7 @@ func (a *App) attachMachine(m machine.Machine) {
 	a.host = emu.New(m, defaultAudioGain)
 	a.fb = fb
 	a.fw, a.fh = fw, fh
+	a.family = family
 	a.fbPixels = make([]uint32, fw*fh)
 	a.fbBytes = make([]byte, fw*fh*4)
 	a.keys = keyboard.NewInjector(kbModel, keyboard.DefaultHoldFrames, keyboard.DefaultGapFrames)
@@ -290,11 +290,13 @@ func (a *App) Update() error {
 	injecting := len(tickKeys) > 0 || a.keys.Pending() > 0
 
 	in := resolveKeys(a.kbModel, ebiten.IsKeyPressed, a.liveKeys, injecting, tickKeys)
-	// Le curseur Ebitengine est déjà en repère framebuffer (Layout). On publie ces
-	// coordonnées brutes ; chaque machine les convertit vers son propre repère
-	// écran dans SetPointer (le MO5 y retranche sa bordure). L'UI reste agnostique
-	// de la géométrie de la machine émulée.
-	in.PenX, in.PenY = ebiten.CursorPosition()
+	// Le curseur Ebitengine est en repère Layout (= LOGIQUE). Pour le crayon optique,
+	// on le ramène au repère FRAMEBUFFER attendu par la machine : identité pour le MO5
+	// (logique == framebuffer), mais Y/2 pour le gate-array dont le Layout est étiré ×2
+	// en hauteur. Chaque machine convertit ensuite vers son propre repère écran dans
+	// SetPointer (le MO5 y retranche sa bordure).
+	cx, cy := ebiten.CursorPosition()
+	in.PenX, in.PenY = uimodel.CursorToFramebuffer(a.family, a.fw, a.fh, cx, cy)
 	in.PenDown = ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 	a.host.SetInput(in)
 	return nil
@@ -484,7 +486,7 @@ func (a *App) updateLauncher() error {
 		a.launcher.setError(err)
 		return nil
 	}
-	a.attachMachine(m)
+	a.attachMachine(m, req.profile.Family)
 	if rom, _ := cfg[machine.KeyROM].(string); rom != "" {
 		a.romName = filepath.Base(rom)
 	}
@@ -492,7 +494,7 @@ func (a *App) updateLauncher() error {
 		a.onStart(req.profile.ID, cfg) // persistance config PAR machine (ex. ROM mémorisée) côté cmd
 	}
 	a.mountMedia(uimodel.MediaMounts(req.profile, cfg))
-	ebiten.SetWindowSize(windowScaleX*a.fw, windowScaleY*a.fh)
+	a.applyWindowSize()
 	a.initAudio()
 	a.host.Start()
 	a.hostStarted = true
@@ -567,16 +569,27 @@ func (a *App) Draw(screen *ebiten.Image) {
 	drawMenu(screen, a.menu)
 }
 
-// Layout retourne les dimensions logiques de l'écran. En mode launcher, on rend
+// applyWindowSize dimensionne la fenêtre selon la géométrie d'affichage de la
+// famille courante (cf. uimodel.DisplayGeometry). Partagé par Run (boot direct) et
+// par la transition launcher→émulateur.
+func (a *App) applyWindowSize() {
+	_, _, winW, winH := uimodel.DisplayGeometry(a.family, a.fw, a.fh)
+	ebiten.SetWindowSize(winW, winH)
+}
+
+// Layout retourne les dimensions LOGIQUES de l'écran. En mode launcher, on rend
 // l'UI ebitenui à la résolution réelle de la fenêtre (outW,outH). En mode émulateur,
-// on retourne le framebuffer logique de la machine (fixé via FrameSize()). La
-// transition launcher→émulateur force aussi SetWindowSize pour éviter un premier
-// rendu MO5 mal échelonné dans la fenêtre du launcher.
+// on retourne le repère logique de la machine dérivé du framebuffer par famille
+// (uimodel.DisplayGeometry) : identique au framebuffer pour le MO5, étiré ×2 en
+// hauteur pour le gate-array (correction d'aspect). La transition launcher→émulateur
+// force aussi SetWindowSize pour éviter un premier rendu mal échelonné dans la
+// fenêtre du launcher.
 func (a *App) Layout(outW, outH int) (int, int) {
 	if a.launcher != nil {
 		return outW, outH
 	}
-	return a.fw, a.fh
+	logW, logH, _, _ := uimodel.DisplayGeometry(a.family, a.fw, a.fh)
+	return logW, logH
 }
 
 // updateTitle met à jour le titre de fenêtre selon l'état courant.
@@ -614,7 +627,7 @@ func Run(a *App) error {
 	if a.launcher != nil {
 		ebiten.SetWindowSize(launcherWidth, launcherHeight)
 	} else {
-		ebiten.SetWindowSize(windowScaleX*a.fw, windowScaleY*a.fh)
+		a.applyWindowSize()
 		a.initAudio()  // après que main a pu désactiver l'audio (--no-audio)
 		a.host.Start() // lance la goroutine d'émulation
 		a.hostStarted = true
