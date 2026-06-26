@@ -2,10 +2,16 @@ package to8d
 
 import (
 	"hash/fnv"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 )
+
+// testBootDate est la date FIXE injectée au boot dans les tests : elle garde le boot
+// reproductible (le chemin de production passe time.Now()). Format attendu : "02-01-26".
+var testBootDate = time.Date(2026, time.January, 2, 0, 0, 0, 0, time.UTC)
 
 // bootSignature est la signature FNV-1a du framebuffer TO8D après bootCycles cycles
 // depuis le reset, calculée sur la ROM réelle (rom/to8d.rom). C'est un VERROU
@@ -13,13 +19,19 @@ import (
 // la fait changer. Valeur mesurée puis figée (cf. TestBootDeterministic).
 const (
 	bootCycles    = 1_200_000  // ~60 trames (50 Hz @ 1 MHz) : laisse le moniteur dessiner
-	bootSignature = 0x271cd955 // FNV-1a du framebuffer après bootCycles, sur rom/to8d.rom
+	bootSignature = 0xcd367f95 // FNV-1a du framebuffer après bootCycles (rom/to8d.rom, date fixe testBootDate)
 )
 
-// mustBoot construit une machine TO8D depuis la ROM réelle versionnée.
+// mustBoot construit une machine TO8D depuis la ROM réelle versionnée, avec la date
+// de boot FIXE testBootDate (déterminisme). On passe par newFromROM plutôt que
+// newFromConfig pour ne pas dépendre de time.Now() du chemin de production.
 func mustBoot(t *testing.T) machine.Machine {
 	t.Helper()
-	m, err := newFromConfig(machine.Config{machine.KeyROM: romTestPath()})
+	blob, err := os.ReadFile(romTestPath())
+	if err != nil {
+		t.Fatalf("lecture ROM TO8D : %v", err)
+	}
+	m, err := newFromROM(blob, testBootDate)
 	if err != nil {
 		t.Fatalf("boot TO8D : %v", err)
 	}
@@ -103,7 +115,7 @@ func TestNewFromConfig_Errors(t *testing.T) {
 	if _, err := newFromConfig(machine.Config{machine.KeyROM: "/inexistant.rom"}); err == nil {
 		t.Error("ROM introuvable : erreur attendue")
 	}
-	if _, err := newFromROM(make([]byte, 1024)); err == nil {
+	if _, err := newFromROM(make([]byte, 1024), testBootDate); err == nil {
 		t.Error("taille ROM invalide : erreur attendue")
 	}
 }
@@ -115,7 +127,7 @@ func TestNewFromConfig_Errors(t *testing.T) {
 //     câblage du faisceau e7e7/e7ca, le firmware boucle et l'écran reste vide) ;
 //  2. le boot a fait progresser le CPU : PC a quitté le vecteur reset (0xFDC8) ;
 //  3. DÉTERMINISME : deux instances fraîches produisent un framebuffer identique
-//     (pas d'état partagé ni de source non déterministe — date non injectée) ;
+//     (pas d'état partagé ; la date de boot est injectée mais FIXE via testBootDate) ;
 //  4. signature stable (verrou anti-régression du chemin reset → exécution → vidéo).
 func TestBootDeterministic(t *testing.T) {
 	m1 := mustBoot(t)

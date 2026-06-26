@@ -19,6 +19,7 @@ package to8d
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/Lesur-ai/dcmo5/internal/cpu6809"
 	"github.com/Lesur-ai/dcmo5/internal/engine"
@@ -100,9 +101,12 @@ func (a *adapter) CPUSnapshot() cpu6809.Snapshot { return a.Engine.CPU().Snapsho
 // des modificateurs, nombre de touches), consommé par l'hôte et l'UI.
 func (a *adapter) KeyboardModel() *keyboard.Model { return keyboard.TO8DModel() }
 
-// newFromROM découpe le blob TO8D (BASIC + moniteur), patche les deux ROM puis
-// assemble gate-array + moteur. Cœur partagé par le profil (fichier) et les tests.
-func newFromROM(blob []byte) (machine.Machine, error) {
+// newFromROM découpe le blob TO8D (BASIC + moniteur), patche les deux ROM, injecte la
+// date de boot (now) dans le BASIC puis assemble gate-array + moteur. Cœur partagé par
+// le profil (fichier) et les tests. now est la date pré-remplie au boot (jj-mm-aa) :
+// le chemin de production passe time.Now() ; les tests passent une date fixe pour un
+// boot déterministe.
+func newFromROM(blob []byte, now time.Time) (machine.Machine, error) {
 	if len(blob) != romTotalSize {
 		return nil, fmt.Errorf("to8d: taille ROM inattendue %d octets (attendu %d : BASIC %d + moniteur %d)",
 			len(blob), romTotalSize, romBasicSize, romMonSize)
@@ -117,6 +121,12 @@ func newFromROM(blob []byte) (machine.Machine, error) {
 	}
 	if rep := applyPatches(romBasic, basicPatches); !rep.OK {
 		return nil, fmt.Errorf("to8d: ROM BASIC non reconnue (patchs « trap » inapplicables)")
+	}
+	// Date du jour pré-remplie au boot (jj-mm-aa), comme l'émulateur de référence.
+	// applyPatches a déjà validé cette même ROM BASIC : un échec ici signale une
+	// incohérence de variante (slot date / routine reset inattendus).
+	if !injectBootDate(romBasic, now) {
+		return nil, fmt.Errorf("to8d: injection de la date au boot impossible (ROM BASIC non reconnue)")
 	}
 
 	ga := gatearray.New(romMon, romBasic)
@@ -158,5 +168,5 @@ func newFromConfig(cfg machine.Config) (machine.Machine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("to8d: ROM: %w", err)
 	}
-	return newFromROM(blob)
+	return newFromROM(blob, time.Now())
 }
