@@ -19,6 +19,8 @@ import (
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/font/gofont/gobold"
 	"golang.org/x/image/font/gofont/goregular"
+
+	"github.com/Lesur-ai/dcmo5/internal/uimodel"
 )
 
 // uiKit porte les ressources de rendu partagées (polices text/v2, images de bouton,
@@ -155,4 +157,80 @@ func (k *uiKit) glyphButton(glyph string, col color.Color, onClick func()) *widg
 		widget.ButtonOpts.WidgetOpts(widget.WidgetOpts.MinSize(28, 34)),
 		widget.ButtonOpts.ClickedHandler(func(*widget.ButtonClickedEventArgs) { onClick() }),
 	)
+}
+
+// fileList rend les entrées d'un répertoire dans un widget List ebitenui stylé : le widget
+// gère NATIVEMENT le défilement (molette + ascenseur), la hauteur est bornée par
+// fixedHeightLayout à maxPx (au-delà il clippe et défile). maxPx est propre à l'appelant car
+// la fenêtre diffère : ~360 px pour le launcher (fenêtre 760×640), bien moins pour l'overlay
+// (fenêtre émulateur 672×432, sinon la carte Browse déborde). onSelect est appelé à la
+// sélection d'une entrée (dossier OU fichier) : chaque écran y branche sa navigation. Retourne
+// le viewport (à insérer dans la carte) et le Focuser du List (cible du focus clavier après
+// rebuild). Brique PARTAGÉE launcher/overlay (cf. uikit.go en-tête).
+func (k *uiKit) fileList(entries []uimodel.Entry, maxPx int, onSelect func(uimodel.Entry)) (*widget.Container, widget.Focuser) {
+	items := make([]any, len(entries))
+	for i, e := range entries {
+		items[i] = e
+	}
+
+	list := widget.NewList(
+		widget.ListOpts.Entries(items),
+		widget.ListOpts.EntryFontFace(k.faceBtn),
+		// Dossiers distingués par un suffixe « / » (gofont n'a pas de glyphe dossier).
+		widget.ListOpts.EntryLabelFunc(func(e any) string {
+			ent := e.(uimodel.Entry)
+			if ent.IsDir {
+				return ent.Name + "/"
+			}
+			return ent.Name
+		}),
+		widget.ListOpts.EntryColor(&widget.ListEntryColor{
+			Unselected:                 colText,
+			Selected:                   colWhite,
+			DisabledUnselected:         colMuted,
+			DisabledSelected:           colMuted,
+			SelectingBackground:        colAccent,
+			SelectedBackground:         colAccent,
+			FocusedBackground:          colAccentLo, // entrée focalisée clavier : bleu net (navigation aux flèches)
+			SelectingFocusedBackground: colAccent,
+			SelectedFocusedBackground:  colAccent,
+			DisabledSelectedBackground: colBtnLo,
+		}),
+		widget.ListOpts.EntryTextPosition(widget.TextPositionStart, widget.TextPositionCenter),
+		widget.ListOpts.EntryTextPadding(&widget.Insets{Top: 8, Bottom: 8, Left: 14, Right: 14}),
+		widget.ListOpts.ScrollContainerImage(&widget.ScrollContainerImage{
+			Idle: eimage.NewNineSliceColor(colField),
+			Mask: eimage.NewNineSliceColor(colWhite),
+		}),
+		widget.ListOpts.SliderParams(&widget.SliderParams{
+			TrackImage: &widget.SliderTrackImage{
+				Idle:  eimage.NewNineSliceColor(colBtnLo),
+				Hover: eimage.NewNineSliceColor(colBtnLo),
+			},
+			HandleImage: &widget.ButtonImage{
+				Idle:    eimage.NewNineSliceColor(colBtn),
+				Hover:   eimage.NewNineSliceColor(colBtnHi),
+				Pressed: eimage.NewNineSliceColor(colAccent),
+			},
+		}),
+		widget.ListOpts.HideHorizontalSlider(),
+		widget.ListOpts.EntrySelectedHandler(func(args *widget.ListEntrySelectedEventArgs) {
+			onSelect(args.Entry.(uimodel.Entry))
+		}),
+	)
+
+	// Hauteur bornée : au moins une entrée, au plus maxPx (cf. fixedHeightLayout).
+	h := len(entries) * browserItemPx
+	if h > maxPx {
+		h = maxPx
+	}
+	if h < browserItemPx {
+		h = browserItemPx
+	}
+	viewport := widget.NewContainer(
+		widget.ContainerOpts.WidgetOpts(stretchH()),
+		widget.ContainerOpts.Layout(fixedHeightLayout{h: h}),
+	)
+	viewport.AddChild(list)
+	return viewport, list
 }
