@@ -58,3 +58,32 @@ func LiveMediaOps(p machine.MachineProfile, old, next machine.Config) []MediaOp 
 	}
 	return ops
 }
+
+// LiveMediaConfig projette l'état des médias RÉELLEMENT montés en une machine.Config
+// restreinte aux Params médias modifiables à chaud du profil. C'est l'opération inverse
+// de LiveMediaOps : LiveMediaOps dit ce qui CHANGE, LiveMediaConfig fournit l'état COURANT
+// — la base `old` que l'overlay passe à DescribeLive/DiffLive.
+//
+// Pour chaque Param à la fois ParamFile ET LiveMutable, la clé est incluse UNIQUEMENT si
+// elle figure dans `mounted` AVEC un nom NON VIDE (média effectivement ouvert/monté). Un
+// média non monté — clé absente ou valeur vide — n'apparaît pas → aucun média fantôme
+// affiché (un média réellement monté a toujours un nom non vide).
+//
+// Le filtrage est piloté par le SCHÉMA du profil (data-driven, symétrique MO5/TO8D), ce
+// qui en fait un garde-fou de concordance : une clé de `mounted` que le profil ne déclare
+// pas comme média live (boot-only comme rom, ou non-File, ou clé inconnue) est ignorée —
+// jamais projetée comme un média éditable. La couche impure (internal/app) construit
+// `mounted` depuis sa source de vérité vivante (closers/noms) ; elle ne stocke donc PAS de
+// config média parallèle qui pourrait diverger.
+func LiveMediaConfig(p machine.MachineProfile, mounted map[string]string) machine.Config {
+	cfg := machine.Config{}
+	for _, param := range p.Params {
+		if param.Kind != machine.ParamFile || !param.LiveMutable {
+			continue // boot-only (rom) ou non-File : hors champ de l'overlay live
+		}
+		if v, ok := mounted[param.Key]; ok && v != "" {
+			cfg[param.Key] = v
+		}
+	}
+	return cfg
+}

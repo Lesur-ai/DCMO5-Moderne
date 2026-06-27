@@ -56,6 +56,13 @@ type App struct {
 	fw, fh   int            // dimensions du framebuffer (fixées par la machine via FrameSize())
 	family   machine.Family // famille de la machine attachée : pilote la géométrie d'affichage (Layout/fenêtre/curseur) via uimodel.DisplayGeometry
 
+	// currentProfile : profil STATIQUE de la machine réellement attachée (schéma de
+	// Params). Source unique pour DescribeLive/DiffLive de l'overlay (lot #117 Inc 3b).
+	// family en est dérivée (currentProfile.Family) → pas de divergence possible. La
+	// config live n'est PAS stockée : CurrentConfig() la DÉRIVE de l'état monté (closers/
+	// noms), seule source de vérité vivante, pour ne jamais afficher de média fantôme.
+	currentProfile machine.MachineProfile
+
 	// Saisie clavier
 	keys       *keyboard.Injector
 	kbModel    *keyboard.Model // modèle clavier de la machine (data-driven)
@@ -107,13 +114,14 @@ type App struct {
 // New crée une application pilotant la machine donnée via un emu.Host (mode
 // émulateur, chemin CLI à boot direct). Les tampons d'affichage sont dimensionnés
 // selon FrameSize() de la machine (fixe par instance) : l'App est agnostique du
-// modèle émulé. family identifie la famille matérielle (pilote la géométrie
-// d'affichage) ; elle vient du MachineProfile, jamais déduite de machine.Machine
-// (l'interface runtime ne porte pas l'identité statique).
-func New(m machine.Machine, family machine.Family) *App {
+// modèle émulé. profile est le profil STATIQUE de la machine (résolu par l'appelant
+// via machine.ByID) : il porte la famille (géométrie d'affichage) ET le schéma de
+// Params consommé par l'overlay — l'interface machine.Machine runtime ne porte pas
+// cette identité statique, d'où le passage explicite du profil.
+func New(m machine.Machine, profile machine.MachineProfile) *App {
 	a := &App{mediaDir: startMediaDir(os.Getwd, os.UserHomeDir)}
 	a.menu = menu.NewModel(osLister)
-	a.attachMachine(m, family)
+	a.attachMachine(m, profile)
 	return a
 }
 
@@ -139,10 +147,12 @@ func NewLauncher(profiles []machine.MachineProfile, mediaDir string, noAudio boo
 func (a *App) SetOnStart(fn func(profileID string, cfg machine.Config)) { a.onStart = fn }
 
 // attachMachine câble une machine sur l'App (tampons d'affichage, Host, modèle
-// clavier). Partagé par New (CLI direct) et par la transition launcher→émulateur.
-// N'appelle PAS host.Start() : le démarrage (et le montage des médias) reste à la
-// charge de l'appelant, qui doit monter les médias AVANT Start().
-func (a *App) attachMachine(m machine.Machine, family machine.Family) {
+// clavier). Partagé par New (CLI direct) et par la transition launcher→émulateur :
+// c'est le SITE UNIQUE qui mémorise le couple (profil, famille), si bien que la famille
+// ne peut jamais contredire le profil (elle en est dérivée). N'appelle PAS host.Start() :
+// le démarrage (et le montage des médias) reste à la charge de l'appelant, qui doit
+// monter les médias AVANT Start().
+func (a *App) attachMachine(m machine.Machine, profile machine.MachineProfile) {
 	fw, fh := m.FrameSize()
 	kbModel := m.KeyboardModel()
 	fb := ebiten.NewImage(fw, fh)
@@ -150,7 +160,8 @@ func (a *App) attachMachine(m machine.Machine, family machine.Family) {
 	a.host = emu.New(m, defaultAudioGain)
 	a.fb = fb
 	a.fw, a.fh = fw, fh
-	a.family = family
+	a.currentProfile = profile
+	a.family = profile.Family // famille DÉRIVÉE du profil : source unique, pas de divergence
 	a.fbPixels = make([]uint32, fw*fh)
 	a.fbBytes = make([]byte, fw*fh*4)
 	a.keys = keyboard.NewInjector(kbModel, keyboard.DefaultHoldFrames, keyboard.DefaultGapFrames)
@@ -452,6 +463,36 @@ func (a *App) closeDisk() {
 	}
 }
 
+// CurrentProfile retourne le profil de la machine actuellement attachée — source du
+// schéma (Params) pour DescribeLive/DiffLive de l'overlay (lot #117 Inc 3b). Renvoyé par
+// valeur ; le slice Params est partagé en lecture seule (l'overlay ne le mute pas).
+func (a *App) CurrentProfile() machine.MachineProfile { return a.currentProfile }
+
+// CurrentConfig DÉRIVE — à la demande, jamais stockée — la configuration des médias
+// modifiables à chaud RÉELLEMENT montés, base `old` que l'overlay passe à DescribeLive/
+// DiffLive. La source de vérité est l'état vivant des médias (closers pour tape/disk, nom
+// pour la cartouche qui n'a pas de closer), maintenu par TOUS les chemins (boot CLI,
+// launcher, menu) : aucune config parallèle à resynchroniser, aucun média fantôme
+// possible après une éjection/montage. Ne porte que les Params LiveMutable File (cf.
+// uimodel.LiveMediaConfig) ; les clés boot-only (rom) sont hors overlay, donc absentes.
+func (a *App) CurrentConfig() machine.Config {
+	mounted := map[string]string{}
+	if a.tapeCloser != nil {
+		mounted[machine.KeyTape] = a.tapeName
+	}
+	if a.diskCloser != nil {
+		mounted[machine.KeyDisk] = a.diskName
+	}
+	// La cartouche n'a pas de closer : son nom est le seul témoin de montage. Garde le
+	// même idiome qu'updateTitle (`!= "" && != "."`) car SetMediaNames stocke
+	// filepath.Base("") == "." quand aucun --cart au boot CLI : sans ce garde, une
+	// cartouche fantôme {cart:"."} serait projetée.
+	if a.cartName != "" && a.cartName != "." {
+		mounted[machine.KeyCart] = a.cartName
+	}
+	return uimodel.LiveMediaConfig(a.currentProfile, mounted)
+}
+
 // updateLauncher anime l'UI du launcher et, à l'action « Démarrer », instancie la
 // machine puis bascule en mode émulateur. L'ordre est IMPÉRATIF (revue de plan
 // Codex, P1) : attacher la machine → MONTER les médias AVANT host.Start() (un
@@ -486,7 +527,7 @@ func (a *App) updateLauncher() error {
 		a.launcher.setError(err)
 		return nil
 	}
-	a.attachMachine(m, req.profile.Family)
+	a.attachMachine(m, req.profile)
 	if rom, _ := cfg[machine.KeyROM].(string); rom != "" {
 		a.romName = filepath.Base(rom)
 	}
