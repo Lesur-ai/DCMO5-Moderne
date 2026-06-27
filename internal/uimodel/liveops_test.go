@@ -132,3 +132,106 @@ func TestLiveMediaOps_OrderFollowsParams(t *testing.T) {
 		t.Errorf("ordre = [%s, %s], want [tape, cart]", ops[0].Key, ops[1].Key)
 	}
 }
+
+// --- LiveMediaConfig : projection état monté observé → config média live ---
+
+// TestLiveMediaConfig_OnlyMountedMedia : seuls les médias présents dans `mounted` (donc
+// réellement montés) apparaissent, avec leur valeur. Un média non monté n'est PAS projeté.
+func TestLiveMediaConfig_OnlyMountedMedia(t *testing.T) {
+	p := profilMedia()
+	mounted := map[string]string{machine.KeyTape: "aigle.k7"} // disk/cart non montés
+
+	cfg := uimodel.LiveMediaConfig(p, mounted)
+	if len(cfg) != 1 {
+		t.Fatalf("cfg = %d clés, want 1 : %+v", len(cfg), cfg)
+	}
+	if cfg[machine.KeyTape] != "aigle.k7" {
+		t.Errorf("cfg[tape] = %v, want \"aigle.k7\"", cfg[machine.KeyTape])
+	}
+}
+
+// TestLiveMediaConfig_NothingMounted : aucun média monté → config vide (pas de média fantôme).
+func TestLiveMediaConfig_NothingMounted(t *testing.T) {
+	if cfg := uimodel.LiveMediaConfig(profilMedia(), map[string]string{}); len(cfg) != 0 {
+		t.Errorf("rien monté : cfg = %+v, want vide", cfg)
+	}
+}
+
+// TestLiveMediaConfig_EmptyNameAbsent : une clé présente mais de NOM VIDE n'est pas un média
+// réellement monté → non projetée. Garde-fou contre un témoin de montage dégénéré côté
+// appelant (un média monté a toujours un nom non vide).
+func TestLiveMediaConfig_EmptyNameAbsent(t *testing.T) {
+	p := profilMedia()
+	mounted := map[string]string{machine.KeyTape: "", machine.KeyDisk: "d.fd"}
+
+	cfg := uimodel.LiveMediaConfig(p, mounted)
+	if _, present := cfg[machine.KeyTape]; present {
+		t.Errorf("clé média à nom vide projetée à tort : %+v", cfg)
+	}
+	if len(cfg) != 1 || cfg[machine.KeyDisk] != "d.fd" {
+		t.Errorf("cfg = %+v, want {disk:d.fd} seul", cfg)
+	}
+}
+
+// TestLiveMediaConfig_BootOnlyExcluded : la ROM (ParamFile mais boot-only, non LiveMutable)
+// ne doit JAMAIS apparaître, même si elle figure dans `mounted` — l'overlay ne projette
+// que le live, pas un réglage boot-only éditable à tort.
+func TestLiveMediaConfig_BootOnlyExcluded(t *testing.T) {
+	p := profilMedia()
+	mounted := map[string]string{machine.KeyROM: "mo5.rom", machine.KeyTape: "x.k7"}
+
+	cfg := uimodel.LiveMediaConfig(p, mounted)
+	if _, present := cfg[machine.KeyROM]; present {
+		t.Errorf("rom boot-only projetée à tort : %+v", cfg)
+	}
+	if len(cfg) != 1 || cfg[machine.KeyTape] != "x.k7" {
+		t.Errorf("cfg = %+v, want {tape:x.k7} seul", cfg)
+	}
+}
+
+// TestLiveMediaConfig_LiveNonFileExcluded : un Param LiveMutable NON-File (ex. turbo bool)
+// présent dans `mounted` ne doit pas être projeté — LiveMediaConfig ne porte que des médias
+// fichier, pas des réglages live arbitraires.
+func TestLiveMediaConfig_LiveNonFileExcluded(t *testing.T) {
+	p := machine.MachineProfile{
+		ID: "test",
+		Params: []machine.Param{
+			{Key: "turbo", Kind: machine.ParamBool, LiveMutable: true}, // live mais pas un fichier
+			{Key: machine.KeyTape, Kind: machine.ParamFile, LiveMutable: true},
+		},
+	}
+	mounted := map[string]string{"turbo": "true", machine.KeyTape: "x.k7"}
+
+	cfg := uimodel.LiveMediaConfig(p, mounted)
+	if _, present := cfg["turbo"]; present {
+		t.Errorf("réglage live non-File projeté à tort : %+v", cfg)
+	}
+	if len(cfg) != 1 || cfg[machine.KeyTape] != "x.k7" {
+		t.Errorf("cfg = %+v, want {tape:x.k7} seul", cfg)
+	}
+}
+
+// TestLiveMediaConfig_UnknownKeyIgnored : une clé de `mounted` que le profil ne déclare
+// PAS est ignorée (garde-fou de concordance profil/état observé).
+func TestLiveMediaConfig_UnknownKeyIgnored(t *testing.T) {
+	p := profilMedia()
+	mounted := map[string]string{"floppy5": "z.img", machine.KeyDisk: "d.fd"}
+
+	cfg := uimodel.LiveMediaConfig(p, mounted)
+	if _, present := cfg["floppy5"]; present {
+		t.Errorf("clé hors profil projetée : %+v", cfg)
+	}
+	if len(cfg) != 1 || cfg[machine.KeyDisk] != "d.fd" {
+		t.Errorf("cfg = %+v, want {disk:d.fd} seul", cfg)
+	}
+}
+
+// TestLiveMediaConfig_ZeroProfile : profil zéro-value (Params nil, ex. ByID échoué) → config
+// VIDE quelle que soit `mounted`. Sans schéma, rien ne peut être projeté comme média live :
+// c'est le comportement sûr (pas de média demandé reclassé monté faute de profil).
+func TestLiveMediaConfig_ZeroProfile(t *testing.T) {
+	mounted := map[string]string{machine.KeyTape: "x.k7", machine.KeyDisk: "d.fd"}
+	if cfg := uimodel.LiveMediaConfig(machine.MachineProfile{}, mounted); len(cfg) != 0 {
+		t.Errorf("profil zéro : cfg = %+v, want vide", cfg)
+	}
+}

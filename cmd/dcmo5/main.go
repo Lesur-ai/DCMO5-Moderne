@@ -218,9 +218,17 @@ func main() {
 		store.Save(cfg)
 	}
 
-	// Boot direct CLI = MO5 uniquement (le switch ci-dessus rejette les autres) :
-	// on passe explicitement FamilyMO comme géométrie d'affichage.
-	a := app.New(m, machine.FamilyMO)
+	// Boot direct CLI = MO5 uniquement (le switch ci-dessus rejette les autres). On
+	// résout le VRAI profil MO5 dans le registre : il porte la famille (géométrie
+	// d'affichage) ET le schéma de Params consommé par l'overlay. Garanti enregistré
+	// par l'import de internal/machine/mo5 (init) ; son absence serait un bug de build,
+	// d'où l'échec net plutôt qu'une dégradation silencieuse.
+	prof, ok := machine.ByID("mo5")
+	if !ok {
+		fmt.Fprintln(os.Stderr, "dcmo5: profil \"mo5\" introuvable dans le registre")
+		os.Exit(1)
+	}
+	a := app.New(m, prof)
 	a.SetROMStatus(romMissing)
 	a.SetMediaNames(*romPath, *tapePath, *diskPath, *cartPath)
 	a.SetStartupMediaClosers(tapeCloser, diskCloser)
