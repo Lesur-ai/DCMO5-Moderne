@@ -379,11 +379,24 @@ func (a *App) updateOverlay() error {
 	if a.overlayUI.quit {
 		return ErrUserQuit
 	}
+	// Reset / Init prog : commande Host PUIS fermeture de l'overlay (reprise). Sans la
+	// fermeture, l'overlay reste ouvert = émulation gelée : la commande est bien appliquée
+	// (le Host traite les commandes même en pause) mais le framebuffer gelé ne reflète pas
+	// le redémarrage tant qu'on ne reprend pas — l'effet semblait alors différé à la sortie.
+	// On ferme donc (parité menu v1, qui fait host.Reset()+menu.Close()) : l'effet est
+	// immédiatement visible. Les éditions média en cours (next) sont abandonnées, comme pour
+	// une annulation — Reset/Init prog sont une intention distincte du montage de médias.
 	if a.overlayUI.takeReset() {
 		a.host.Reset()
+		a.overlay.Close()
+		a.updateTitle()
+		return nil
 	}
 	if a.overlayUI.takeInitprog() {
 		a.host.Initprog()
+		a.overlay.Close()
+		a.updateTitle()
+		return nil
 	}
 	if a.overlayUI.takeApply() {
 		a.applyLiveOps(a.overlayUI.next)
