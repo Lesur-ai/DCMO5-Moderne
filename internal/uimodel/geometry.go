@@ -52,3 +52,52 @@ func CursorToFramebuffer(family machine.Family, fw, fh, x, y int) (fbX, fbY int)
 	logW, logH, _, _ := DisplayGeometry(family, fw, fh)
 	return x * fw / logW, y * fh / logH
 }
+
+// EmulatorLayoutSize donne la taille LOGIQUE que ebiten.Game.Layout doit renvoyer en
+// mode émulateur, selon que l'overlay (lot #117 Inc 3b) est ouvert ou non :
+//
+//   - overlay FERMÉ : repère d'affichage habituel de la famille (DisplayGeometry logique),
+//     qu'Ebitengine met à l'échelle de la fenêtre — comportement actuel, inchangé ;
+//   - overlay OUVERT : repère FENÊTRE réel (outW,outH), pour que l'UI ebitenui se
+//     positionne et se dessine au pixel près. Le framebuffer gelé est alors redessiné
+//     dessous en aspect-fit (cf. FramebufferAspectFit), l'overlay par-dessus.
+//
+// Fonction PURE (testée en CI) ; l'appel vit dans App.Layout (internal/app, hors CI).
+func EmulatorLayoutSize(overlayOpen bool, family machine.Family, fw, fh, outW, outH int) (w, h int) {
+	if overlayOpen {
+		return outW, outH
+	}
+	logW, logH, _, _ := DisplayGeometry(family, fw, fh)
+	return logW, logH
+}
+
+// FramebufferAspectFit calcule le rectangle de destination (x,y,w,h) où dessiner le
+// framebuffer (fw×fh) CENTRÉ dans une surface outW×outH, en préservant le ratio d'aspect
+// d'AFFICHAGE de la famille — celui de DisplayGeometry (logW:logH), PAS le ratio brut du
+// framebuffer : le gate-array a un framebuffer 672×216 mais un aspect d'affichage 672×432.
+// Le reste de la surface est du letterbox (barres) à la charge de l'appelant.
+//
+// Usage : overlay ouvert, Layout passe au repère fenêtre réel (cf. EmulatorLayoutSize) et
+// l'émulation est gelée ; on redessine le dernier framebuffer en aspect-fit sous l'overlay.
+// L'appelant applique Scale(w/fw, h/fh) puis Translate(x,y) (échelle par axe : le gate-array
+// étire ainsi ×2 en hauteur, comme en plein écran).
+//
+// Fonction PURE (testée en CI) ; le câblage Draw vit dans internal/app (hors CI).
+func FramebufferAspectFit(family machine.Family, fw, fh, outW, outH int) (x, y, w, h int) {
+	logW, logH, _, _ := DisplayGeometry(family, fw, fh)
+	if logW <= 0 || logH <= 0 || outW <= 0 || outH <= 0 {
+		return 0, 0, 0, 0 // surface ou géométrie dégénérée : rien à dessiner
+	}
+	// Plus grand rectangle d'aspect logW:logH tenant dans outW×outH. Comparaison en
+	// produits croisés (entiers, pas de flottant) : outW/outH ⋛ logW/logH.
+	if outW*logH <= outH*logW {
+		w = outW // contraint en largeur ; hauteur réduite à l'aspect
+		h = outW * logH / logW
+	} else {
+		h = outH // contraint en hauteur ; largeur réduite à l'aspect
+		w = outH * logW / logH
+	}
+	x = (outW - w) / 2
+	y = (outH - h) / 2
+	return x, y, w, h
+}

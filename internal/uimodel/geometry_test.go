@@ -93,3 +93,98 @@ func TestCursorToFramebuffer_GateArray_HalvesY(t *testing.T) {
 		}
 	}
 }
+
+// --- EmulatorLayoutSize : bascule du repère Layout selon l'ouverture de l'overlay ---
+
+func TestEmulatorLayoutSize_OverlayClosed_DisplayGeometry(t *testing.T) {
+	// Overlay fermé : Layout renvoie le repère logique d'affichage de la famille,
+	// INDÉPENDAMMENT de la taille fenêtre (Ebitengine met à l'échelle).
+	if w, h := uimodel.EmulatorLayoutSize(false, machine.FamilyMO, mo5FW, mo5FH, 1280, 800); w != 336 || h != 216 {
+		t.Errorf("MO5 overlay fermé = %dx%d, want logique 336x216 (DisplayGeometry)", w, h)
+	}
+	if w, h := uimodel.EmulatorLayoutSize(false, machine.FamilyTOGateArray, gaFW, gaFH, 1280, 800); w != 672 || h != 432 {
+		t.Errorf("gate-array overlay fermé = %dx%d, want logique 672x432 (DisplayGeometry)", w, h)
+	}
+}
+
+func TestEmulatorLayoutSize_OverlayOpen_WindowFrame(t *testing.T) {
+	// Overlay ouvert : Layout passe au repère FENÊTRE réel (1:1), pour un rendu
+	// ebitenui au pixel près — quelle que soit la famille.
+	for _, fam := range []machine.Family{machine.FamilyMO, machine.FamilyTOGateArray} {
+		if w, h := uimodel.EmulatorLayoutSize(true, fam, mo5FW, mo5FH, 800, 600); w != 800 || h != 600 {
+			t.Errorf("famille %d overlay ouvert = %dx%d, want repère fenêtre 800x600", fam, w, h)
+		}
+	}
+}
+
+// --- FramebufferAspectFit : rectangle d'aspect-fit centré ---
+
+func TestFramebufferAspectFit(t *testing.T) {
+	cases := []struct {
+		name                       string
+		family                     machine.Family
+		fw, fh, outW, outH         int
+		wantX, wantY, wantW, wantH int
+	}{
+		// Surface = aspect d'affichage exact → remplit tout, sans letterbox.
+		{"MO5 fit exact", machine.FamilyMO, mo5FW, mo5FH, 672, 432, 0, 0, 672, 432},
+		// Gate-array : framebuffer 672×216 mais aspect d'affichage 672×432 → même rect
+		// que le MO5 (preuve qu'on utilise DisplayGeometry, pas le ratio brut 672:216).
+		{"gate-array fit exact", machine.FamilyTOGateArray, gaFW, gaFH, 672, 432, 0, 0, 672, 432},
+		// Fenêtre trop large → barres verticales (letterbox horizontal), centré.
+		{"MO5 large → letterbox H", machine.FamilyMO, mo5FW, mo5FH, 1000, 432, 164, 0, 672, 432},
+		// Fenêtre trop haute → barres horizontales (letterbox vertical), centré.
+		{"MO5 haute → letterbox V", machine.FamilyMO, mo5FW, mo5FH, 672, 600, 0, 84, 672, 432},
+		// Surface plus petite : on réduit en préservant l'aspect (672:432 → 336:216).
+		{"MO5 réduit", machine.FamilyMO, mo5FW, mo5FH, 336, 216, 0, 0, 336, 216},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			x, y, w, h := uimodel.FramebufferAspectFit(c.family, c.fw, c.fh, c.outW, c.outH)
+			if x != c.wantX || y != c.wantY || w != c.wantW || h != c.wantH {
+				t.Errorf("got (%d,%d,%d,%d), want (%d,%d,%d,%d)", x, y, w, h, c.wantX, c.wantY, c.wantW, c.wantH)
+			}
+			// Invariants : le rectangle tient dans la surface et y est centré.
+			if w > c.outW || h > c.outH {
+				t.Errorf("rect %dx%d déborde la surface %dx%d", w, h, c.outW, c.outH)
+			}
+			if x < 0 || y < 0 || x*2+w > c.outW+1 || y*2+h > c.outH+1 {
+				t.Errorf("rect non centré : x=%d y=%d w=%d h=%d dans %dx%d", x, y, w, h, c.outW, c.outH)
+			}
+		})
+	}
+}
+
+// TestFramebufferAspectFit_PreservesDisplayAspect : sur une surface quelconque, le rect
+// rendu conserve l'aspect d'affichage de la famille À L'ARRONDI ENTIER PRÈS — borne exacte
+// |w·logH − h·logW| < max(logW,logH), car une seule des deux dimensions subit la troncature
+// d'une division entière. C'est ce qui garantit qu'aucun écrasement n'est réintroduit quand
+// l'overlay est ouvert (contrairement au bug #147 où le TO8D était aplati).
+func TestFramebufferAspectFit_PreservesDisplayAspect(t *testing.T) {
+	for _, fam := range []machine.Family{machine.FamilyMO, machine.FamilyTOGateArray} {
+		logW, logH, _, _ := uimodel.DisplayGeometry(fam, gaFW, gaFH) // gaFW/FH = framebuffer max
+		_, _, w, h := uimodel.FramebufferAspectFit(fam, gaFW, gaFH, 1337, 911)
+		skew := w*logH - h*logW // == 0 en aspect exact ; |skew| borné par l'arrondi
+		if skew < 0 {
+			skew = -skew
+		}
+		bound := logW
+		if logH > bound {
+			bound = logH
+		}
+		if skew >= bound {
+			t.Errorf("famille %d : rect %dx%d s'écarte de l'aspect d'affichage %dx%d de %d (≥ %d)",
+				fam, w, h, logW, logH, skew, bound)
+		}
+	}
+}
+
+// TestFramebufferAspectFit_Degenerate : surface ou géométrie nulle → rect nul (rien à
+// dessiner), pas de division par zéro.
+func TestFramebufferAspectFit_Degenerate(t *testing.T) {
+	for _, c := range []struct{ outW, outH int }{{0, 432}, {672, 0}, {0, 0}} {
+		if x, y, w, h := uimodel.FramebufferAspectFit(machine.FamilyMO, mo5FW, mo5FH, c.outW, c.outH); x|y|w|h != 0 {
+			t.Errorf("surface %dx%d : rect = (%d,%d,%d,%d), want (0,0,0,0)", c.outW, c.outH, x, y, w, h)
+		}
+	}
+}
