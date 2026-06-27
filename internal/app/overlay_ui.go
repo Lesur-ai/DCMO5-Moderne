@@ -45,9 +45,10 @@ type overlayUI struct {
 	root  *widget.Container
 	model *overlay.Model // état (Main/Browse) ; partagé avec App.overlay (PUR, sans Host)
 
-	profile  machine.MachineProfile // schéma consommé par DescribeLive
-	lister   uimodel.Lister         // listage de répertoire (vue Browse)
-	mediaDir string                 // répertoire de départ du navigateur
+	profile  machine.MachineProfile   // schéma consommé par DescribeLive
+	profiles []machine.MachineProfile // machines enregistrées (cible du bouton « Changer de machine »)
+	lister   uimodel.Lister           // listage de répertoire (vue Browse)
+	mediaDir string                   // répertoire de départ du navigateur
 
 	// next : config de travail, clone de l'état RÉELLEMENT monté (App.CurrentConfig) au
 	// moment de l'ouverture, éditée dans l'overlay (sélection / effacement de média). Elle
@@ -71,13 +72,19 @@ type overlayUI struct {
 	initprog bool
 	quit     bool
 
+	// Changement de machine (Inc 5) : la vue ConfirmSwitch arme switchTarget+switchArmed ;
+	// App.updateOverlay consomme via takeSwitch et exécute le switch.
+	switchTarget machine.MachineProfile
+	switchArmed  bool
+
 	*uiKit
 }
 
 // newOverlayUI crée l'arbre (racine transparente). model est l'état partagé avec l'App
-// (overlay.Model, pur) ; lister sert au navigateur de fichiers.
-func newOverlayUI(profile machine.MachineProfile, model *overlay.Model, lister uimodel.Lister, kit *uiKit) *overlayUI {
-	o := &overlayUI{profile: profile, model: model, lister: lister, uiKit: kit}
+// (overlay.Model, pur) ; lister sert au navigateur de fichiers ; profiles est la liste des
+// machines enregistrées (pour le bouton « Changer de machine »).
+func newOverlayUI(profile machine.MachineProfile, profiles []machine.MachineProfile, model *overlay.Model, lister uimodel.Lister, kit *uiKit) *overlayUI {
+	o := &overlayUI{profile: profile, profiles: profiles, model: model, lister: lister, uiKit: kit}
 	// Racine TRANSPARENTE (pas de BackgroundImage) : le framebuffer gelé + le voile
 	// dessinés par App.drawOverlay restent visibles autour de la carte centrée.
 	o.root = widget.NewContainer(
@@ -101,6 +108,15 @@ func (o *overlayUI) open(profile machine.MachineProfile, mediaDir string, cur ma
 func (o *overlayUI) takeApply() bool    { v := o.apply; o.apply = false; return v }
 func (o *overlayUI) takeReset() bool    { v := o.reset; o.reset = false; return v }
 func (o *overlayUI) takeInitprog() bool { v := o.initprog; o.initprog = false; return v }
+
+// takeSwitch consomme la demande de changement de machine (cible + drapeau, lus une fois).
+func (o *overlayUI) takeSwitch() (machine.MachineProfile, bool) {
+	if !o.switchArmed {
+		return machine.MachineProfile{}, false
+	}
+	o.switchArmed = false
+	return o.switchTarget, true
+}
 
 // overlayCard : variante COMPACTE de uiKit.card(), dimensionnée pour la fenêtre émulateur
 // (≠ launcher). Padding et espacements réduits pour que la carte tienne avec des marges
@@ -134,9 +150,12 @@ func (o *overlayUI) rebuild() {
 	o.browseList = nil
 	card := o.overlayCard()
 	browse := o.model.State() == overlay.StateBrowse
-	if browse {
+	switch o.model.State() {
+	case overlay.StateBrowse:
 		o.buildBrowser(card)
-	} else {
+	case overlay.StateConfirmSwitch:
+		o.buildConfirmSwitch(card)
+	default:
 		o.buildMain(card)
 	}
 	o.root.AddChild(card)
@@ -222,6 +241,17 @@ func (o *overlayUI) buildMain(card *widget.Container) {
 	sys.AddChild(o.button("Quitter", o.btnImg, o.txtColor, func() { o.quit = true }))
 	card.AddChild(sys)
 
+	// Machine : bouton « Changer de machine » → vue de confirmation. Affiché seulement s'il
+	// existe une AUTRE machine (NextProfile, pur). Avec MO5/TO8D, bascule vers l'autre.
+	if _, ok := overlay.NextProfile(o.profiles, o.profile.ID); ok {
+		card.AddChild(o.separator())
+		card.AddChild(o.sectionLabel("Machine"))
+		card.AddChild(o.button("Changer de machine", o.btnImg, o.txtColor, func() {
+			o.model.GoConfirmSwitch()
+			o.rebuild()
+		}))
+	}
+
 	if o.errText != "" {
 		card.AddChild(widget.NewText(
 			widget.TextOpts.Text("⚠  "+o.errText, o.faceLabel, colDanger),
@@ -233,6 +263,56 @@ func (o *overlayUI) buildMain(card *widget.Container) {
 	// Action primaire : applique les changements média de next (montage/éjection) puis
 	// reprend l'émulation. Aucun changement → aucune op (LiveMediaOps), simple reprise.
 	card.AddChild(o.primaryButton("Appliquer et reprendre", func() { o.apply = true }))
+}
+
+// buildConfirmSwitch rend la vue de confirmation du changement de machine : la cible
+// (NextProfile, pur), un avertissement (les médias seront éjectés), puis Confirmer (arme
+// le signal switch) / Annuler (retour Main). Si aucune cible (ne devrait pas arriver depuis
+// le bouton), on retombe sur Main.
+func (o *overlayUI) buildConfirmSwitch(card *widget.Container) {
+	target, ok := overlay.NextProfile(o.profiles, o.profile.ID)
+	if !ok {
+		o.model.GoMain()
+		o.buildMain(card)
+		return
+	}
+	header := widget.NewContainer(
+		widget.ContainerOpts.Layout(widget.NewRowLayout(
+			widget.RowLayoutOpts.Direction(widget.DirectionVertical),
+			widget.RowLayoutOpts.Spacing(2),
+		)),
+	)
+	header.AddChild(widget.NewText(widget.TextOpts.Text("Changer de machine", o.faceTitle, colText)))
+	header.AddChild(widget.NewText(widget.TextOpts.Text("Passer de "+o.profile.Name+" à "+target.Name, o.faceLabel, colMuted)))
+	card.AddChild(header)
+	card.AddChild(o.separator())
+	card.AddChild(widget.NewText(
+		widget.TextOpts.Text("La machine courante sera réinitialisée et les médias montés éjectés.", o.faceLabel, colMuted),
+		widget.TextOpts.MaxWidth(overlayCardWidth-40),
+	))
+	if o.errText != "" {
+		card.AddChild(widget.NewText(
+			widget.TextOpts.Text("⚠  "+o.errText, o.faceLabel, colDanger),
+			widget.TextOpts.MaxWidth(overlayCardWidth-40),
+		))
+	}
+	card.AddChild(o.separator())
+	actions := widget.NewContainer(
+		widget.ContainerOpts.Layout(widget.NewRowLayout(
+			widget.RowLayoutOpts.Direction(widget.DirectionHorizontal),
+			widget.RowLayoutOpts.Spacing(8),
+		)),
+	)
+	actions.AddChild(o.button("« Annuler", o.btnImg, o.txtColor, func() {
+		o.model.GoMain()
+		o.rebuild()
+	}))
+	card.AddChild(actions)
+	// Action primaire : confirmer la bascule vers la cible.
+	card.AddChild(o.primaryButton("Passer à "+target.Name, func() {
+		o.switchTarget = target
+		o.switchArmed = true
+	}))
 }
 
 // mediaField rend un Param File média comme un champ éditable (calqué sur launcher.fileField,

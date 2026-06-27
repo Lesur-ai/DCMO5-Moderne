@@ -230,6 +230,7 @@ func main() {
 	}
 	a := app.New(m, prof)
 	a.SetROMStatus(romMissing)
+	a.SetROMResolver(romResolverFor(store)) // ROM des autres machines (changement à chaud, Inc 5)
 	a.SetMediaNames(*romPath, *tapePath, *diskPath, *cartPath)
 	a.SetStartupMediaClosers(tapeCloser, diskCloser)
 	if *noAudio {
@@ -252,6 +253,23 @@ func main() {
 
 // runLauncher démarre l'application en mode launcher : liste des profils enregistrés
 // (plus le profil de démonstration si DCMO5_UI_DEMO est défini), chemin ROM mémorisé
+// romResolverFor construit un résolveur de ROM système par machine à partir du Store de
+// config (relu à la demande). Injecté dans l'App (SetROMResolver) pour le changement de
+// machine à chaud : au switch, l'App résout la ROM de la cible via sa config persistée. Une
+// machine jamais lancée renvoie "" → le switch échoue proprement (ROM requise manquante).
+func romResolverFor(store *config.Store) func(string) string {
+	return func(id string) string {
+		if store == nil {
+			return ""
+		}
+		c, err := store.Load()
+		if err != nil {
+			return ""
+		}
+		return c.ROMFor(id)
+	}
+}
+
 // pré-rempli, répertoire de départ = répertoire courant. La machine est instanciée à
 // l'action « Démarrer » (cf. internal/app.updateLauncher).
 func runLauncher(initial machine.Config, noAudio bool, store *config.Store, machineID string, explicitMachine bool) {
@@ -272,6 +290,7 @@ func runLauncher(initial machine.Config, noAudio bool, store *config.Store, mach
 		dir = wd
 	}
 	a := app.NewLauncher(profiles, dir, noAudio, initial, selected)
+	a.SetROMResolver(romResolverFor(store)) // ROM des autres machines (changement à chaud, Inc 5)
 	// Persiste la ROM choisie au launcher (comme le chemin CLI direct le fait plus
 	// haut), pour que « dcmo5 » seul la propose en pré-remplissage au lancement suivant.
 	// Seul le chemin ROM est mémorisé, par cohérence avec le chemin CLI.
