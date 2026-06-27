@@ -89,6 +89,33 @@ func TestLiveMediaOps_UnknownLiveKeyUnsupported(t *testing.T) {
 	}
 }
 
+// TestLiveMediaOps_NonStringMediaValueUnsupported : une clé média (tape/disk/cart) dont
+// la valeur n'est PAS une string (bool, int, nil…) est une anomalie. Elle ne doit JAMAIS
+// produire d'éjection silencieuse (le bug qu'un `Value.(string)` raté provoquerait : ""
+// → OpEject) ni de montage : seulement OpUnsupported, à signaler.
+func TestLiveMediaOps_NonStringMediaValueUnsupported(t *testing.T) {
+	p := profilMedia()
+	cases := map[string]any{
+		"bool":   true,
+		"int":    123,
+		"nilVal": nil, // clé présente mais valeur nil : anomalie, pas une éjection
+	}
+	for name, bad := range cases {
+		t.Run(name, func(t *testing.T) {
+			old := machine.Config{machine.KeyTape: "/jeux/aigle.k7"} // un média était monté…
+			next := machine.Config{machine.KeyTape: bad}             // …remplacé par une valeur invalide
+
+			ops := uimodel.LiveMediaOps(p, old, next)
+			if len(ops) != 1 {
+				t.Fatalf("ops = %d, want 1 : %+v", len(ops), ops)
+			}
+			if ops[0].Kind != uimodel.OpUnsupported || ops[0].Key != machine.KeyTape {
+				t.Errorf("op = %+v, want Unsupported tape (ni Mount ni Eject silencieux)", ops[0])
+			}
+		})
+	}
+}
+
 // TestLiveMediaOps_OrderFollowsParams : plusieurs médias changés → ops dans l'ordre des
 // Params du profil (déterminisme, hérité de DiffLive).
 func TestLiveMediaOps_OrderFollowsParams(t *testing.T) {
