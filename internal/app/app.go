@@ -23,7 +23,6 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/media"
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
-	"github.com/Lesur-ai/dcmo5/internal/menu"
 	"github.com/Lesur-ai/dcmo5/internal/overlay"
 	"github.com/Lesur-ai/dcmo5/internal/uimodel"
 	"github.com/hajimehoshi/ebiten/v2"
@@ -92,12 +91,10 @@ type App struct {
 	onStart     func(profileID string, cfg machine.Config) // hook de persistance config à l'action « Démarrer » (mode launcher)
 	hostStarted bool                                       // host.Start() a été appelé (garde le Stop différé)
 
-	// Menu de pilotage (v1, en cours de remplacement par l'overlay — lot #117 Inc 3b).
-	menu *menu.Model
 	// overlay : machine d'état PURE de l'overlay Échap (zéro-value = fermé, aucun
-	// constructeur). Ouvert via la touche debug F9 (la bascule d'Échap arrive en 3b.4,
-	// avec le retrait du menu v1). overlayUI est l'arbre ebitenui, construit paresseusement
-	// au 1er affichage (besoin du profil) ; nil tant que l'overlay n'a jamais été ouvert.
+	// constructeur). Ouvert/fermé par Échap (cf. Update). overlayUI est l'arbre ebitenui,
+	// construit paresseusement à la 1ʳᵉ ouverture (besoin du profil) ; nil tant que
+	// l'overlay n'a jamais été ouvert.
 	overlay   overlay.Model
 	overlayUI *overlayUI
 	mediaDir  string // répertoire de départ du navigateur de fichiers
@@ -128,7 +125,6 @@ type App struct {
 // cette identité statique, d'où le passage explicite du profil.
 func New(m machine.Machine, profile machine.MachineProfile) *App {
 	a := &App{mediaDir: startMediaDir(os.Getwd, os.UserHomeDir)}
-	a.menu = menu.NewModel(osLister)
 	a.attachMachine(m, profile)
 	return a
 }
@@ -142,7 +138,6 @@ func New(m machine.Machine, profile machine.MachineProfile) *App {
 // chemin ROM mémorisé en config). noAudio diffère/inhibe l'audio.
 func NewLauncher(profiles []machine.MachineProfile, mediaDir string, noAudio bool, initial machine.Config, selected int) *App {
 	a := &App{mediaDir: mediaDir, audioDisabled: noAudio}
-	a.menu = menu.NewModel(osLister)
 	a.launcher = newLauncher(profiles, mediaDir, osListerUI, initial, selected)
 	return a
 }
@@ -177,7 +172,7 @@ func (a *App) attachMachine(m machine.Machine, profile machine.MachineProfile) {
 	a.liveKeys = make(map[ebiten.Key]liveKey)
 }
 
-// startMediaDir choisit le répertoire de départ du navigateur du menu : le
+// startMediaDir choisit le répertoire de départ du navigateur de fichiers (overlay) : le
 // répertoire de travail courant en priorité (intuitif quand on lance le binaire
 // depuis le dossier du projet, où vivent rom/ et software/), avec repli sur le
 // répertoire personnel puis « . ». Les sources (getwd/home) sont injectées pour
@@ -190,19 +185,6 @@ func startMediaDir(getwd, home func() (string, error)) string {
 		return h
 	}
 	return "."
-}
-
-// osLister liste un répertoire réel pour le navigateur du menu.
-func osLister(dir string) ([]menu.Entry, error) {
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]menu.Entry, 0, len(ents))
-	for _, e := range ents {
-		out = append(out, menu.Entry{Name: e.Name(), IsDir: e.IsDir()})
-	}
-	return out, nil
 }
 
 // SetROMStatus indique si la ROM est absente (affichage d'avertissement).
@@ -226,68 +208,52 @@ func (a *App) SetExec(seq string, delaySeconds float64) {
 
 // SetStartupMediaClosers confie à l'App les descripteurs des médias ouverts au
 // démarrage (CLI), pour qu'ils soient fermés proprement si on les remplace
-// depuis le menu (évite une fuite du descripteur initial). nil est accepté.
+// depuis l'overlay (évite une fuite du descripteur initial). nil est accepté.
 func (a *App) SetStartupMediaClosers(tape, disk io.Closer) {
 	a.tapeCloser = tape
 	a.diskCloser = disk
 }
 
 // Update est appelé à chaque tick (60 Hz) : il publie les entrées vers le Host
-// et pilote le menu. L'émulation, elle, avance dans la goroutine du Host.
+// et pilote l'overlay. L'émulation, elle, avance dans la goroutine du Host.
 func (a *App) Update() error {
 	// Mode launcher : aucune émulation (host==nil). On rend/anime l'UI ebitenui et,
 	// si l'utilisateur a validé « Démarrer », on instancie la machine. Branché TOUT
-	// EN HAUT, avant tout accès à menu/host/keys (qui sont nil/inactifs ici).
+	// EN HAUT, avant tout accès à overlay/host/keys (qui sont nil/inactifs ici).
 	if a.launcher != nil {
 		return a.updateLauncher()
 	}
 
 	// OVERLAY OUVERT : capture STRICTE. Branché TOUT EN HAUT, return immédiat → aucune
-	// entrée (Échap menu, F3, F5, collage, touches live, crayon) n'atteint le cœur tant
+	// entrée (Échap, F3, F5, collage, touches live, crayon) n'atteint le cœur tant
 	// que l'overlay est ouvert. La contrainte #3 (revue Codex) est satisfaite par la
 	// STRUCTURE (ce return), pas par des gardes éparpillés.
 	if a.overlay.IsOpen() {
 		if err := a.updateOverlay(); err != nil {
 			return err
 		}
+		if !a.overlay.IsOpen() {
+			// L'overlay vient de se fermer (Échap/Reset/Init prog/Appliquer) : PURGER l'état
+			// d'entrée avant de reprendre. Sinon le Host garderait l'InputState d'AVANT
+			// l'ouverture pendant ~1 frame (une touche relâchée pendant l'overlay resterait
+			// « pressée »). Purge = tout relâché : jamais de touche fantôme ; une touche
+			// réellement tenue se ré-affirme au tick suivant (republication normale).
+			a.host.SetInput(emu.InputState{})
+		}
 		a.syncPause() // une action (fermeture) a pu changer l'état
 		return nil
 	}
 
-	// ÉCHAP pilote le menu : ouvre s'il est fermé, remonte d'un niveau sinon.
+	// ÉCHAP OUVRE l'overlay. L'overlay est forcément FERMÉ ici : s'il était ouvert, le
+	// court-circuit en haut de Update aurait rendu la main (c'est updateOverlay qui gère
+	// Échap pour remonter/fermer). On construit/rafraîchit l'arbre ebitenui sur l'état média
+	// courant et on gèle l'émulation AU MÊME TICK que l'ouverture (sinon une frame avance).
 	if inputJustPressed(ebiten.KeyEscape) {
-		if a.menu.IsOpen() {
-			a.menu.Back()
-		} else {
-			a.menu.Toggle()
-		}
+		a.overlay.Open()
+		a.openOverlayUI()
 		a.syncPause()
 		a.updateTitle()
-	}
-
-	// Menu ouvert : il capte toutes les entrées et suspend l'émulation.
-	if a.menu.IsOpen() {
-		err := a.updateMenu()
-		a.syncPause() // une action a pu fermer le menu
-		if err != nil {
-			return err
-		}
-		return nil
-	}
-
-	// DEBUG (3b.1) : F9 ouvre l'overlay pour valider à l'œil le rendu gelé + voile + la
-	// capture stricte, SANS toucher au menu v1 (toujours sur Échap). Atteint uniquement
-	// quand le menu est fermé (le gate ci-dessus a déjà rendu la main sinon) et l'overlay
-	// fermé (le court-circuit en haut de Update a rendu la main sinon) → les deux ne
-	// peuvent JAMAIS être ouverts en même temps. F9 + ce bloc disparaissent en 3b.4, où
-	// Échap pilotera l'overlay et le menu v1 sera retiré.
-	if inputJustPressed(ebiten.KeyF9) {
-		a.overlay.Toggle()
-		if a.overlay.IsOpen() {
-			a.openOverlayUI() // construit/rafraîchit l'arbre ebitenui sur l'état média courant
-		}
-		a.syncPause() // gèle l'émulation AU MÊME TICK que l'ouverture (sinon une frame avance)
-		a.updateTitle()
+		return nil // overlay ouvert : capture STRICTE dès ce tick (aucune entrée vers le cœur)
 	}
 
 	// F5 = reset machine
@@ -348,22 +314,20 @@ func (a *App) Update() error {
 	return nil
 }
 
-// syncPause répercute l'état pause/menu/overlay sur le Host (suspend l'émulation).
-// L'overlay gèle l'émulation via la fonction pure overlay.ShouldPause (testée en CI) ;
-// le menu v1 garde sa contribution tant qu'il existe (retiré en 3b.4, où il ne restera
-// que ShouldPause).
+// syncPause répercute l'état pause (F3) + ouverture de l'overlay sur le Host (suspend
+// l'émulation) via la fonction pure overlay.ShouldPause (testée en CI).
 func (a *App) syncPause() {
-	a.host.SetPaused(overlay.ShouldPause(a.paused, a.overlay.IsOpen()) || a.menu.IsOpen())
+	a.host.SetPaused(overlay.ShouldPause(a.paused, a.overlay.IsOpen()))
 }
 
 // updateOverlay traite les entrées quand l'overlay est ouvert (clavier/souris UNIQUEMENT
 // vers l'overlay : le court-circuit appelant garantit qu'aucune entrée n'atteint le cœur).
-// Échap/F9 remontent d'un niveau (Browse→Main ; Main→ferme et ANNULE les éditions de next) ;
+// Échap remonte d'un niveau (Browse→Main ; Main→ferme et ANNULE les éditions de next) ;
 // sinon on délègue à ebitenui (focus clavier natif + clics) et on exécute les actions
 // signalées par l'UI. L'overlayUI partage l'état overlay.Model avec l'App (même pointeur),
 // donc Back()/GoMain()/GoBrowse() y sont reflétés ; un simple rebuild suffit.
 func (a *App) updateOverlay() error {
-	if inputJustPressed(ebiten.KeyEscape) || inputJustPressed(ebiten.KeyF9) {
+	if inputJustPressed(ebiten.KeyEscape) {
 		a.overlay.Back()
 		if !a.overlay.IsOpen() {
 			a.updateTitle()
@@ -525,116 +489,6 @@ func (a *App) feedTypeAhead() {
 	}
 }
 
-// updateMenu traite les entrées (clavier ET souris) quand le menu est ouvert.
-func (a *App) updateMenu() error {
-	if inputJustPressed(ebiten.KeyArrowUp) {
-		a.menu.MoveUp()
-	}
-	if inputJustPressed(ebiten.KeyArrowDown) {
-		a.menu.MoveDown()
-	}
-	mx, my := ebiten.CursorPosition()
-	hovered := menuItemAt(a.menu, mx, my)
-	if hovered >= 0 {
-		a.selectMenuIndex(hovered)
-	}
-	if _, wy := ebiten.Wheel(); wy != 0 && a.menu.State() == menu.StateBrowse {
-		if wy < 0 {
-			a.menu.MoveDown()
-		} else {
-			a.menu.MoveUp()
-		}
-	}
-	activate := inputJustPressed(ebiten.KeyEnter)
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && hovered >= 0 {
-		a.selectMenuIndex(hovered)
-		activate = true
-	}
-	if activate {
-		return a.handleMenuAction(a.menu.Activate(a.mediaDir))
-	}
-	return nil
-}
-
-// selectMenuIndex positionne la sélection selon l'état courant du menu.
-func (a *App) selectMenuIndex(i int) {
-	switch a.menu.State() {
-	case menu.StateMain:
-		a.menu.SetMainIndex(i)
-	case menu.StateBrowse:
-		a.menu.SetBrowseIndex(i)
-	}
-}
-
-// handleMenuAction exécute l'intention produite par le menu via le Host
-// (commandes asynchrones traitées par la goroutine propriétaire de la machine).
-func (a *App) handleMenuAction(act menu.Action) error {
-	switch act {
-	case menu.ActResume:
-		// Le modèle a déjà fermé le menu.
-	case menu.ActReset:
-		a.host.Reset()
-		a.menu.Close()
-	case menu.ActInitprog:
-		a.host.Initprog()
-		a.menu.Close()
-	case menu.ActQuit:
-		return ErrUserQuit
-	case menu.ActEjectTape:
-		a.host.EjectTape()
-		a.closeTape()
-		a.tapeName = ""
-	case menu.ActEjectDisk:
-		a.host.EjectDisk()
-		a.closeDisk()
-		a.diskName = ""
-	case menu.ActEjectCart:
-		a.host.EjectCartridge()
-		a.cartName = ""
-	case menu.ActMountChosen:
-		a.mountChosen()
-	}
-	a.updateTitle()
-	return nil
-}
-
-// mountChosen ouvre le fichier choisi et le monte via le Host, en fermant
-// proprement le média précédent du même type.
-func (a *App) mountChosen() {
-	path, kind := a.menu.Chosen()
-	if path == "" {
-		return
-	}
-	a.mediaDir = filepath.Dir(path)
-	switch kind {
-	case menu.KindTape:
-		t, err := impl.OpenTape(path, false)
-		if err != nil {
-			return
-		}
-		a.closeTape()
-		a.host.MountTape(t)
-		a.tapeCloser = t
-		a.tapeName = filepath.Base(path)
-	case menu.KindDisk:
-		d, err := impl.OpenDisk(path, false)
-		if err != nil {
-			return
-		}
-		a.closeDisk()
-		a.host.MountDisk(d)
-		a.diskCloser = d
-		a.diskName = filepath.Base(path)
-	case menu.KindCart:
-		c, err := impl.OpenCartridge(path)
-		if err != nil {
-			return
-		}
-		a.host.MountCartridge(c)
-		a.cartName = filepath.Base(path)
-	}
-}
-
 // closeTape / closeDisk ferment le fichier média courant s'il y en a un.
 func (a *App) closeTape() {
 	if a.tapeCloser != nil {
@@ -659,7 +513,7 @@ func (a *App) CurrentProfile() machine.MachineProfile { return a.currentProfile 
 // modifiables à chaud RÉELLEMENT montés, base `old` que l'overlay passe à DescribeLive/
 // DiffLive. La source de vérité est l'état vivant des médias (closers pour tape/disk, nom
 // pour la cartouche qui n'a pas de closer), maintenu par TOUS les chemins (boot CLI,
-// launcher, menu) : aucune config parallèle à resynchroniser, aucun média fantôme
+// launcher, overlay) : aucune config parallèle à resynchroniser, aucun média fantôme
 // possible après une éjection/montage. Ne porte que les Params LiveMutable File (cf.
 // uimodel.LiveMediaConfig) ; les clés boot-only (rom) sont hors overlay, donc absentes.
 func (a *App) CurrentConfig() machine.Config {
@@ -797,12 +651,10 @@ func (a *App) Draw(screen *ebiten.Image) {
 		float64(screen.Bounds().Dy())/float64(a.fh),
 	)
 	screen.DrawImage(a.fb, op)
-
-	drawMenu(screen, a.menu)
 }
 
 // blitFramebuffer recopie le dernier instantané du Host dans a.fb (pas d'accès au
-// cœur). Quand l'émulation est en pause (overlay/menu/F3), le Host ne publie plus :
+// cœur). Quand l'émulation est en pause (overlay/F3), le Host ne publie plus :
 // l'instantané est donc figé « gratuitement ». Partagé par les deux chemins de Draw.
 func (a *App) blitFramebuffer() {
 	a.host.Framebuffer(a.fbPixels)
@@ -881,8 +733,6 @@ func (a *App) updateTitle() {
 	}
 	if a.overlay.IsOpen() {
 		title += " [OVERLAY]"
-	} else if a.menu != nil && a.menu.IsOpen() {
-		title += " [MENU]"
 	}
 	if a.paused {
 		title += " [PAUSE]"
@@ -922,9 +772,6 @@ func KeyMapping() map[ebiten.Key]int { return keyMapping }
 
 // ── Helpers input ─────────────────────────────────────────────────────────────
 
-// pressedLastFrame mémorise les touches pressées au tick précédent.
-var pressedLastFrame = map[ebiten.Key]bool{}
-
 // fileExists indique si un chemin existe (os.Stat sans erreur). Sert à l'auto-détection
 // de la ROM contrôleur disquette au launcher (cf. updateLauncher, uimodel.ResolveDiskROM).
 func fileExists(p string) bool {
@@ -932,12 +779,14 @@ func fileExists(p string) bool {
 	return err == nil
 }
 
-// inputJustPressed détecte une pression nouvelle (non maintenue).
+// inputJustPressed détecte une pression nouvelle (non maintenue) via inpututil, dont
+// l'état est rafraîchi par ebiten à CHAQUE frame, quel que soit l'appelant. Robustesse
+// clé pour l'overlay (revue Codex) : quand un chemin cesse de consulter une touche
+// pendant plusieurs frames (overlay capturant les entrées), une touche tenue à travers
+// l'overlay n'est PAS re-déclenchée à la reprise — contrairement à un tracker maison mis
+// à jour seulement à l'appel, qui devenait périmé.
 func inputJustPressed(k ebiten.Key) bool {
-	now := ebiten.IsKeyPressed(k)
-	was := pressedLastFrame[k]
-	pressedLastFrame[k] = now
-	return now && !was
+	return inpututil.IsKeyJustPressed(k)
 }
 
 // pasteRequested détecte le raccourci « coller » : V vient d'être pressé avec
