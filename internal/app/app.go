@@ -24,10 +24,12 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/media"
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
 	"github.com/Lesur-ai/dcmo5/internal/menu"
+	"github.com/Lesur-ai/dcmo5/internal/overlay"
 	"github.com/Lesur-ai/dcmo5/internal/uimodel"
 	"github.com/hajimehoshi/ebiten/v2"
 	ebaudio "github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 // ErrUserQuit est retourné par Run quand l'utilisateur ferme la fenêtre.
@@ -90,8 +92,12 @@ type App struct {
 	onStart     func(profileID string, cfg machine.Config) // hook de persistance config à l'action « Démarrer » (mode launcher)
 	hostStarted bool                                       // host.Start() a été appelé (garde le Stop différé)
 
-	// Menu de pilotage
-	menu     *menu.Model
+	// Menu de pilotage (v1, en cours de remplacement par l'overlay — lot #117 Inc 3b).
+	menu *menu.Model
+	// overlay : machine d'état PURE de l'overlay Échap (zéro-value = fermé, aucun
+	// constructeur). En 3b.1, ouvert via la touche debug F9 (gelé + voile, sans UI) ;
+	// l'UI ebitenui et la bascule d'Échap arrivent en 3b.2+/3b.4 (retrait du menu v1).
+	overlay  overlay.Model
 	mediaDir string // répertoire de départ du navigateur de fichiers
 
 	// Médias montés : Closer des fichiers ouverts (fermeture à l'éjection/remplacement)
@@ -234,6 +240,18 @@ func (a *App) Update() error {
 		return a.updateLauncher()
 	}
 
+	// OVERLAY OUVERT : capture STRICTE. Branché TOUT EN HAUT, return immédiat → aucune
+	// entrée (Échap menu, F3, F5, collage, touches live, crayon) n'atteint le cœur tant
+	// que l'overlay est ouvert. La contrainte #3 (revue Codex) est satisfaite par la
+	// STRUCTURE (ce return), pas par des gardes éparpillés.
+	if a.overlay.IsOpen() {
+		if err := a.updateOverlay(); err != nil {
+			return err
+		}
+		a.syncPause() // une action (fermeture) a pu changer l'état
+		return nil
+	}
+
 	// ÉCHAP pilote le menu : ouvre s'il est fermé, remonte d'un niveau sinon.
 	if inputJustPressed(ebiten.KeyEscape) {
 		if a.menu.IsOpen() {
@@ -253,6 +271,18 @@ func (a *App) Update() error {
 			return err
 		}
 		return nil
+	}
+
+	// DEBUG (3b.1) : F9 ouvre l'overlay pour valider à l'œil le rendu gelé + voile + la
+	// capture stricte, SANS toucher au menu v1 (toujours sur Échap). Atteint uniquement
+	// quand le menu est fermé (le gate ci-dessus a déjà rendu la main sinon) et l'overlay
+	// fermé (le court-circuit en haut de Update a rendu la main sinon) → les deux ne
+	// peuvent JAMAIS être ouverts en même temps. F9 + ce bloc disparaissent en 3b.4, où
+	// Échap pilotera l'overlay et le menu v1 sera retiré.
+	if inputJustPressed(ebiten.KeyF9) {
+		a.overlay.Toggle()
+		a.syncPause() // gèle l'émulation AU MÊME TICK que l'ouverture (sinon une frame avance)
+		a.updateTitle()
 	}
 
 	// F5 = reset machine
@@ -313,8 +343,25 @@ func (a *App) Update() error {
 	return nil
 }
 
-// syncPause répercute l'état pause/menu sur le Host (suspend l'émulation).
-func (a *App) syncPause() { a.host.SetPaused(a.paused || a.menu.IsOpen()) }
+// syncPause répercute l'état pause/menu/overlay sur le Host (suspend l'émulation).
+// L'overlay gèle l'émulation via la fonction pure overlay.ShouldPause (testée en CI) ;
+// le menu v1 garde sa contribution tant qu'il existe (retiré en 3b.4, où il ne restera
+// que ShouldPause).
+func (a *App) syncPause() {
+	a.host.SetPaused(overlay.ShouldPause(a.paused, a.overlay.IsOpen()) || a.menu.IsOpen())
+}
+
+// updateOverlay traite les entrées quand l'overlay est ouvert. En 3b.1 il n'y a pas
+// encore d'UI ebitenui : on gère seulement la FERMETURE (Échap ou la touche debug F9
+// → Back, qui depuis la vue principale ferme l'overlay). Le clavier/souris vers l'UI
+// et l'application des changements média arrivent en 3b.2/3b.3.
+func (a *App) updateOverlay() error {
+	if inputJustPressed(ebiten.KeyEscape) || inputJustPressed(ebiten.KeyF9) {
+		a.overlay.Back()
+		a.updateTitle()
+	}
+	return nil
+}
 
 // typeAheadHighWater : on ne remplit la file de l'injecteur que jusqu'à ce
 // niveau, sous sa borne (keyboard.DefaultQueueMax), pour ne jamais en perdre le
@@ -592,14 +639,18 @@ func (a *App) Draw(screen *ebiten.Image) {
 		screen.Fill(color.RGBA{R: 20, G: 0, B: 0, A: 0xFF})
 		return
 	}
-	a.host.Framebuffer(a.fbPixels) // copie de l'instantané (pas d'accès au cœur)
-	for i, px := range a.fbPixels {
-		a.fbBytes[i*4+0] = byte(px)
-		a.fbBytes[i*4+1] = byte(px >> 8)
-		a.fbBytes[i*4+2] = byte(px >> 16)
-		a.fbBytes[i*4+3] = byte(px >> 24)
+	a.blitFramebuffer() // dernier instantané → a.fb (gelé si l'émulation est en pause)
+
+	// Overlay ouvert : on dessine le framebuffer GELÉ en aspect-fit + voile (l'UI
+	// ebitenui viendra en 3b.2). Le repère écran est ici la fenêtre réelle (Layout a
+	// basculé via EmulatorLayoutSize).
+	if a.overlay.IsOpen() {
+		a.drawOverlay(screen)
+		return
 	}
-	a.fb.WritePixels(a.fbBytes)
+
+	// Rendu plein écran habituel : le framebuffer remplit le repère logique (Ebitengine
+	// met ensuite à l'échelle de la fenêtre). MO5 : échelle 1 ; gate-array : ×2 en hauteur.
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Scale(
 		float64(screen.Bounds().Dx())/float64(a.fw),
@@ -608,6 +659,38 @@ func (a *App) Draw(screen *ebiten.Image) {
 	screen.DrawImage(a.fb, op)
 
 	drawMenu(screen, a.menu)
+}
+
+// blitFramebuffer recopie le dernier instantané du Host dans a.fb (pas d'accès au
+// cœur). Quand l'émulation est en pause (overlay/menu/F3), le Host ne publie plus :
+// l'instantané est donc figé « gratuitement ». Partagé par les deux chemins de Draw.
+func (a *App) blitFramebuffer() {
+	a.host.Framebuffer(a.fbPixels)
+	for i, px := range a.fbPixels {
+		a.fbBytes[i*4+0] = byte(px)
+		a.fbBytes[i*4+1] = byte(px >> 8)
+		a.fbBytes[i*4+2] = byte(px >> 16)
+		a.fbBytes[i*4+3] = byte(px >> 24)
+	}
+	a.fb.WritePixels(a.fbBytes)
+}
+
+// drawOverlay dessine, par-dessus l'écran, le framebuffer GELÉ centré en aspect-fit
+// (uimodel.FramebufferAspectFit, pur) puis un voile sombre. L'UI ebitenui de l'overlay
+// (vues Main/Browse) se superposera en 3b.2+. Le letterbox est rempli en noir.
+func (a *App) drawOverlay(screen *ebiten.Image) {
+	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
+	screen.Fill(color.RGBA{R: 0, G: 0, B: 0, A: 0xFF}) // letterbox (barres) noir
+	x, y, w, h := uimodel.FramebufferAspectFit(a.family, a.fw, a.fh, sw, sh)
+	op := &ebiten.DrawImageOptions{}
+	// Échelle PAR AXE : le gate-array étire ainsi ×2 en hauteur (672×216 → 672×432),
+	// comme en plein écran — pas d'aplatissement.
+	op.GeoM.Scale(float64(w)/float64(a.fw), float64(h)/float64(a.fh))
+	op.GeoM.Translate(float64(x), float64(y))
+	screen.DrawImage(a.fb, op)
+	// Voile sombre semi-transparent : signale que l'émulation est gelée et prépare le
+	// contraste de l'UI à venir.
+	vector.DrawFilledRect(screen, 0, 0, float32(sw), float32(sh), color.RGBA{R: 0, G: 0, B: 0, A: 120}, false)
 }
 
 // applyWindowSize dimensionne la fenêtre selon la géométrie d'affichage de la
@@ -629,8 +712,9 @@ func (a *App) Layout(outW, outH int) (int, int) {
 	if a.launcher != nil {
 		return outW, outH
 	}
-	logW, logH, _, _ := uimodel.DisplayGeometry(a.family, a.fw, a.fh)
-	return logW, logH
+	// Overlay ouvert → repère FENÊTRE réel (outW,outH) pour un rendu ebitenui au pixel
+	// près ; fermé → repère logique d'affichage de la famille (inchangé). Pur, testé CI.
+	return uimodel.EmulatorLayoutSize(a.overlay.IsOpen(), a.family, a.fw, a.fh, outW, outH)
 }
 
 // updateTitle met à jour le titre de fenêtre selon l'état courant.
@@ -650,7 +734,9 @@ func (a *App) updateTitle() {
 			title += " [CART:" + a.cartName + "]"
 		}
 	}
-	if a.menu != nil && a.menu.IsOpen() {
+	if a.overlay.IsOpen() {
+		title += " [OVERLAY]"
+	} else if a.menu != nil && a.menu.IsOpen() {
 		title += " [MENU]"
 	}
 	if a.paused {
