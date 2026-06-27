@@ -404,92 +404,24 @@ func (l *launcher) buildBrowser(card *widget.Container) {
 	card.AddChild(l.fileList(entries))
 }
 
-// fileList rend les entrées du répertoire courant dans un widget List ebitenui. Le
-// widget gère NATIVEMENT le défilement (molette + ascenseur) : on lui délègue tout le
-// scroll au lieu de recâbler un slider à la main — l'ancien layout maison ne câblait
-// PAS la molette (finding revue Codex).
-//
-// La hauteur reste BORNÉE par fixedHeightLayout : un List placé dans le RowLayout
-// vertical de la carte réclamerait sinon la hauteur de TOUT le contenu
-// (ScrollContainer.PreferredSize remonte la taille du contenu, pas celle du viewport).
-// Au-delà de browserListMaxPx, le List clippe et défile.
+// fileList rend les entrées du répertoire courant via la brique partagée uiKit.fileList
+// (List ebitenui stylé, défilement natif molette+ascenseur, hauteur bornée — cf. uikit.go).
+// On y branche la navigation du launcher : un dossier descend dedans, un fichier valide la
+// sélection du Param File courant. Le Focuser retourné est mémorisé pour restoreFocus.
 func (l *launcher) fileList(entries []uimodel.Entry) *widget.Container {
-	items := make([]any, len(entries))
-	for i, e := range entries {
-		items[i] = e
-	}
-
-	list := widget.NewList(
-		widget.ListOpts.Entries(items),
-		widget.ListOpts.EntryFontFace(l.faceBtn),
-		// Dossiers distingués par un suffixe « / » (gofont n'a pas de glyphe dossier ; le
-		// List applique un style uniforme — plus d'accent par entrée comme avant).
-		widget.ListOpts.EntryLabelFunc(func(e any) string {
-			ent := e.(uimodel.Entry)
-			if ent.IsDir {
-				return ent.Name + "/"
-			}
-			return ent.Name
-		}),
-		widget.ListOpts.EntryColor(&widget.ListEntryColor{
-			Unselected:                 colText,
-			Selected:                   colWhite,
-			DisabledUnselected:         colMuted,
-			DisabledSelected:           colMuted,
-			SelectingBackground:        colAccent,
-			SelectedBackground:         colAccent,
-			FocusedBackground:          colAccentLo, // entrée focalisée clavier : bleu net (navigation aux flèches)
-			SelectingFocusedBackground: colAccent,
-			SelectedFocusedBackground:  colAccent,
-			DisabledSelectedBackground: colBtnLo,
-		}),
-		widget.ListOpts.EntryTextPosition(widget.TextPositionStart, widget.TextPositionCenter),
-		widget.ListOpts.EntryTextPadding(&widget.Insets{Top: 8, Bottom: 8, Left: 14, Right: 14}),
-		widget.ListOpts.ScrollContainerImage(&widget.ScrollContainerImage{
-			Idle: eimage.NewNineSliceColor(colField),
-			Mask: eimage.NewNineSliceColor(colWhite),
-		}),
-		widget.ListOpts.SliderParams(&widget.SliderParams{
-			TrackImage: &widget.SliderTrackImage{
-				Idle:  eimage.NewNineSliceColor(colBtnLo),
-				Hover: eimage.NewNineSliceColor(colBtnLo),
-			},
-			HandleImage: &widget.ButtonImage{
-				Idle:    eimage.NewNineSliceColor(colBtn),
-				Hover:   eimage.NewNineSliceColor(colBtnHi),
-				Pressed: eimage.NewNineSliceColor(colAccent),
-			},
-		}),
-		widget.ListOpts.HideHorizontalSlider(),
-		widget.ListOpts.EntrySelectedHandler(func(args *widget.ListEntrySelectedEventArgs) {
-			ent := args.Entry.(uimodel.Entry)
-			target := filepath.Join(l.browseDir, ent.Name)
-			if ent.IsDir {
-				l.browseDir = filepath.Clean(target)
-				l.rebuild()
-				return
-			}
-			l.values[l.browseKey] = target
-			l.mediaDir = filepath.Dir(target)
-			l.browseKey = ""
+	viewport, focuser := l.uiKit.fileList(entries, browserListMaxPx, func(ent uimodel.Entry) {
+		target := filepath.Join(l.browseDir, ent.Name)
+		if ent.IsDir {
+			l.browseDir = filepath.Clean(target)
 			l.rebuild()
-		}),
-	)
-	l.browseList = list // cible du focus clavier (cf. restoreFocus)
-
-	// Hauteur bornée (cf. en-tête) : au moins une entrée, au plus browserListMaxPx.
-	h := len(entries) * browserItemPx
-	if h > browserListMaxPx {
-		h = browserListMaxPx
-	}
-	if h < browserItemPx {
-		h = browserItemPx
-	}
-	viewport := widget.NewContainer(
-		widget.ContainerOpts.WidgetOpts(stretchH()),
-		widget.ContainerOpts.Layout(fixedHeightLayout{h: h}),
-	)
-	viewport.AddChild(list)
+			return
+		}
+		l.values[l.browseKey] = target
+		l.mediaDir = filepath.Dir(target)
+		l.browseKey = ""
+		l.rebuild()
+	})
+	l.browseList = focuser // cible du focus clavier (cf. restoreFocus)
 	return viewport
 }
 

@@ -215,12 +215,20 @@ func (h *Host) run() {
 	fbPeriod := spec.CPUClockHz / 60 // publier le framebuffer ~60 fois/s
 	maxCatchup := spec.CPUClockHz / maxCatchupCyclesDiv
 	for {
-		select {
-		case <-h.stop:
-			return
-		case c := <-h.cmds:
-			h.execCommand(c)
-		default:
+		// Draine TOUTES les commandes en attente avant de cadencer : un lot de commandes
+		// média appliquées ensemble (ex. overlay « Appliquer » : montage disquette +
+		// éjection cartouche) est ainsi intégralement consommé AVANT qu'une frame ne tourne
+		// — jamais d'état média partiel sur une frame (revue Codex). Les commandes sont
+		// rares (pilotage utilisateur) : aucun risque de famine du stepping.
+		for draining := true; draining; {
+			select {
+			case <-h.stop:
+				return
+			case c := <-h.cmds:
+				h.execCommand(c)
+			default:
+				draining = false
+			}
 		}
 
 		now := time.Now()

@@ -358,34 +358,48 @@ func (a *App) syncPause() {
 
 // updateOverlay traite les entrées quand l'overlay est ouvert (clavier/souris UNIQUEMENT
 // vers l'overlay : le court-circuit appelant garantit qu'aucune entrée n'atteint le cœur).
-// Échap/F9 remontent d'un niveau (Browse→Main en 3b.3 ; Main→ferme) ; sinon on délègue à
-// ebitenui (focus clavier natif + clics) et on exécute les actions signalées par l'UI.
+// Échap/F9 remontent d'un niveau (Browse→Main ; Main→ferme et ANNULE les éditions de next) ;
+// sinon on délègue à ebitenui (focus clavier natif + clics) et on exécute les actions
+// signalées par l'UI. L'overlayUI partage l'état overlay.Model avec l'App (même pointeur),
+// donc Back()/GoMain()/GoBrowse() y sont reflétés ; un simple rebuild suffit.
 func (a *App) updateOverlay() error {
 	if inputJustPressed(ebiten.KeyEscape) || inputJustPressed(ebiten.KeyF9) {
 		a.overlay.Back()
 		if !a.overlay.IsOpen() {
 			a.updateTitle()
-			return nil // fermé : ne pas animer l'UI ce tick (elle disparaît)
+			return nil // fermé (annulation) : ne pas animer l'UI ce tick (elle disparaît)
 		}
-		a.overlayUI.sync(a.overlay.State()) // changement de vue (Browse→Main, etc.)
+		a.overlayUI.rebuild() // changement de vue (Browse→Main)
 	}
 	a.overlayUI.ui.Update() // focus clavier natif (Tab/flèches/Entrée) + clics
 
 	// Actions signalées par l'UI (pattern takeStart du launcher) : exécutées ICI (impur),
-	// décidées LÀ-BAS (clic). Reset/Initprog sont des commandes Host idempotentes traitées
-	// même en pause ; Reprendre ferme l'overlay (l'émulation reprend via syncPause).
+	// décidées LÀ-BAS (clic). Reset/Initprog = commandes Host idempotentes traitées même en
+	// pause. Appliquer = montage/éjection des médias édités dans next (cf. applyLiveOps).
 	if a.overlayUI.quit {
 		return ErrUserQuit
 	}
+	// Reset / Init prog : commande Host PUIS fermeture de l'overlay (reprise). Sans la
+	// fermeture, l'overlay reste ouvert = émulation gelée : la commande est bien appliquée
+	// (le Host traite les commandes même en pause) mais le framebuffer gelé ne reflète pas
+	// le redémarrage tant qu'on ne reprend pas — l'effet semblait alors différé à la sortie.
+	// On ferme donc (parité menu v1, qui fait host.Reset()+menu.Close()) : l'effet est
+	// immédiatement visible. Les éditions média en cours (next) sont abandonnées, comme pour
+	// une annulation — Reset/Init prog sont une intention distincte du montage de médias.
 	if a.overlayUI.takeReset() {
 		a.host.Reset()
+		a.overlay.Close()
+		a.updateTitle()
+		return nil
 	}
 	if a.overlayUI.takeInitprog() {
 		a.host.Initprog()
-	}
-	if a.overlayUI.takeResume() {
 		a.overlay.Close()
 		a.updateTitle()
+		return nil
+	}
+	if a.overlayUI.takeApply() {
+		a.applyLiveOps(a.overlayUI.next)
 	}
 	return nil
 }
@@ -395,9 +409,98 @@ func (a *App) updateOverlay() error {
 // ouverture pour refléter d'éventuels changements de média survenus entre deux ouvertures.
 func (a *App) openOverlayUI() {
 	if a.overlayUI == nil {
-		a.overlayUI = newOverlayUI(a.currentProfile, newUIKit())
+		a.overlayUI = newOverlayUI(a.currentProfile, &a.overlay, osListerUI, newUIKit())
 	}
-	a.overlayUI.open(a.currentProfile, a.overlay.State(), a.CurrentConfig())
+	a.overlayUI.open(a.currentProfile, a.mediaDir, a.CurrentConfig())
+}
+
+// applyLiveOps applique les changements média de `next` vs l'état RÉELLEMENT monté
+// (a.CurrentConfig(), JAMAIS next). La DÉCISION est pure (uimodel.LiveMediaOps, testée CI) ;
+// seule l'exécution est ici. Contrainte #5 (revue Codex) : une erreur de montage ou une
+// clé non applicable est SIGNALÉE (errText) et l'overlay reste ouvert ; on ne met à jour ni
+// nom ni titre comme si ça avait réussi. Succès complet → fermeture + reprise (syncPause).
+func (a *App) applyLiveOps(next machine.Config) {
+	var errs []string
+	for _, op := range uimodel.LiveMediaOps(a.currentProfile, a.CurrentConfig(), next) {
+		switch op.Kind {
+		case uimodel.OpMount:
+			if err := a.mountLive(op.Key, op.Path); err != nil {
+				errs = append(errs, op.Key+" : "+err.Error()) // NE touche ni nom ni titre
+			}
+		case uimodel.OpEject:
+			a.ejectLive(op.Key)
+		case uimodel.OpUnsupported:
+			errs = append(errs, op.Key+" : réglage non applicable à chaud")
+		}
+	}
+	a.updateTitle()
+	if len(errs) == 0 {
+		a.overlay.Close()
+		a.updateTitle()
+		return
+	}
+	// Échec partiel : re-synchroniser next sur ce qui est RÉELLEMENT monté (les montages
+	// réussis sont reflétés, les échecs gardent l'ancien média), afficher l'erreur, rester ouvert.
+	a.overlayUI.next = cloneConfig(a.CurrentConfig())
+	a.overlayUI.errText = strings.Join(errs, "\n")
+	a.overlayUI.rebuild()
+}
+
+// mountLive ouvre et monte un média à chaud, par clé conventionnelle. Sur erreur
+// d'ouverture, NE touche RIEN (ni closer ni nom ni mediaDir) → l'état reste cohérent
+// (contrainte #5). Extrait/parallèle de mountChosen (menu v1, retiré en 3b.4d).
+func (a *App) mountLive(key, path string) error {
+	switch key {
+	case machine.KeyTape:
+		t, err := impl.OpenTape(path, false)
+		if err != nil {
+			return err
+		}
+		a.closeTape()
+		a.host.MountTape(t)
+		a.tapeCloser = t
+		a.tapeName = filepath.Base(path)
+		a.mediaDir = filepath.Dir(path)
+	case machine.KeyDisk:
+		d, err := impl.OpenDisk(path, false)
+		if err != nil {
+			return err
+		}
+		a.closeDisk()
+		a.host.MountDisk(d)
+		a.diskCloser = d
+		a.diskName = filepath.Base(path)
+		a.mediaDir = filepath.Dir(path)
+	case machine.KeyCart:
+		c, err := impl.OpenCartridge(path)
+		if err != nil {
+			return err
+		}
+		a.host.MountCartridge(c)
+		a.cartName = filepath.Base(path)
+		a.mediaDir = filepath.Dir(path)
+	default:
+		return fmt.Errorf("clé média inconnue : %s", key)
+	}
+	return nil
+}
+
+// ejectLive éjecte un média à chaud, par clé conventionnelle (parallèle des branches
+// d'éjection de handleMenuAction du menu v1, retiré en 3b.4d).
+func (a *App) ejectLive(key string) {
+	switch key {
+	case machine.KeyTape:
+		a.host.EjectTape()
+		a.closeTape()
+		a.tapeName = ""
+	case machine.KeyDisk:
+		a.host.EjectDisk()
+		a.closeDisk()
+		a.diskName = ""
+	case machine.KeyCart:
+		a.host.EjectCartridge()
+		a.cartName = ""
+	}
 }
 
 // typeAheadHighWater : on ne remplit la file de l'injecteur que jusqu'à ce
