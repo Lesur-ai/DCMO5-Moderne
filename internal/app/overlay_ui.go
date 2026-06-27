@@ -18,12 +18,19 @@ import (
 	"path/filepath"
 
 	"github.com/ebitenui/ebitenui"
+	eimage "github.com/ebitenui/ebitenui/image"
 	"github.com/ebitenui/ebitenui/widget"
 
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/overlay"
 	"github.com/Lesur-ai/dcmo5/internal/uimodel"
 )
+
+// overlayCardWidth : largeur de la carte de l'overlay. Plus étroite que celle du launcher
+// (cardWidth=600, fenêtre 760×640) car l'overlay se superpose à la fenêtre ÉMULATEUR, plus
+// petite (672×432 pour le MO5). Avec padding/espacements réduits (overlayCard), la carte
+// tient avec des marges au lieu de déborder l'écran.
+const overlayCardWidth = 540
 
 // overlayUI porte l'arbre ebitenui de l'overlay et les signaux d'action. Embarque
 // *uiKit (polices/images/couleurs partagées avec le launcher) par promotion de champ.
@@ -80,11 +87,32 @@ func (o *overlayUI) takeResume() bool   { v := o.resume; o.resume = false; retur
 func (o *overlayUI) takeReset() bool    { v := o.reset; o.reset = false; return v }
 func (o *overlayUI) takeInitprog() bool { v := o.initprog; o.initprog = false; return v }
 
+// overlayCard : variante COMPACTE de uiKit.card(), dimensionnée pour la fenêtre émulateur
+// (≠ launcher). Padding et espacements réduits pour que la carte tienne avec des marges
+// dans une fenêtre 672×432 (MO5) sans déborder. uiKit.card() reste inchangée (launcher).
+func (o *overlayUI) overlayCard() *widget.Container {
+	return widget.NewContainer(
+		widget.ContainerOpts.BackgroundImage(eimage.NewNineSliceColor(colPanel)),
+		widget.ContainerOpts.WidgetOpts(
+			widget.WidgetOpts.MinSize(overlayCardWidth, 0),
+			widget.WidgetOpts.LayoutData(widget.AnchorLayoutData{
+				HorizontalPosition: widget.AnchorLayoutPositionCenter,
+				VerticalPosition:   widget.AnchorLayoutPositionCenter,
+			}),
+		),
+		widget.ContainerOpts.Layout(widget.NewRowLayout(
+			widget.RowLayoutOpts.Direction(widget.DirectionVertical),
+			widget.RowLayoutOpts.Padding(&widget.Insets{Top: 16, Bottom: 16, Left: 20, Right: 20}),
+			widget.RowLayoutOpts.Spacing(9),
+		)),
+	)
+}
+
 // rebuild reconstruit l'arbre selon l'état. 3b.2 : seule la vue Main existe ; Browse
 // (3b.3) et ConfirmSwitch (Inc 5) retombent sur Main en attendant (jamais atteints ici).
 func (o *overlayUI) rebuild() {
 	o.root.RemoveChildren()
-	card := o.card()
+	card := o.overlayCard()
 	switch o.state {
 	// case overlay.StateBrowse: o.buildBrowser(card) // 3b.3
 	// case overlay.StateConfirmSwitch: ...            // Inc 5
@@ -119,7 +147,7 @@ func (o *overlayUI) buildMain(card *widget.Container) {
 			widget.ContainerOpts.WidgetOpts(stretchH()),
 			widget.ContainerOpts.Layout(widget.NewGridLayout(
 				widget.GridLayoutOpts.Columns(2),
-				widget.GridLayoutOpts.Spacing(16, 8),
+				widget.GridLayoutOpts.Spacing(16, 6),
 				widget.GridLayoutOpts.Stretch([]bool{false, true}, nil),
 			)),
 		)
@@ -142,14 +170,23 @@ func (o *overlayUI) buildMain(card *widget.Container) {
 
 	card.AddChild(o.separator())
 	card.AddChild(o.sectionLabel("Système"))
-	card.AddChild(o.button("Réinitialiser (Reset)", o.btnImg, o.txtColor, func() { o.reset = true }))
-	card.AddChild(o.button("Redémarrage doux (Init prog)", o.btnImg, o.txtColor, func() { o.initprog = true }))
-	card.AddChild(o.button("Quitter", o.btnImg, o.txtColor, func() { o.quit = true }))
+	// Boutons système EN LIGNE (libellés courts) : compact vertical pour tenir dans la
+	// fenêtre émulateur. Reprendre reste l'action primaire pleine largeur en bas.
+	sys := widget.NewContainer(
+		widget.ContainerOpts.Layout(widget.NewRowLayout(
+			widget.RowLayoutOpts.Direction(widget.DirectionHorizontal),
+			widget.RowLayoutOpts.Spacing(8),
+		)),
+	)
+	sys.AddChild(o.button("Reset", o.btnImg, o.txtColor, func() { o.reset = true }))
+	sys.AddChild(o.button("Init prog", o.btnImg, o.txtColor, func() { o.initprog = true }))
+	sys.AddChild(o.button("Quitter", o.btnImg, o.txtColor, func() { o.quit = true }))
+	card.AddChild(sys)
 
 	if o.errText != "" {
 		card.AddChild(widget.NewText(
 			widget.TextOpts.Text("⚠  "+o.errText, o.faceLabel, colDanger),
-			widget.TextOpts.MaxWidth(cardWidth-56),
+			widget.TextOpts.MaxWidth(overlayCardWidth-40),
 		))
 	}
 
