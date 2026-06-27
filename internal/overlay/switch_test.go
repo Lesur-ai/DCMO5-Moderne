@@ -94,3 +94,73 @@ func TestPrepareSwitch_NoDiskROMWhenAbsent(t *testing.T) {
 		t.Errorf("aucune disk-rom ne doit être injectée si absente/non détectée, got %v", dr)
 	}
 }
+
+// --- NextProfile : cible d'un bouton « Changer de machine » ---
+
+// Deux machines : le bouton bascule vers « l'autre », dans les deux sens.
+func TestNextProfile_Toggle(t *testing.T) {
+	profiles := []machine.MachineProfile{{ID: "mo5"}, {ID: "to8d"}}
+	if p, ok := overlay.NextProfile(profiles, "mo5"); !ok || p.ID != "to8d" {
+		t.Errorf("NextProfile(mo5) = %q,%v, want to8d,true", p.ID, ok)
+	}
+	if p, ok := overlay.NextProfile(profiles, "to8d"); !ok || p.ID != "mo5" {
+		t.Errorf("NextProfile(to8d) = %q,%v, want mo5,true", p.ID, ok)
+	}
+}
+
+// Zéro ou une seule machine : aucune AUTRE cible → false (l'UI masque le bouton).
+func TestNextProfile_SingleOrEmpty(t *testing.T) {
+	if _, ok := overlay.NextProfile([]machine.MachineProfile{{ID: "mo5"}}, "mo5"); ok {
+		t.Error("une seule machine : aucune autre cible, want false")
+	}
+	if _, ok := overlay.NextProfile(nil, "mo5"); ok {
+		t.Error("aucune machine : want false")
+	}
+}
+
+// Identifiant courant absent de la liste : repli sur le premier profil.
+func TestNextProfile_CurrentAbsentFallsToFirst(t *testing.T) {
+	profiles := []machine.MachineProfile{{ID: "mo5"}, {ID: "to8d"}}
+	if p, ok := overlay.NextProfile(profiles, "inconnu"); !ok || p.ID != "mo5" {
+		t.Errorf("courante absente → premier profil, got %q,%v", p.ID, ok)
+	}
+}
+
+// Trois machines : cyclage déterministe (preuve que ce n'est pas un simple binaire).
+func TestNextProfile_CyclesThreeMachines(t *testing.T) {
+	profiles := []machine.MachineProfile{{ID: "a"}, {ID: "b"}, {ID: "c"}}
+	if p, _ := overlay.NextProfile(profiles, "b"); p.ID != "c" {
+		t.Errorf("cycle b→c attendu, got %q", p.ID)
+	}
+	if p, _ := overlay.NextProfile(profiles, "c"); p.ID != "a" {
+		t.Errorf("cycle c→a attendu, got %q", p.ID)
+	}
+}
+
+// --- SwitchPersisted : config mémorisée (ROM) de la machine cible ---
+
+// ROM connue → injectée sous KeyROM.
+func TestSwitchPersisted_RomKnown(t *testing.T) {
+	target := machine.MachineProfile{ID: "to8d"}
+	cfg := overlay.SwitchPersisted(target, func(id string) string {
+		if id == "to8d" {
+			return "rom/to8d.rom"
+		}
+		return ""
+	})
+	if cfg[machine.KeyROM] != "rom/to8d.rom" {
+		t.Errorf("cfg[rom] = %v, want rom/to8d.rom", cfg[machine.KeyROM])
+	}
+}
+
+// ROM inconnue (jamais configurée) ou résolveur nil → config VIDE : PrepareSwitch
+// échouera proprement sur le Param ROM requis, AVANT tout arrêt de la machine courante.
+func TestSwitchPersisted_RomUnknownOrNil(t *testing.T) {
+	target := machine.MachineProfile{ID: "to8d"}
+	if cfg := overlay.SwitchPersisted(target, func(string) string { return "" }); len(cfg) != 0 {
+		t.Errorf("ROM inconnue : config vide attendue, got %+v", cfg)
+	}
+	if cfg := overlay.SwitchPersisted(target, nil); len(cfg) != 0 {
+		t.Errorf("romFor nil : config vide attendue, got %+v", cfg)
+	}
+}
