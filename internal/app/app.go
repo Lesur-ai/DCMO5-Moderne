@@ -95,10 +95,12 @@ type App struct {
 	// Menu de pilotage (v1, en cours de remplacement par l'overlay — lot #117 Inc 3b).
 	menu *menu.Model
 	// overlay : machine d'état PURE de l'overlay Échap (zéro-value = fermé, aucun
-	// constructeur). En 3b.1, ouvert via la touche debug F9 (gelé + voile, sans UI) ;
-	// l'UI ebitenui et la bascule d'Échap arrivent en 3b.2+/3b.4 (retrait du menu v1).
-	overlay  overlay.Model
-	mediaDir string // répertoire de départ du navigateur de fichiers
+	// constructeur). Ouvert via la touche debug F9 (la bascule d'Échap arrive en 3b.4,
+	// avec le retrait du menu v1). overlayUI est l'arbre ebitenui, construit paresseusement
+	// au 1er affichage (besoin du profil) ; nil tant que l'overlay n'a jamais été ouvert.
+	overlay   overlay.Model
+	overlayUI *overlayUI
+	mediaDir  string // répertoire de départ du navigateur de fichiers
 
 	// Médias montés : Closer des fichiers ouverts (fermeture à l'éjection/remplacement)
 	tapeCloser io.Closer
@@ -281,6 +283,9 @@ func (a *App) Update() error {
 	// Échap pilotera l'overlay et le menu v1 sera retiré.
 	if inputJustPressed(ebiten.KeyF9) {
 		a.overlay.Toggle()
+		if a.overlay.IsOpen() {
+			a.openOverlayUI() // construit/rafraîchit l'arbre ebitenui sur l'état média courant
+		}
 		a.syncPause() // gèle l'émulation AU MÊME TICK que l'ouverture (sinon une frame avance)
 		a.updateTitle()
 	}
@@ -351,16 +356,48 @@ func (a *App) syncPause() {
 	a.host.SetPaused(overlay.ShouldPause(a.paused, a.overlay.IsOpen()) || a.menu.IsOpen())
 }
 
-// updateOverlay traite les entrées quand l'overlay est ouvert. En 3b.1 il n'y a pas
-// encore d'UI ebitenui : on gère seulement la FERMETURE (Échap ou la touche debug F9
-// → Back, qui depuis la vue principale ferme l'overlay). Le clavier/souris vers l'UI
-// et l'application des changements média arrivent en 3b.2/3b.3.
+// updateOverlay traite les entrées quand l'overlay est ouvert (clavier/souris UNIQUEMENT
+// vers l'overlay : le court-circuit appelant garantit qu'aucune entrée n'atteint le cœur).
+// Échap/F9 remontent d'un niveau (Browse→Main en 3b.3 ; Main→ferme) ; sinon on délègue à
+// ebitenui (focus clavier natif + clics) et on exécute les actions signalées par l'UI.
 func (a *App) updateOverlay() error {
 	if inputJustPressed(ebiten.KeyEscape) || inputJustPressed(ebiten.KeyF9) {
 		a.overlay.Back()
+		if !a.overlay.IsOpen() {
+			a.updateTitle()
+			return nil // fermé : ne pas animer l'UI ce tick (elle disparaît)
+		}
+		a.overlayUI.sync(a.overlay.State()) // changement de vue (Browse→Main, etc.)
+	}
+	a.overlayUI.ui.Update() // focus clavier natif (Tab/flèches/Entrée) + clics
+
+	// Actions signalées par l'UI (pattern takeStart du launcher) : exécutées ICI (impur),
+	// décidées LÀ-BAS (clic). Reset/Initprog sont des commandes Host idempotentes traitées
+	// même en pause ; Reprendre ferme l'overlay (l'émulation reprend via syncPause).
+	if a.overlayUI.quit {
+		return ErrUserQuit
+	}
+	if a.overlayUI.takeReset() {
+		a.host.Reset()
+	}
+	if a.overlayUI.takeInitprog() {
+		a.host.Initprog()
+	}
+	if a.overlayUI.takeResume() {
+		a.overlay.Close()
 		a.updateTitle()
 	}
 	return nil
+}
+
+// openOverlayUI construit (paresseusement) l'arbre ebitenui de l'overlay puis le
+// synchronise sur l'état média RÉELLEMENT monté (CurrentConfig, dérivé). Appelé à chaque
+// ouverture pour refléter d'éventuels changements de média survenus entre deux ouvertures.
+func (a *App) openOverlayUI() {
+	if a.overlayUI == nil {
+		a.overlayUI = newOverlayUI(a.currentProfile, newUIKit())
+	}
+	a.overlayUI.open(a.currentProfile, a.overlay.State(), a.CurrentConfig())
 }
 
 // typeAheadHighWater : on ne remplit la file de l'injecteur que jusqu'à ce
@@ -676,8 +713,8 @@ func (a *App) blitFramebuffer() {
 }
 
 // drawOverlay dessine, par-dessus l'écran, le framebuffer GELÉ centré en aspect-fit
-// (uimodel.FramebufferAspectFit, pur) puis un voile sombre. L'UI ebitenui de l'overlay
-// (vues Main/Browse) se superposera en 3b.2+. Le letterbox est rempli en noir.
+// (uimodel.FramebufferAspectFit, pur), un voile sombre, puis l'UI ebitenui de l'overlay
+// (vue Main en 3b.2 ; Browse en 3b.3). Le letterbox est rempli en noir.
 func (a *App) drawOverlay(screen *ebiten.Image) {
 	sw, sh := screen.Bounds().Dx(), screen.Bounds().Dy()
 	screen.Fill(color.RGBA{R: 0, G: 0, B: 0, A: 0xFF}) // letterbox (barres) noir
@@ -688,9 +725,14 @@ func (a *App) drawOverlay(screen *ebiten.Image) {
 	op.GeoM.Scale(float64(w)/float64(a.fw), float64(h)/float64(a.fh))
 	op.GeoM.Translate(float64(x), float64(y))
 	screen.DrawImage(a.fb, op)
-	// Voile sombre semi-transparent : signale que l'émulation est gelée et prépare le
-	// contraste de l'UI à venir.
+	// Voile sombre semi-transparent : signale que l'émulation est gelée et fait ressortir
+	// la carte de l'UI.
 	vector.DrawFilledRect(screen, 0, 0, float32(sw), float32(sh), color.RGBA{R: 0, G: 0, B: 0, A: 120}, false)
+	// UI ebitenui par-dessus (racine transparente : le framebuffer + voile restent visibles
+	// autour de la carte). nil si l'overlay n'a jamais été ouvert (ne devrait pas arriver ici).
+	if a.overlayUI != nil {
+		a.overlayUI.ui.Draw(screen)
+	}
 }
 
 // applyWindowSize dimensionne la fenêtre selon la géométrie d'affichage de la
