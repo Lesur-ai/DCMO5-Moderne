@@ -58,6 +58,28 @@ func TestProfilesIsDeepCopy(t *testing.T) {
 	}
 }
 
+// TestNeutralJoystick_BitPattern (J0.T2 du support joystick) ancre la valeur
+// de NeutralJoystick. La zéro-value Go d'un struct produirait {0x00, 0x00}
+// qui en LOGIQUE INVERSÉE signifie « toutes les directions appuyées + boutons
+// enfoncés » — équivalent d'un joystick agité dans tous les sens en
+// permanence, ce qui casserait silencieusement MO5 (déjà câblé pour le
+// joystick). NeutralJoystick = {0xFF, 0xC0} fixe le repos vrai. Tout code qui
+// construit un InputState DOIT partir de cette constante.
+func TestNeutralJoystick_BitPattern(t *testing.T) {
+	if NeutralJoystick.Position != 0xFF {
+		t.Errorf("NeutralJoystick.Position = %#x, want 0xFF (toutes directions relâchées)", NeutralJoystick.Position)
+	}
+	if NeutralJoystick.Action != 0xC0 {
+		t.Errorf("NeutralJoystick.Action = %#x, want 0xC0 (boutons fire J1/J2 relâchés, bits son à 1)", NeutralJoystick.Action)
+	}
+	// Garde-fou : un constructeur Go vide ne doit JAMAIS être confondu avec le
+	// neutre. Si JoystickInput{} == NeutralJoystick, la convention bits a été
+	// inversée par erreur quelque part — alerte forte.
+	if (JoystickInput{}) == NeutralJoystick {
+		t.Error("JoystickInput{} == NeutralJoystick : convention bits inversée a fui dans la zéro-value Go")
+	}
+}
+
 func TestIRQLines(t *testing.T) {
 	var l IRQLines
 	if l.Pending() {
