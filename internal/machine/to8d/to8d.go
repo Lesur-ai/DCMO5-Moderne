@@ -70,10 +70,16 @@ func (a *adapter) Initprog() { a.ga.Initprog() }
 // est faite par le gate-array, indispensable à l'IRQ clavier.
 func (a *adapter) SetKey(k machine.Key, pressed bool) { a.ga.SetKey(int(k), pressed) }
 
-// SetJoystick est un NO-OP volontaire : le joystick TO8D n'est pas encore émulé par
-// le gate-array (lecture des ports 0x0d/0x0f : joysaction/joysposition forcés à 0,
-// cf. gatearray.go). À implémenter dans un lot dédié ; non requis pour le boot (#118).
-func (a *adapter) SetJoystick(machine.JoystickInput) {}
+// SetJoystick propage l'état des deux manettes au gate-array (Inc J1a). Le
+// gate-array publie ces valeurs sur 0xe7cc/0xe7cd quand port[0x0e/0x0f] bit2
+// sélectionne le mode joystick (mux hardware). Convention bits LOGIQUE INVERSÉE
+// (0=appuyé) ; repos = machine.NeutralJoystick = {0xFF, 0xC0}. La couche hôte
+// (Host.tick, Inc J2a) doit construire ses InputState à partir de
+// machine.NeutralJoystick pour éviter qu'une zéro-value Go ({0x00, 0x00}) ne
+// soit interprétée comme « toutes directions appuyées ».
+func (a *adapter) SetJoystick(j machine.JoystickInput) {
+	a.ga.SetJoystick(j.Position, j.Action)
+}
 
 // SetPointer mappe le pointeur unifié (repère framebuffer) vers l'écran actif TO8D.
 // Le gate-array attend des coordonnées écran (x∈[0,639], y∈[0,199]) : la conversion
