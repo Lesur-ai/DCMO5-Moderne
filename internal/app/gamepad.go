@@ -23,7 +23,6 @@ package app
 
 import (
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/uimodel"
@@ -46,39 +45,60 @@ type gamepadSlot struct {
 // dans App pour persister entre frames.
 type gamepadSlots [2]gamepadSlot
 
-// updateGamepadSlots met à jour les 2 slots à partir des nouvelles connexions/
-// déconnexions détectées par inpututil cette frame. À appeler une fois par tick
-// AVANT collectGamepadSnapshots (cf. App.Update).
+// updateGamepadSlots réconcilie les 2 slots avec la liste courante des gamepads
+// connectés (lue via ebiten.AppendGamepadIDs). À appeler une fois par tick
+// AVANT gamepadSnapshot (cf. App.Update).
+//
+// Pourquoi réconciliation (et pas inpututil.AppendJustConnectedGamepadIDs) :
+// JustConnected ne signale QUE les gamepads branchés APRÈS le démarrage du
+// programme. Une manette déjà connectée au lancement n'apparaît jamais comme
+// « just connected » → ne serait JAMAIS attribuée à un slot.
+// La réconciliation comparée frame par frame résout ce cas tout en gérant
+// hot-plug et déconnexion.
 //
 // Politique de placement (D8) :
-//   - Connexion : prend le premier slot libre (J1 si vide, sinon J2, sinon
-//     ignore — au-delà de 2 gamepads connectés, les supplémentaires sont
-//     IGNORÉS jusqu'à libération d'un slot).
-//   - Déconnexion : libère le slot occupé. Le joueur revient au repos
-//     immédiatement (cf. uimodel.JoystickFromGamepad : Connected=false → neutre).
-func (a *App) updateGamepadSlots(connectBuf []ebiten.GamepadID) []ebiten.GamepadID {
-	// 1. Déconnexions d'abord : libérer les slots avant d'attribuer des
-	//    nouvelles connexions, sinon une « reconnexion » d'un même gamepad
-	//    (même ID) verrait son slot encore occupé.
+//   - Pour chaque ID nouvellement présent : attribué au premier slot libre.
+//   - Pour chaque ID d'un slot qui disparaît de la liste : slot libéré
+//     (Connected=false → uimodel.JoystickFromGamepad retourne NeutralJoystick).
+//   - Au-delà de 2 gamepads, les supplémentaires sont IGNORÉS jusqu'à
+//     libération d'un slot.
+func (a *App) updateGamepadSlots(idBuf []ebiten.GamepadID) []ebiten.GamepadID {
+	idBuf = ebiten.AppendGamepadIDs(idBuf[:0])
+	// Set des IDs connectés cette frame (pour O(1) lookup ci-dessous).
+	connected := make(map[ebiten.GamepadID]bool, len(idBuf))
+	for _, id := range idBuf {
+		connected[id] = true
+	}
+	// 1. Libérer les slots dont l'ID n'est plus connecté ; mémoriser les slots
+	//    qui restent occupés pour ne pas attribuer deux fois le même ID.
+	occupied := make(map[ebiten.GamepadID]bool, len(a.gamepadSlots))
 	for i := range a.gamepadSlots {
 		s := &a.gamepadSlots[i]
-		if s.id != nil && inpututil.IsGamepadJustDisconnected(*s.id) {
+		if s.id == nil {
+			continue
+		}
+		if !connected[*s.id] {
 			s.id = nil
+		} else {
+			occupied[*s.id] = true
 		}
 	}
-	// 2. Nouvelles connexions : prend le premier slot libre dans l'ordre.
-	connectBuf = inpututil.AppendJustConnectedGamepadIDs(connectBuf[:0])
-	for _, id := range connectBuf {
+	// 2. Attribuer chaque ID nouvellement présent au premier slot libre.
+	for _, id := range idBuf {
+		if occupied[id] {
+			continue
+		}
 		idCopy := id // évite que tous les pointeurs partagent la dernière itération
 		for i := range a.gamepadSlots {
 			s := &a.gamepadSlots[i]
 			if s.id == nil {
 				s.id = &idCopy
-				break // bouton placé, passage au gamepad suivant
+				occupied[id] = true
+				break
 			}
 		}
 	}
-	return connectBuf
+	return idBuf
 }
 
 // gamepadSnapshot lit l'état du gamepad occupant le slot indiqué, normalisé
