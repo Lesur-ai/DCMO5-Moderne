@@ -15,13 +15,24 @@ const (
 // Model décrit le clavier d'une machine : nombre de touches (borne des indices),
 // table caractère → combinaison de touches, et indices des touches modificatrices
 // (SHIFT/CNT/ACC/ENTRÉE). ACCKey vaut -1 si la machine n'a pas de touche ACC.
+//
+// SpecialKeys mappe les touches POSITIONNELLES de l'hôte vers les indices machine
+// (clé : int(ebiten.Key) côté app, valeur : indice borné par KeyCount). Couvre
+// les flèches, modificateurs, Enter/Espace, touches d'édition, pavé numérique,
+// F1..F5. Les touches caractère (lettres, chiffres, ponctuation) ne sont PAS ici :
+// elles passent par CharToKey + l'injecteur, qui respecte le layout OS. Le paquet
+// keyboard reste PUR (sans import ebiten) : c'est internal/app qui peuple cette
+// table au démarrage par machine (cf. internal/app/keyboard_init.go). Tant que
+// l'app n'a pas tourné, SpecialKeys reste nil ; le code consommateur doit donc
+// utiliser un range sûr sur une map possiblement nil (Go autorise).
 type Model struct {
-	KeyCount int
-	ShiftKey int
-	CNTKey   int
-	ACCKey   int
-	ENTKey   int
-	chars    map[rune]charKey
+	KeyCount    int
+	ShiftKey    int
+	CNTKey      int
+	ACCKey      int
+	ENTKey      int
+	SpecialKeys map[int]int
+	chars       map[rune]charKey
 }
 
 // CharToKey traduit un caractère en (touche, shift). ok=false si le caractère n'a
