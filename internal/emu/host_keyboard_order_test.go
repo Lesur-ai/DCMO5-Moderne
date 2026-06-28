@@ -9,8 +9,8 @@ package emu
 import (
 	"testing"
 
-	"github.com/Lesur-ai/dcmo5/internal/cpu6809"
 	"github.com/Lesur-ai/dcmo5/internal/core"
+	"github.com/Lesur-ai/dcmo5/internal/cpu6809"
 	"github.com/Lesur-ai/dcmo5/internal/keyboard"
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/machine/mo5"
@@ -43,9 +43,9 @@ func (l *loggedMachine) KeyboardModel() *keyboard.Model {
 	}
 	return l.inner.KeyboardModel()
 }
-func (l *loggedMachine) Step(cycles int) int          { return l.inner.Step(cycles) }
-func (l *loggedMachine) Reset()                       { l.inner.Reset() }
-func (l *loggedMachine) Initprog()                    { l.inner.Initprog() }
+func (l *loggedMachine) Step(cycles int) int { return l.inner.Step(cycles) }
+func (l *loggedMachine) Reset()              { l.inner.Reset() }
+func (l *loggedMachine) Initprog()           { l.inner.Initprog() }
 func (l *loggedMachine) SetJoystick(j machine.JoystickInput) {
 	l.inner.SetJoystick(j)
 }
