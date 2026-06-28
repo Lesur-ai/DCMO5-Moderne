@@ -1,15 +1,25 @@
-// Fichier : to8d.go — modèle clavier TO8D (lot #116).
+// Fichier : to8d.go — modèle clavier TO8D (lot #116 + Inc Kb du fix clavier).
 //
-// Réf C : dcto8dkeyb.c (table keyboardbutton, scancodes 0x00-0x53) et
-// dcto8demulation.c TO8key. Le clavier TO8D compte 84 touches (KEYBOARDKEY_MAX).
-// Indices modificateurs : SHIFT 0x51 (un 2e SHIFT 0x52 existe ; les deux sont
-// traités au niveau matériel par le gate-array), CNT 0x53, ACC 0x14, ENTRÉE 0x46.
+// Réf C : dcto8dkeyb.c (table keyboardbutton, scancodes 0x00-0x53), dcto8dkeyb.h
+// (pckeycode[] PC→TO8D), dcto8dinterface.c (labels physiques décodés Latin-1).
+// Le clavier TO8D compte 84 touches (KEYBOARDKEY_MAX). Indices modificateurs :
+// SHIFT 0x51 (un 2e SHIFT 0x52 existe au niveau matériel, géré par le gate-array
+// — côté hôte les deux KeyShift pointent sur 0x51, cf. keyboard_init.go), CNT
+// 0x53, ACC 0x14, ENTRÉE 0x46.
 //
-// Périmètre #116 : la table caractère → touche ne contient ici que les
-// correspondances NON AMBIGUËS — les 26 lettres (insensibles à la casse, comme le
-// modèle MO5 ; le firmware gère la casse via le capslock), l'espace et ENTRÉE. La
-// rangée des chiffres/symboles (libellés AZERTY à deux caractères, p. ex. « _ 6 »,
-// « é 2 ») dépend du layout et est finalisée lors du câblage TO8D (#118).
+// La table caractères contient : 26 lettres (insensibles à la casse, le firmware
+// gère la casse via capslock), espace, ENT, plus (Inc Kb) la rangée chiffres/
+// symboles AZERTY-FR au format « libellé gauche / libellé droit » :
+//   - libellé GAUCHE = frappe SANS shift (typiquement accent ou symbole)
+//   - libellé DROIT  = frappe AVEC shift (typiquement chiffre)
+//
+// Convention « accent direct, chiffre en shift » alignée sur pckeycode[].
+// Décisions owner 28/06 :
+//   - layout AZERTY France-Windows v1, autres layouts hors scope
+//   - touches mortes ^¨ (label 0x4d) NON mappées en rune : taper '^' isolé sur
+//     TO8D requerrait ACC + SHIFT + touche (séquence morte) — PR future
+//   - majuscules accentuées (É, À, Ç, Ù) NON produisibles (limitation matérielle :
+//     pas de touche dédiée ; le firmware compose via ACC sur le hardware réel)
 //
 // ACCKey = 0x14 sert au filtrage d'injection de la couche app (ne pas taper ACC
 // comme un caractère) ; côté matériel, le gate-array traite 0x14 comme une touche
@@ -59,6 +69,34 @@ var charToTO8D = map[rune]charKey{
 	' ':  {0x34, false},       // ESPACE
 	'\n': {to8dKeyENT, false}, // ENT
 	'\r': {to8dKeyENT, false}, // ENT (CRLF → un seul ENT)
+
+	// Rangée chiffres + accents (Inc Kb). Convention « accent direct, chiffre en
+	// shift » (pckeycode[]). Indices et labels vérifiés dans dcto8dinterface.c
+	// (décodage Latin-1 → UTF-8).
+	'_': {0x01, false}, '6': {0x01, true}, // label « _ 6 »
+	'(': {0x09, false}, '5': {0x09, true}, // label « ( 5 »
+	'\'': {0x11, false}, '4': {0x11, true}, // label « ' 4 »
+	'"': {0x19, false}, '3': {0x19, true}, // label « " 3 »
+	'é': {0x21, false}, '2': {0x21, true}, // label « é 2 »
+	'*': {0x29, false}, '1': {0x29, true}, // label « * 1 »
+	'è': {0x31, false}, '7': {0x31, true}, // label « è 7 »
+	'!': {0x39, false}, '8': {0x39, true}, // label « ! 8 »
+	'ç': {0x41, false}, '9': {0x41, true}, // label « ç 9 »
+	'à': {0x49, false}, '0': {0x49, true}, // label « à 0 »
+
+	// Symboles « = + » et autres paires de la 4e rangée.
+	'=': {0x0c, false}, '+': {0x0c, true}, // label « = + »
+	'#': {0x28, false}, '@': {0x28, true}, // label « # @ »
+	'[': {0x2c, false}, '{': {0x2c, true}, // label « [ { »
+	',': {0x37, false}, '?': {0x37, true}, // label « , ? »
+	'$': {0x3c, false}, '&': {0x3c, true}, // label « $ & »
+	']': {0x3e, false}, '}': {0x3e, true}, // label « ] } »
+	';': {0x3f, false}, '.': {0x3f, true}, // label « ; . »
+	'-': {0x44, false}, '\\': {0x44, true}, // label « - \ »
+	'ù': {0x45, false}, '%': {0x45, true}, // label « ù % »
+	':': {0x47, false}, '/': {0x47, true}, // label « : / »
+	')': {0x4c, false}, '°': {0x4c, true}, // label « ) ° »
+	'>': {0x4f, false}, '<': {0x4f, true}, // label « > < »
 }
 
 // to8dModel est le modèle clavier TO8D (singleton, table en lecture seule).

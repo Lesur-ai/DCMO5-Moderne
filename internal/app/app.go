@@ -838,8 +838,19 @@ func Run(a *App) error {
 	return err
 }
 
-// KeyMapping expose la table pour les tests.
-func KeyMapping() map[ebiten.Key]int { return keyMapping }
+// KeyMapping expose la table positionnelle MO5 pour les tests existants.
+// Retourne une COPIE convertie depuis keyboard.MO5Model().SpecialKeys (peuplée
+// par keyboard_init.go). Le pluriel par machine se lit via a.kbModel.SpecialKeys
+// directement dans resolveKeys/learnLiveKeys ; cette fonction est MO5-only
+// pour préserver la sémantique des anciens tests.
+func KeyMapping() map[ebiten.Key]int {
+	sp := keyboard.MO5Model().SpecialKeys
+	out := make(map[ebiten.Key]int, len(sp))
+	for k, v := range sp {
+		out[ebiten.Key(k)] = v
+	}
+	return out
+}
 
 // ── Helpers input ─────────────────────────────────────────────────────────────
 
@@ -904,7 +915,7 @@ func learnLiveKeys(model *keyboard.Model, learned map[ebiten.Key]liveKey, justPr
 	}
 	ci := 0
 	for _, k := range justPressed {
-		if _, special := keyMapping[k]; special {
+		if _, special := model.SpecialKeys[int(k)]; special {
 			continue
 		}
 		var r rune
@@ -948,18 +959,22 @@ func resolveKeys(model *keyboard.Model, pressed func(ebiten.Key) bool, learned m
 		}
 	}
 
-	for eKey, mo5Key := range keyMapping {
-		if injecting && (mo5Key == model.ShiftKey || mo5Key == model.CNTKey) {
+	// Touches positionnelles : table par MACHINE (model.SpecialKeys, peuplée par
+	// keyboard_init.go). Sur MO5 c'est l'ancienne keyMapping ; sur TO8D les
+	// scancodes diffèrent (Enter=0x46, SHIFT=0x51, etc.) — fini le bug « ENTER
+	// tape un espace » qui venait du partage d'une table figée MO5.
+	for eKeyInt, machineKey := range model.SpecialKeys {
+		if injecting && (machineKey == model.ShiftKey || machineKey == model.CNTKey) {
 			continue
 		}
-		if liveCharHeld && model.IsModifier(mo5Key) {
+		if liveCharHeld && model.IsModifier(machineKey) {
 			// SHIFT/CNT/ACC physiques ignorés quand une touche-caractère est tenue :
 			// le caractère décodé par l'OS encode déjà le modificateur (anti
 			// double-shift AZERTY ; anti-fuite AltGr → ACC/CNT, ex. AltGr+0 = '@').
 			continue
 		}
-		if pressed(eKey) && mo5Key < model.KeyCount {
-			in.Keys[mo5Key] = true
+		if pressed(ebiten.Key(eKeyInt)) && machineKey < model.KeyCount {
+			in.Keys[machineKey] = true
 		}
 	}
 	if liveCharHeld && shiftFromChars {
@@ -974,32 +989,9 @@ func resolveKeys(model *keyboard.Model, pressed func(ebiten.Key) bool, learned m
 	return in
 }
 
-// keyMapping mappe les touches spéciales Ebitengine vers les indices MO5.
-// Les touches « caractère » (lettres, chiffres, ponctuation) ne sont PAS ici :
-// elles passent par l'injecteur de caractères (voir keyboard.go), ce qui gère
-// le layout OS et les combinaisons Shift. Ce mapping ne couvre que les touches
-// dont l'état physique continu fait sens (déplacement, contrôle, édition).
-// Ref: dcmo5keyb.h mo5key[] (indices 0x00–0x39).
-var keyMapping = map[ebiten.Key]int{
-	ebiten.KeySpace:        0x20, // ESPACE
-	ebiten.KeyEnter:        0x34, // ENT
-	ebiten.KeyBackspace:    0x01, // EFF (effacement)
-	ebiten.KeyInsert:       0x09, // INS
-	ebiten.KeyDelete:       0x33, // RAZ
-	ebiten.KeyHome:         0x11, // [retour]
-	ebiten.KeyArrowRight:   0x19,
-	ebiten.KeyArrowLeft:    0x29,
-	ebiten.KeyArrowDown:    0x21,
-	ebiten.KeyArrowUp:      0x31,
-	ebiten.KeyShiftLeft:    0x38, // SHIFT (voir gestion conditionnelle dans Update)
-	ebiten.KeyShiftRight:   0x38,
-	ebiten.KeyControlLeft:  0x35, // CNT
-	ebiten.KeyControlRight: 0x35,
-	ebiten.KeyAltLeft:      0x36, // ACC (accent)
-	ebiten.KeyAltRight:     0x36,
-	ebiten.KeyTab:          0x39, // BASIC
-	ebiten.KeyEnd:          0x37, // STP (stop)
-}
+// La table positionnelle MO5 vit désormais dans keyboard_init.go (mo5SpecialKeys)
+// et est injectée dans keyboard.MO5Model().SpecialKeys au load du paquet. La
+// table TO8D (to8dSpecialKeys) y vit aussi. Voir Inc Ka du fix clavier TO8D.
 
 // TitleForState retourne le titre de fenêtre pour un état donné.
 // Fonction pure testable sans Ebitengine.
