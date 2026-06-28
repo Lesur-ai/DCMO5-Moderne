@@ -77,6 +77,13 @@ type overlayUI struct {
 	switchTarget machine.MachineProfile
 	switchArmed  bool
 
+	// Joystick clavier (Inc J3a) : état affiché par le bouton « Joystick : ON/OFF »
+	// dans la rangée Système. Synchronisé depuis App.joystickKBEnabled au moment
+	// de open() et après chaque toggle (cf. setJoystickKBEnabled). toggleJoystick
+	// est un signal one-shot armé au clic, consommé par App.updateOverlay.
+	joystickKBEnabled bool
+	toggleJoystick    bool
+
 	*uiKit
 }
 
@@ -95,19 +102,36 @@ func newOverlayUI(profile machine.MachineProfile, profiles []machine.MachineProf
 }
 
 // open (ré)initialise la vue à l'ouverture : profil + config de travail = clone de l'état
-// RÉELLEMENT monté (cur), répertoire média, efface les erreurs, reconstruit.
-func (o *overlayUI) open(profile machine.MachineProfile, mediaDir string, cur machine.Config) {
+// RÉELLEMENT monté (cur), répertoire média, état joystick clavier (pour le bouton de la
+// rangée Système), efface les erreurs, reconstruit.
+func (o *overlayUI) open(profile machine.MachineProfile, mediaDir string, cur machine.Config, joystickKBEnabled bool) {
 	o.profile = profile
 	o.mediaDir = mediaDir
 	o.next = cloneConfig(cur)
+	o.joystickKBEnabled = joystickKBEnabled
 	o.errText = ""
 	o.rebuild()
 }
 
-// takeApply/takeReset/takeInitprog consomment un signal one-shot (lu une fois).
+// setJoystickKBEnabled met à jour l'état affiché par le bouton « Joystick » et
+// reconstruit l'arbre pour rafraîchir le libellé/couleur. Appelée par App.updateOverlay
+// après avoir consommé takeToggleJoystick : la modification de l'état joystick
+// (App.joystickKBEnabled) doit refléter immédiatement dans le bouton, sans
+// attendre la prochaine ouverture de l'overlay.
+func (o *overlayUI) setJoystickKBEnabled(b bool) {
+	o.joystickKBEnabled = b
+	o.rebuild()
+}
+
+// takeApply/takeReset/takeInitprog/takeToggleJoystick consomment un signal one-shot.
 func (o *overlayUI) takeApply() bool    { v := o.apply; o.apply = false; return v }
 func (o *overlayUI) takeReset() bool    { v := o.reset; o.reset = false; return v }
 func (o *overlayUI) takeInitprog() bool { v := o.initprog; o.initprog = false; return v }
+func (o *overlayUI) takeToggleJoystick() bool {
+	v := o.toggleJoystick
+	o.toggleJoystick = false
+	return v
+}
 
 // takeSwitch consomme la demande de changement de machine (cible + drapeau, lus une fois).
 func (o *overlayUI) takeSwitch() (machine.MachineProfile, bool) {
@@ -243,6 +267,15 @@ func (o *overlayUI) buildMain(card *widget.Container) {
 	sys.AddChild(o.button("Reset", o.btnImg, o.txtColor, func() { o.reset = true }))
 	sys.AddChild(o.button("Init prog", o.btnImg, o.txtColor, func() { o.initprog = true }))
 	sys.AddChild(o.button("Quitter", o.btnImg, o.txtColor, func() { o.quit = true }))
+	// Joystick clavier (Inc J3a) : toggle ON/OFF. Quand ON, WASD est intercepté
+	// pour J2 (ne tape plus en BASIC) et le mapping flèches/Shift active aussi
+	// les bits joystick. Couleur accentuée (btnSel) quand ON pour indicateur
+	// visuel immédiat ; standard (btnImg) quand OFF.
+	joyImg, joyText, joyLabel := o.btnImg, o.txtColor, "Joystick : OFF"
+	if o.joystickKBEnabled {
+		joyImg, joyText, joyLabel = o.btnSel, o.txtOnSel, "Joystick : ON"
+	}
+	sys.AddChild(o.button(joyLabel, joyImg, joyText, func() { o.toggleJoystick = true }))
 	// Changement de machine : DANS la même rangée (compact — une section séparée ferait
 	// déborder la carte au-delà de la fenêtre 672×432). Affiché seulement s'il existe une
 	// AUTRE machine (overlay.NextProfile, pur). → vue de confirmation (ConfirmSwitch).

@@ -99,6 +99,12 @@ type App struct {
 	overlayUI *overlayUI
 	mediaDir  string // répertoire de départ du navigateur de fichiers
 
+	// Inc J3a : joystick au clavier activable à la demande (F12). Désactivé par
+	// défaut (false) → WASD/AltGr tapent normalement en BASIC. Activé → mapping
+	// joystick (J1 = flèches+AltGr, J2 = WASD+LeftShift) exclut WASD et AltGr
+	// du clavier émulation (cf. joystick.go isJoystickExclusiveKey conditionnel).
+	joystickKBEnabled bool
+
 	// Médias montés : Closer des fichiers ouverts (fermeture à l'éjection/remplacement)
 	tapeCloser io.Closer
 	diskCloser io.Closer
@@ -311,12 +317,23 @@ func (a *App) Update() error {
 	// qu'à la saisie scriptée (--exec, collage).
 	a.inputChars = ebiten.AppendInputChars(a.inputChars[:0])
 	a.justPressed = inpututil.AppendJustPressedKeys(a.justPressed[:0])
-	learnLiveKeys(a.kbModel, a.liveKeys, a.justPressed, a.inputChars, ebiten.IsKeyPressed)
+	// Inc J3a : le toggle joystick au clavier vit dans l'overlay (rangée Système,
+	// bouton « Joystick : ON/OFF »). OFF par défaut → WASD tapent en BASIC
+	// normalement. ON → mapping joystick (J1=flèches+RightShift, J2=WASD+
+	// LeftShift) avec exclusion WASD du clavier émulation. Le toggle ne
+	// déclenche AUCUN effet de bord côté machine — juste un changement de
+	// routage des touches dans les frames suivantes.
+
+	learnLiveKeys(a.kbModel, a.liveKeys, a.justPressed, a.inputChars, ebiten.IsKeyPressed, a.joystickKBEnabled)
 
 	tickKeys := a.keys.Tick()
 	injecting := len(tickKeys) > 0 || a.keys.Pending() > 0
 
-	in := resolveKeys(a.kbModel, ebiten.IsKeyPressed, a.liveKeys, injecting, tickKeys)
+	in := resolveKeys(a.kbModel, ebiten.IsKeyPressed, a.liveKeys, injecting, tickKeys, a.joystickKBEnabled)
+	// Inc J3a : résolution joystick clavier. Mapping fixe (J1=flèches+AltGr,
+	// J2=WASD+LeftShift) défini dans joystick.go. Si le mode est désactivé
+	// (défaut), retourne machine.NeutralJoystick — état neutre côté machine.
+	in.Joystick = joystickFromKeys(ebiten.IsKeyPressed, a.joystickKBEnabled)
 	// Le curseur Ebitengine est en repère Layout (= LOGIQUE). Pour le crayon optique,
 	// on le ramène au repère FRAMEBUFFER attendu par la machine : identité pour le MO5
 	// (logique == framebuffer), mais Y/2 pour le gate-array dont le Layout est étiré ×2
@@ -382,6 +399,17 @@ func (a *App) updateOverlay() error {
 	}
 	if target, ok := a.overlayUI.takeSwitch(); ok {
 		a.switchMachine(target)
+		// switchMachine met a.overlayUI = nil (pattern Inc 5b : éviter de projeter
+		// le profil/next de l'ancienne machine sur la nouvelle). Return immédiat —
+		// sinon le takeToggleJoystick ci-dessous déréfère un overlayUI nil.
+		return nil
+	}
+	if a.overlayUI.takeToggleJoystick() {
+		// Inc J3a : toggle joystick clavier. Pas d'effet immédiat côté machine
+		// (le state suit dans Update via joystickFromKeys), mais on rafraîchit
+		// le bouton de l'overlay pour que son libellé reflète l'état courant.
+		a.joystickKBEnabled = !a.joystickKBEnabled
+		a.overlayUI.setJoystickKBEnabled(a.joystickKBEnabled)
 	}
 	return nil
 }
@@ -446,7 +474,7 @@ func (a *App) openOverlayUI() {
 	if a.overlayUI == nil {
 		a.overlayUI = newOverlayUI(a.currentProfile, machine.Profiles(), &a.overlay, osListerUI, newUIKit())
 	}
-	a.overlayUI.open(a.currentProfile, a.mediaDir, a.CurrentConfig())
+	a.overlayUI.open(a.currentProfile, a.mediaDir, a.CurrentConfig(), a.joystickKBEnabled)
 }
 
 // applyLiveOps applique les changements média de `next` vs l'état RÉELLEMENT monté
@@ -889,7 +917,7 @@ func pasteRequested() bool {
 // sont exclus : ainsi « tenir A puis presser B » apprend bien B→'b' et non B→'a'.
 // Une touche just-pressed qui ne produit aucun caractère MO5 voit son
 // association obsolète purgée (évite de tenir un ancien caractère).
-func learnLiveKeys(model *keyboard.Model, learned map[ebiten.Key]liveKey, justPressed []ebiten.Key, chars []rune, pressed func(ebiten.Key) bool) {
+func learnLiveKeys(model *keyboard.Model, learned map[ebiten.Key]liveKey, justPressed []ebiten.Key, chars []rune, pressed func(ebiten.Key) bool, joystickKBEnabled bool) {
 	if len(justPressed) == 0 {
 		return
 	}
@@ -918,6 +946,14 @@ func learnLiveKeys(model *keyboard.Model, learned map[ebiten.Key]liveKey, justPr
 		if _, special := model.SpecialKeys[int(k)]; special {
 			continue
 		}
+		// Inc J3a : les touches réservées au joystick (WASD, AltGr) ne doivent
+		// JAMAIS apprendre un caractère MO5 quand le mode joystick clavier est
+		// activé — sinon chaque mouvement joystick J2 taperait les lettres
+		// Z/Q/S/D en BASIC. Si le mode est désactivé (défaut), la fonction
+		// retourne false et l'apprentissage normal a lieu.
+		if isJoystickExclusiveKey(k, joystickKBEnabled) {
+			continue
+		}
 		var r rune
 		if ci < len(candidates) {
 			r = candidates[ci]
@@ -942,7 +978,7 @@ func learnLiveKeys(model *keyboard.Model, learned map[ebiten.Key]liveKey, justPr
 // (ex. AltGr+0 = '@'), le caractère décodé par l'OS encodant déjà tout. Sans
 // touche-caractère tenue, les modificateurs physiques restent positionnels.
 // Pendant une injection (--exec/collage), Shift/CNT physiques sont filtrés.
-func resolveKeys(model *keyboard.Model, pressed func(ebiten.Key) bool, learned map[ebiten.Key]liveKey, injecting bool, tickKeys []int) emu.InputState {
+func resolveKeys(model *keyboard.Model, pressed func(ebiten.Key) bool, learned map[ebiten.Key]liveKey, injecting bool, tickKeys []int, joystickKBEnabled bool) emu.InputState {
 	// Joystick au repos par défaut (cf. machine.NeutralJoystick, Inc J0/J2a) :
 	// la zéro-value Go {0x00, 0x00} serait interprétée par la machine comme
 	// « toutes directions appuyées » en logique inversée — régression silencieuse
@@ -957,6 +993,15 @@ func resolveKeys(model *keyboard.Model, pressed func(ebiten.Key) bool, learned m
 	shiftFromChars := false
 	if !injecting {
 		for k, lk := range learned {
+			// Inc J3a fix codex P2 : si le mode joystick clavier est activé, on
+			// IGNORE les associations apprises avant le toggle pour les touches
+			// joystick (W/A/S/D). Sinon, une touche WASD tapée en BASIC AVANT
+			// l'activation joystick reste dans `learned` et continue à émettre
+			// son caractère MO5 à chaque mouvement joystick — exclusion
+			// learnLiveKeys/SpecialKeys insuffisante pour ce cas.
+			if isJoystickExclusiveKey(k, joystickKBEnabled) {
+				continue
+			}
 			if pressed(k) && lk.mo5 >= 0 && lk.mo5 < model.KeyCount {
 				in.Keys[lk.mo5] = true
 				liveCharHeld = true
@@ -979,6 +1024,13 @@ func resolveKeys(model *keyboard.Model, pressed func(ebiten.Key) bool, learned m
 			// SHIFT/CNT/ACC physiques ignorés quand une touche-caractère est tenue :
 			// le caractère décodé par l'OS encode déjà le modificateur (anti
 			// double-shift AZERTY ; anti-fuite AltGr → ACC/CNT, ex. AltGr+0 = '@').
+			continue
+		}
+		// Inc J3a : touches réservées au joystick exclues du clavier émulation
+		// QUAND le mode joystick clavier est activé (toggle F12). Couvre AltGr
+		// (sinon ACC parasite à chaque fire J1). KeyShiftLeft et les flèches
+		// NE SONT PAS exclues (cf. D5 : double-input acceptés).
+		if isJoystickExclusiveKey(ebiten.Key(eKeyInt), joystickKBEnabled) {
 			continue
 		}
 		if pressed(ebiten.Key(eKeyInt)) && machineKey < model.KeyCount {
