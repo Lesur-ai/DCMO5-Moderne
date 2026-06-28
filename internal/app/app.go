@@ -103,9 +103,19 @@ type App struct {
 	tapeCloser io.Closer
 	diskCloser io.Closer
 
-	// Audio (le lecteur consomme la ring du Host ; il ne touche jamais le cœur)
+	// Audio (le lecteur consomme la ring du Host ; il ne touche jamais le cœur).
+	// audioCtx est créé UNE SEULE FOIS (ebiten n'autorise qu'un contexte par process :
+	// un 2e ebaudio.NewContext panique). Au changement de machine, on recrée le Player
+	// (lié à la ring d'un Host précis) mais PAS le contexte (cf. teardownAudio/initAudio).
+	audioCtx      *ebaudio.Context
 	audioPlayer   *ebaudio.Player
 	audioDisabled bool
+
+	// romResolver résout le chemin de la ROM système d'une machine par son identifiant
+	// (lecture de la config persistée, injectée depuis cmd via SetROMResolver). Sert au
+	// changement de machine à chaud (Inc 5) : construire la config de la cible. nil = pas
+	// de résolution (le switch échouera proprement sur ROM requise).
+	romResolver func(machineID string) string
 
 	// État desktop
 	paused     bool
@@ -148,6 +158,11 @@ func NewLauncher(profiles []machine.MachineProfile, mediaDir string, noAudio boo
 // (ex. chemin ROM) sans coupler l'App au package config. Sans effet en mode émulateur
 // (chemin CLI à boot direct).
 func (a *App) SetOnStart(fn func(profileID string, cfg machine.Config)) { a.onStart = fn }
+
+// SetROMResolver injecte le résolveur de ROM système par machine (lecture de la config
+// persistée, côté cmd). Consommé par le changement de machine à chaud (Inc 5) pour
+// construire la config de la cible. nil (défaut) → aucune résolution.
+func (a *App) SetROMResolver(fn func(machineID string) string) { a.romResolver = fn }
 
 // attachMachine câble une machine sur l'App (tampons d'affichage, Host, modèle
 // clavier). Partagé par New (CLI direct) et par la transition launcher→émulateur :
@@ -365,6 +380,62 @@ func (a *App) updateOverlay() error {
 	if a.overlayUI.takeApply() {
 		a.applyLiveOps(a.overlayUI.next)
 	}
+	if target, ok := a.overlayUI.takeSwitch(); ok {
+		a.switchMachine(target)
+	}
+	return nil
+}
+
+// switchMachine bascule à chaud vers la machine cible (depuis la vue ConfirmSwitch).
+// Validation PURE d'abord (PrepareSwitch) : si elle échoue (ROM cible introuvable), on
+// AFFICHE l'erreur et la session courante reste 100% intacte. Sinon on exécute le switch.
+func (a *App) switchMachine(target machine.MachineProfile) {
+	persisted := overlay.SwitchPersisted(target, a.romResolver)
+	prep, err := overlay.PrepareSwitch(target, persisted, fileExists)
+	if err != nil {
+		a.overlayUI.errText = "Passage à " + target.Name + " impossible : " + err.Error()
+		a.overlayUI.rebuild()
+		return
+	}
+	if err := a.applyProfileSwitch(target, prep); err != nil {
+		a.overlayUI.errText = "Démarrage de " + target.Name + " échoué : " + err.Error()
+		a.overlayUI.rebuild()
+		return
+	}
+	// Succès : fermer l'overlay, reprendre, et JETER l'overlayUI — il portait le profil et la
+	// config de travail de l'ANCIENNE machine ; il sera recréé à la prochaine ouverture sur
+	// la nouvelle (openOverlayUI), évitant tout média/param fantôme (revue Codex).
+	a.overlay.Close()
+	a.overlayUI = nil
+	a.updateTitle()
+	a.syncPause()
+}
+
+// applyProfileSwitch exécute l'ordre IMPÉRATIF du changement de machine (revue de plan
+// Codex, B2). Doctrine state-safety : on instancie la NOUVELLE machine AVANT d'arrêter
+// l'ancienne — si New échoue (ROM illisible/corrompue), la session courante est intacte.
+// Une fois New réussi, on s'engage : Stop ancien Host (bloquant) → teardown médias+audio →
+// attachMachine → monter médias → fenêtre → recréer le Player audio → Start.
+func (a *App) applyProfileSwitch(target machine.MachineProfile, prep overlay.Prep) error {
+	m, err := target.New(prep.Config)
+	if err != nil {
+		return err // rien arrêté : session courante intacte
+	}
+	a.host.Stop() // bloquant (close(stop)+<-done) : la goroutine de l'ancienne machine est terminée
+	a.closeTape() // fermer les descripteurs de l'ancienne machine (sinon fuite)
+	a.closeDisk() //
+	a.tapeName, a.diskName, a.cartName = "", "", ""
+	a.teardownAudio() // détruit le Player (lié à l'ancienne ring) APRÈS Stop, AVANT initAudio
+	a.attachMachine(m, target)
+	a.romName = ""
+	if rom, _ := prep.Config[machine.KeyROM].(string); rom != "" {
+		a.romName = filepath.Base(rom)
+	}
+	a.mountMedia(prep.Mounts) // médias à monter (vide par défaut : familles incompatibles, cf. B3)
+	a.applyWindowSize()       // redimensionne la fenêtre selon la nouvelle famille
+	a.initAudio()             // recrée le Player sur le NOUVEAU Host (audioPlayer == nil après teardown)
+	a.host.Start()
+	a.hostStarted = true
 	return nil
 }
 
@@ -373,7 +444,7 @@ func (a *App) updateOverlay() error {
 // ouverture pour refléter d'éventuels changements de média survenus entre deux ouvertures.
 func (a *App) openOverlayUI() {
 	if a.overlayUI == nil {
-		a.overlayUI = newOverlayUI(a.currentProfile, &a.overlay, osListerUI, newUIKit())
+		a.overlayUI = newOverlayUI(a.currentProfile, machine.Profiles(), &a.overlay, osListerUI, newUIKit())
 	}
 	a.overlayUI.open(a.currentProfile, a.mediaDir, a.CurrentConfig())
 }
