@@ -61,8 +61,8 @@ var (
 	colBtn      = color.NRGBA{R: 0x2b, G: 0x2f, B: 0x44, A: 0xff}
 	colBtnHi    = color.NRGBA{R: 0x3a, G: 0x3f, B: 0x5c, A: 0xff}
 	colBtnLo    = color.NRGBA{R: 0x22, G: 0x25, B: 0x36, A: 0xff}
-	colField    = color.NRGBA{R: 0x16, G: 0x18, B: 0x22, A: 0xff} // fond de champ (inset)
-	colFieldHi  = color.NRGBA{R: 0x23, G: 0x27, B: 0x38, A: 0xff} // survol d'une zone de champ
+	colField    = color.NRGBA{R: 0x27, G: 0x2b, B: 0x3c, A: 0xff} // fond de champ (légèrement plus clair que colPanel pour rester visible au repos)
+	colFieldHi  = color.NRGBA{R: 0x33, G: 0x37, B: 0x4e, A: 0xff} // survol/focus d'une zone de champ (un cran au-dessus, sous colBorder)
 	colDanger   = color.NRGBA{R: 0xff, G: 0x6b, B: 0x6b, A: 0xff}
 	colWhite    = color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 )
