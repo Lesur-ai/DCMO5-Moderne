@@ -6,46 +6,105 @@ l'émulateur Thomson MO5 [DCMO5 v11](http://dcmo5.free.fr/)).
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ;
 versionnage [SemVer](https://semver.org/lang/fr/).
 
-## [Non publié] — v2, multi-machines (en développement)
+## [Non publié] — v2, multi-machines (TO8D utilisable)
 
-Chantier de généralisation **multi-machines** pour émuler d'autres machines
-Thomson au-delà du MO5, première cible le **TO8D**.
+Généralisation **multi-machines** : émulation du **TO8D** en plus du MO5. Le
+TO8D boote, se pilote au clavier français AZERTY, accepte les manettes
+(clavier + gamepad standard), et permet le **changement de machine à chaud**
+sans relancer l'émulateur. Le **MO5 (v1) reste pleinement fonctionnel** —
+aucune régression côté MO5 (parité bits joystick figée par tests miroirs).
 
-> ⚠️ **En cours de finition** : le **TO8D boote** et se sélectionne au launcher
-> (présélectionnable via `--machine to8d`), mais l'affichage n'est pas encore au bon ratio
-> ([#147](https://github.com/Lesur-ai/dcmo5/issues/147)) et la finition (overlay
-> d'options en jeu, validation complète des médias) reste à faire (épopée
-> [#106](https://github.com/Lesur-ai/dcmo5/issues/106)). Le **MO5 (v1) reste
-> pleinement fonctionnel**. Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md).
+Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
+[`DESIGN/JOYSTICK.md`](DESIGN/JOYSTICK.md).
 
 ### Ajouté
 
 - **Architecture multi-machines** : profils de machine (`MachineProfile`) +
   registre, **moteur d'émulation partagé** (boucle CPU/IRQ/vidéo/audio factorisée),
-  MO5 refactoré en *device* du moteur.
-- **Base d'émulation TO8D** (gate-array) : mémoire 512 Ko + banking, vidéo 5 modes
+  MO5 refactoré en *device* du moteur. Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md).
+- **Émulation TO8D complète** (gate-array) : mémoire 512 Ko + banking, vidéo 5 modes
   + palette EF9369, timer 6846 + lignes d'IRQ, traps d'E/S (cassette, disquette,
-  crayon optique, souris, imprimante) + son, **clavier TO8D** (scancode + IRQ
-  gate-array, CAPSLOCK).
-- **TO8D *bootable*** : profil TO8D sélectionnable au launcher (présélectionnable
-  via `--machine to8d`), intégration au moteur partagé (synchronisation du faisceau vidéo *gate-array* ;
-  IRQ de fin de trame 50 Hz neutralisée pour la famille *gate-array*, l'interruption
-  provenant du timer 6846) et chargement de `rom/to8d.rom` (BASIC + moniteur, patchs
-  *trap* appliqués en mémoire, tout-ou-rien et idempotents) — le **moniteur TO8D
-  démarre à l'écran** ([#118](https://github.com/Lesur-ai/dcmo5/issues/118) /
-  [#146](https://github.com/Lesur-ai/dcmo5/pull/146)). Le ratio d'affichage reste
-  à corriger ([#147](https://github.com/Lesur-ai/dcmo5/issues/147)).
-- **Clavier généralisé** *data-driven* : modèle de clavier par machine, état
-  d'entrée non figé.
-- **IHM *data-driven*** : couche pure `internal/uimodel` (descripteurs de widgets
-  dérivés des paramètres de profil) + dépendance **ebitenui**, avec garde-fou CI
-  de cross-compilation **Windows `CGO_ENABLED=0`**.
+  crayon optique, souris, imprimante) + son, **clavier TO8D AZERTY-FR**
+  (scancode + IRQ gate-array, CAPSLOCK, table complète chiffres + symboles +
+  accents directs `é è à ç ù`), **joystick** sur les registres `0xE7CC/0xE7CD`
+  avec mux `port[0x0E/0F]&4`.
+- **TO8D *bootable*** : profil sélectionnable au launcher (présélectionnable
+  via `--machine to8d`), intégration au moteur partagé, chargement de
+  `rom/to8d.rom` (BASIC + moniteur, patchs *trap* en mémoire, tout-ou-rien)
+  ([#118](https://github.com/Lesur-ai/dcmo5/issues/118) /
+  [#146](https://github.com/Lesur-ai/dcmo5/pull/146)). Affichage au **bon
+  ratio** via `DisplayGeometry` ([#147](https://github.com/Lesur-ai/dcmo5/issues/147)
+  corrigé par [#152](https://github.com/Lesur-ai/dcmo5/pull/152)).
+- **Overlay de pilotage Échap** (lot [#117](https://github.com/Lesur-ai/dcmo5/issues/117),
+  PRs [#148](https://github.com/Lesur-ai/dcmo5/pull/148)–[#161](https://github.com/Lesur-ai/dcmo5/pull/161)) :
+  remplace le menu v1 par une carte `ebitenui` superposée au framebuffer
+  gelé. Médias éditables (cassette, disquette, cartouche) + actions système
+  (Reset / Init prog / Quitter / Changer machine / Key Joystk) + bouton
+  « Appliquer et reprendre ». Capture clavier stricte ; aucune touche fantôme
+  à la reprise.
+- **Changement de machine à chaud** (PRs [#162](https://github.com/Lesur-ai/dcmo5/pull/162)
+  / [#163](https://github.com/Lesur-ai/dcmo5/pull/163)) : bouton « Changer
+  machine » dans l'overlay, MO5 ↔ TO8D, ordre `New → Stop ancien → close
+  media → teardownAudio → attach → mount → applyWindowSize → initAudio →
+  Start`. Validation pure `PrepareSwitch` AVANT arrêt (ROM absente → erreur
+  affichée, session intacte). Éjection systématique des médias (familles
+  incompatibles). Lancement direct via `--machine to8d` au CLI sans ROM
+  pré-configurée : repli en cascade sur `rom/to8d.rom`
+  ([#170](https://github.com/Lesur-ai/dcmo5/pull/170)).
+- **Clavier TO8D AZERTY-FR complet** (PRs
+  [#165](https://github.com/Lesur-ai/dcmo5/pull/165) Inc Kc /
+  [#166](https://github.com/Lesur-ai/dcmo5/pull/166) Inc Ka /
+  [#167](https://github.com/Lesur-ai/dcmo5/pull/167)+[#168](https://github.com/Lesur-ai/dcmo5/pull/168) Inc Kb) :
+  - **Inc Kc** : ordre modificateurs (SHIFT/CNT/ACC) avant caractères dans
+    `Host.tick`, par construction (méthode `Model.ModifierKeys()` data-driven,
+    nécessaire au latching du gate-array TO8D).
+  - **Inc Ka** : `Model.SpecialKeys` data-driven par machine (remplace la
+    `var keyMapping` figée MO5). MO5 = 18 entrées verbatim, TO8D = 32
+    entrées (modifs, édition, flèches, F1/F2/F4, 13 numpad). Fix critique :
+    Enter → `0x46` ENT principale (au lieu de `0x34` = ESPACE TO8D — bug
+    d'origine qui faisait taper un espace).
+  - **Inc Kb** : table `charToTO8D` AZERTY complète (24 paires chiffres +
+    symboles + accents directs). Convention « accent direct sans SHIFT,
+    chiffre AVEC SHIFT » alignée sur `pckeycode[]` de référence Coulom.
+- **Support joystick complet** (lot J0..J4b, PRs
+  [#169](https://github.com/Lesur-ai/dcmo5/pull/169)–[#178](https://github.com/Lesur-ai/dcmo5/pull/178)
+  + [#179](https://github.com/Lesur-ai/dcmo5/pull/179)) : convention bits
+  LOGIQUE INVERSÉE (0 = appuyé, repos `{0xFF, 0xC0}`) figée par tests miroirs
+  MO5/TO8D ; gate-array TO8D `SetJoystick` câblé sur `0xE7CC/0xE7CD` avec
+  fix bug latent (lecture `joysAction | sound` au lieu de `sound` seul) ;
+  pipeline `App.SetInput → Host.tick → machine.SetJoystick → port matériel →
+  CPU 6809` validé bout-en-bout. Conception : [`DESIGN/JOYSTICK.md`](DESIGN/JOYSTICK.md).
+  - **Joystick clavier** activable via bouton overlay « **Key Joystk : ON/OFF** ».
+    J1 = flèches + RightShift fire ; J2 = WASD (= ZQSD visuel AZERTY-FR) +
+    LeftShift fire. WASD exclus du clavier émulation quand ON (sinon BASIC
+    pollué) ; OFF = WASD tapent normalement.
+  - **Gamepad matériel** : standard layout Ebitengine, jusqu'à 2 manettes
+    simultanées (J1 + J2) par ordre de connexion, hot-plug par réconciliation
+    à chaque frame, deadzone 0.3, DPad OR stick gauche, fire = bouton A OR B.
+    **Start/Menu** ouvre et ferme l'overlay (utilisation gamepad-only).
+- **Clavier généralisé** *data-driven* : modèle de clavier par machine
+  (`internal/keyboard.Model`), méthodes `ModifierKeys()` + `SpecialKeys`
+  data-driven, injection des constantes `ebiten.Key` depuis `internal/app`
+  pour préserver la pureté CI du paquet `keyboard`.
+- **IHM *data-driven*** : couche pure `internal/uimodel` (descripteurs de
+  widgets + composition joystick : `JoystickFromKeys`, `JoystickFromGamepad`,
+  `MergeJoysticks`) + dépendance **ebitenui**, avec garde-fou CI de
+  cross-compilation **Windows `CGO_ENABLED=0`**.
 - **Suivi des ROM/cartouches Thomson** v2/v3 (firmwares TO8D/TO9/… + cartouches
   MEMO5) dans le dépôt, sous la même réserve de licence que la v1
   (cf. [`DESIGN/LICENSING.md`](DESIGN/LICENSING.md)).
 
 ### Corrigé
 
+- **Bug latent registre joystick TO8D `0xE7CD`** ([#171](https://github.com/Lesur-ai/dcmo5/pull/171)) :
+  la lecture retournait `g.sound` seul au lieu de `g.joysAction | g.sound`
+  (cf. ref C `dcto8demulation.c Mgetto8d`). Silencieux tant que `joysAction`
+  était toujours 0, mais aurait masqué les boutons fire J1/J2 dès le câblage
+  joystick.
+- **Visuel overlay** ([#164](https://github.com/Lesur-ai/dcmo5/pull/164)) : champs
+  « Aucun fichier » survolés trop saillants et asymétriques. Rééquilibrage
+  de la palette (`colField`/`colFieldHi`) + padding droit + retrait du
+  `BackgroundImage` redondant du Container porteur.
 - **Montage de cartouche fidèle à la réf C `Loadmemo()`** : `MountCartridge`
   effectue désormais « RAZ RAM + `Initprog()` » au lieu d'un *hard reset* complet —
   préservant ports d'E/S, cadençage vidéo et crayon optique — pour le gate-array

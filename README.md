@@ -7,7 +7,10 @@ Ce projet est un logiciel libre sous licence **GNU GPL v3+**. Voir `LICENSE`
 et `NOTICE`.
 
 **Version : 1.0.0** (MO5) — historique dans [`CHANGELOG.md`](CHANGELOG.md). Une
-**v2 multi-machines (TO8D) est en développement** (voir la section dédiée plus bas).
+**v2 multi-machines (MO5 + TO8D)** est en cours de préparation : le TO8D est
+maintenant **utilisable** (clavier AZERTY-FR complet, joystick clavier +
+gamepad standard, changement de machine à chaud). Voir la section dédiée
+plus bas.
 
 ## Captures d'écran
 
@@ -60,21 +63,41 @@ DCMO5 v11 :
 
 ---
 
-## En développement (v2) — multi-machines
+## En développement (v2) — multi-machines (TO8D utilisable)
 
-Un chantier de généralisation **multi-machines** est en cours pour émuler d'autres
-machines Thomson au-delà du MO5, avec pour première cible le **TO8D** : architecture
-de profils de machine + moteur d'émulation partagé, base TO8D (gate-array
-mémoire/vidéo/timer/E/S + clavier), clavier généralisé *data-driven* et IHM
-*data-driven* (ebitenui, cross-compilation Windows `CGO_ENABLED=0`).
+La v2 ajoute le **Thomson TO8D** à côté du MO5. Architecture de profils de
+machine + moteur d'émulation partagé, base TO8D complète (gate-array mémoire/
+vidéo/timer/E/S + clavier AZERTY-FR + joystick), clavier généralisé
+*data-driven* et IHM *data-driven* (ebitenui, cross-compilation Windows
+`CGO_ENABLED=0`).
 
-> ⚠️ **La v2 n'est pas encore utilisable de bout en bout** : l'IHM de sélection de
-> machine et le profil TO8D final sont en cours. Le **MO5 (v1) décrit ci-dessus
-> reste pleinement fonctionnel et inchangé**.
+**Ce qui est utilisable côté TO8D** :
+- Boot avec ROM, BASIC opérationnel, ratio d'affichage correct.
+- Clavier français AZERTY complet (lettres + chiffres + symboles + accents
+  directs `é è à ç ù`).
+- **Joystick** : émulation au clavier (toggle dans l'overlay) et **gamepad
+  standard** (Xbox/PS/Switch Pro, jusqu'à 2 manettes simultanées en hot-plug,
+  bouton Start ouvre l'overlay).
+- Changement de machine MO5 ↔ TO8D **à chaud** via l'overlay (`Échap` →
+  bouton « Changer machine »), médias éjectés au switch et son préservé.
+- Lancement direct via `dcmo5 --machine to8d` : repli en cascade sur
+  `rom/to8d.rom` si la ROM n'est pas mémorisée en config.
 
-Suivi dans l'épopée [#106](https://github.com/Lesur-ai/dcmo5/issues/106) ; conception
-détaillée dans [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md). Le détail
-des évolutions est tenu dans [`CHANGELOG.md`](CHANGELOG.md) (section « Non publié »).
+**Overlay de pilotage Échap** : remplace le menu v1. Carte `ebitenui`
+superposée au framebuffer gelé, médias éditables + actions système (Reset
+/ Init prog / Quitter / Changer machine / Key Joystk) + bouton « Appliquer
+et reprendre ». `Start` du gamepad ouvre et ferme aussi l'overlay.
+
+Le **MO5 (v1) décrit ci-dessus reste pleinement fonctionnel et inchangé** —
+non-régression contrôlée par tests miroirs (parité bits joystick MO5/TO8D
+figée par la suite CI).
+
+Suivi dans l'épopée [#106](https://github.com/Lesur-ai/dcmo5/issues/106) ;
+conception détaillée dans
+[`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) et
+[`DESIGN/JOYSTICK.md`](DESIGN/JOYSTICK.md). Le détail
+des évolutions est tenu dans [`CHANGELOG.md`](CHANGELOG.md) (section « Non
+publié »).
 
 ---
 
