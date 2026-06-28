@@ -993,6 +993,15 @@ func resolveKeys(model *keyboard.Model, pressed func(ebiten.Key) bool, learned m
 	shiftFromChars := false
 	if !injecting {
 		for k, lk := range learned {
+			// Inc J3a fix codex P2 : si le mode joystick clavier est activé, on
+			// IGNORE les associations apprises avant le toggle pour les touches
+			// joystick (W/A/S/D). Sinon, une touche WASD tapée en BASIC AVANT
+			// l'activation joystick reste dans `learned` et continue à émettre
+			// son caractère MO5 à chaque mouvement joystick — exclusion
+			// learnLiveKeys/SpecialKeys insuffisante pour ce cas.
+			if isJoystickExclusiveKey(k, joystickKBEnabled) {
+				continue
+			}
 			if pressed(k) && lk.mo5 >= 0 && lk.mo5 < model.KeyCount {
 				in.Keys[lk.mo5] = true
 				liveCharHeld = true
