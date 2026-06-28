@@ -65,7 +65,11 @@ func main() {
 		initial := machine.Config{}
 		// ROM mémorisée pour la machine PRÉSÉLECTIONNÉE (--machine, défaut mo5) : chaque
 		// machine a sa ROM, donc on ne pré-remplit pas le TO8D avec la ROM MO5 ni l'inverse.
-		if rom := cfg.ROMFor(*machineID); rom != "" {
+		// Utilise le MÊME résolveur en cascade que le changement de machine à chaud (Inc 5b) :
+		// (1) chemin configuré s'il existe, (2) même nom dans rom/, (3) bundledROMName de la
+		// machine, (4) convention rom/<id>.rom. Ainsi taper « dcmo5 --machine to8d » au premier
+		// lancement (sans rien dans config.ROMByMachine) trouve rom/to8d.rom automatiquement.
+		if rom := romResolverFor(store)(*machineID); rom != "" {
 			initial[machine.KeyROM] = rom
 		}
 		prefill := func(flagName, key, value string) {
