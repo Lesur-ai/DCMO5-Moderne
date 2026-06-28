@@ -51,9 +51,16 @@ var mo5SpecialKeys = map[int]int{
 //   - layout AZERTY France-Windows v1, autres layouts hors scope
 var to8dSpecialKeys = map[int]int{
 	// Modificateurs (cf. internal/keyboard/to8d.go to8dKey* — invariant que
-	// to8dModel.ShiftKey/CNTKey/ACCKey pointent ici).
-	int(ebiten.KeyShiftLeft):    0x51, // SHIFT gauche
-	int(ebiten.KeyShiftRight):   0x52, // SHIFT droit (gate-array traite les deux)
+	// to8dModel.ShiftKey/CNTKey/ACCKey pointent ici). Les DEUX shifts hôte (gauche
+	// et droit) pointent volontairement sur le MÊME scancode 0x51 = Model.ShiftKey :
+	// (1) c'est le seul indice retourné par ModifierKeys() côté shift, donc Host.tick
+	// l'applique en 1ère passe (latching gate-array correct) ; (2) le clavier TO8D
+	// physique a deux touches SHIFT (0x51, 0x52) au libellé identique « SHIFT »,
+	// traitées de manière équivalente par le gate-array, donc la perte de distinction
+	// gauche/droite est sans impact fonctionnel. Mapper KeyShiftRight sur 0x52
+	// réintroduirait le bug d'ordre Kc (0x52 posé en 2e passe).
+	int(ebiten.KeyShiftLeft):    0x51, // SHIFT (les deux KeyShift hôte → même scancode)
+	int(ebiten.KeyShiftRight):   0x51,
 	int(ebiten.KeyControlLeft):  0x53, // CNT
 	int(ebiten.KeyControlRight): 0x53,
 	int(ebiten.KeyAltLeft):      0x14, // ACC (touche morte d'accent)
@@ -73,12 +80,13 @@ var to8dSpecialKeys = map[int]int{
 	int(ebiten.KeyArrowLeft):  0x0d,
 	int(ebiten.KeyArrowRight): 0x05,
 
-	// Touches de fonction TO8D (F1..F5). F6..F10 inexistantes sur TO8D.
+	// Touches de fonction TO8D (F1, F2, F4). F3/F5 SONT INTERCEPTÉES par App.Update
+	// comme raccourcis globaux (pause/reset) AVANT resolveKeys : les mapper ici ne
+	// les ferait pas atteindre la machine — au pire elles déclencheraient le shortcut
+	// global. F6..F10 inexistantes sur TO8D physique.
 	int(ebiten.KeyF1): 0x20,
 	int(ebiten.KeyF2): 0x00,
-	int(ebiten.KeyF3): 0x08,
 	int(ebiten.KeyF4): 0x10,
-	int(ebiten.KeyF5): 0x18,
 
 	// Pavé numérique TO8D (13 touches : 0-9, ., Ent pad).
 	int(ebiten.KeyKP0):       0x1e,

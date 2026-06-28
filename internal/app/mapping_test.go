@@ -105,8 +105,8 @@ func TestSpecialKeys_TO8D_CoreKeys(t *testing.T) {
 	cases := []want{
 		{ebiten.KeyEnter, 0x46, "ENTER → ENT principale TO8D (bug pré-Ka : 0x34 = ESPACE)"},
 		{ebiten.KeySpace, 0x34, "ESPACE"},
-		{ebiten.KeyShiftLeft, 0x51, "SHIFT gauche (to8dKeyShift)"},
-		{ebiten.KeyShiftRight, 0x52, "SHIFT droit"},
+		{ebiten.KeyShiftLeft, 0x51, "SHIFT (to8dKeyShift) — KeyShift gauche"},
+		{ebiten.KeyShiftRight, 0x51, "SHIFT — KeyShift droit pointe sur le MÊME scancode 0x51 (1ère passe ModifierKeys)"},
 		{ebiten.KeyControlLeft, 0x53, "CNT (to8dKeyCNT)"},
 		{ebiten.KeyAltLeft, 0x14, "ACC (to8dKeyACC, accent)"},
 		{ebiten.KeyArrowUp, 0x04, "flèche haut"},
@@ -252,29 +252,44 @@ func TestSpecialKeys_NoCharacterKeys_AllModels(t *testing.T) {
 	}
 }
 
-// TestSpecialKeys_ModifierConsistency_AllModels : pour chaque machine,
-// SpecialKeys[KeyShiftLeft] == m.ShiftKey, etc. Détecte un swap accidentel des
-// indices entre Model.ShiftKey et la table SpecialKeys. Garde-fou : tout
-// nouveau profil qui changerait ShiftKey sans MAJ SpecialKeys déclencherait
-// le bug d'ordre Kc à nouveau (modificateur posé en 2e passe au lieu de la 1ère).
+// TestSpecialKeys_ModifierConsistency_AllModels : pour chaque machine, les DEUX
+// touches hôte (gauche ET droite) d'un modificateur doivent pointer sur l'indice
+// retourné par ModifierKeys() (= m.ShiftKey, m.CNTKey, m.ACCKey). Garde-fou contre
+// régression Kc : si KeyShiftRight pointe sur un AUTRE scancode (ex. 0x52 sur TO8D
+// physique) qui n'est PAS dans ModifierKeys(), Host.tick l'applique en 2e passe
+// après les caractères → le gate-array latch le caractère sans shift. Codex P2
+// signalé sur Ka initial : ce test est l'oracle qui empêche le retour du bug.
 func TestSpecialKeys_ModifierConsistency_AllModels(t *testing.T) {
 	for _, mt := range modelsUnderTest(t) {
 		m := mt.model
 		if m.SpecialKeys == nil {
 			continue
 		}
-		if v := m.SpecialKeys[int(ebiten.KeyShiftLeft)]; v != m.ShiftKey {
-			t.Errorf("modèle %s : SpecialKeys[KeyShiftLeft]=0x%02X ≠ Model.ShiftKey=0x%02X",
-				mt.id, v, m.ShiftKey)
+		// Pour chaque modificateur : les deux touches hôte (Left ET Right) doivent
+		// pointer sur l'indice modificateur du modèle. C'est ce qui garantit que
+		// la 1ère passe de Host.tick (modifs via ModifierKeys()) les pose toutes.
+		mods := []struct {
+			left, right ebiten.Key
+			want        int
+			label       string
+			active      bool
+		}{
+			{ebiten.KeyShiftLeft, ebiten.KeyShiftRight, m.ShiftKey, "ShiftKey", true},
+			{ebiten.KeyControlLeft, ebiten.KeyControlRight, m.CNTKey, "CNTKey", true},
+			{ebiten.KeyAltLeft, ebiten.KeyAltRight, m.ACCKey, "ACCKey", m.ACCKey >= 0},
 		}
-		if v := m.SpecialKeys[int(ebiten.KeyControlLeft)]; v != m.CNTKey {
-			t.Errorf("modèle %s : SpecialKeys[KeyControlLeft]=0x%02X ≠ Model.CNTKey=0x%02X",
-				mt.id, v, m.CNTKey)
-		}
-		if m.ACCKey >= 0 {
-			if v := m.SpecialKeys[int(ebiten.KeyAltLeft)]; v != m.ACCKey {
-				t.Errorf("modèle %s : SpecialKeys[KeyAltLeft]=0x%02X ≠ Model.ACCKey=0x%02X",
-					mt.id, v, m.ACCKey)
+		for _, mod := range mods {
+			if !mod.active {
+				continue
+			}
+			for _, side := range []struct {
+				k     ebiten.Key
+				label string
+			}{{mod.left, "Left"}, {mod.right, "Right"}} {
+				if v := m.SpecialKeys[int(side.k)]; v != mod.want {
+					t.Errorf("modèle %s : SpecialKeys[%v]=0x%02X ≠ Model.%s=0x%02X — réintroduit le bug d'ordre Kc (modif en 2e passe)",
+						mt.id, side.k, v, mod.label, mod.want)
+				}
 			}
 		}
 	}
