@@ -105,6 +105,13 @@ type App struct {
 	// du clavier émulation (cf. joystick.go isJoystickExclusiveKey conditionnel).
 	joystickKBEnabled bool
 
+	// Inc J4b : gamepads matériels en standard layout, max 2 simultanés (J1 / J2).
+	// Slot management par ordre de connexion (D8 plan workflow joystick). Le
+	// buffer connectBuf est réutilisé entre frames pour éviter les allocs (le
+	// nombre de gamepads connectés par frame est typiquement 0 ou 1).
+	gamepadSlots      gamepadSlots
+	gamepadConnectBuf []ebiten.GamepadID
+
 	// Médias montés : Closer des fichiers ouverts (fermeture à l'éjection/remplacement)
 	tapeCloser io.Closer
 	diskCloser io.Closer
@@ -245,6 +252,15 @@ func (a *App) Update() error {
 		return a.updateLauncher()
 	}
 
+	// Inc J4b (codex P3) : réconciliation des slots gamepad EN HAUT de chaque
+	// Update, AVANT toute lecture des boutons (Start/Menu pour overlay) et la
+	// composition joystick. Sans cette position en tête, un gamepad branché
+	// au même tick où l'utilisateur presse Start ne serait pas reconnu (slot
+	// pas encore attribué). Couvre aussi le cas overlay ouvert : si une manette
+	// est branchée pendant que l'overlay est affiché, son Start sera détecté
+	// dès cette frame.
+	a.gamepadConnectBuf = a.updateGamepadSlots(a.gamepadConnectBuf)
+
 	// OVERLAY OUVERT : capture STRICTE. Branché TOUT EN HAUT, return immédiat → aucune
 	// entrée (Échap, F3, F5, collage, touches live, crayon) n'atteint le cœur tant
 	// que l'overlay est ouvert. La contrainte #3 (revue Codex) est satisfaite par la
@@ -269,7 +285,11 @@ func (a *App) Update() error {
 	// court-circuit en haut de Update aurait rendu la main (c'est updateOverlay qui gère
 	// Échap pour remonter/fermer). On construit/rafraîchit l'arbre ebitenui sur l'état média
 	// courant et on gèle l'émulation AU MÊME TICK que l'ouverture (sinon une frame avance).
-	if inputJustPressed(ebiten.KeyEscape) {
+	// Inc J4b (B6 plan workflow joystick) : le bouton Start/Menu du gamepad
+	// (StandardGamepadButtonCenterRight) ouvre AUSSI l'overlay — sinon un user
+	// en gamepad seul ne pourrait pas accéder à Reset/Init prog/Quitter/Changer
+	// machine/Joystick. On scrute les deux slots gamepad attribués.
+	if inputJustPressed(ebiten.KeyEscape) || a.gamepadStartJustPressed() {
 		a.overlay.Open()
 		a.openOverlayUI()
 		a.syncPause()
@@ -330,10 +350,16 @@ func (a *App) Update() error {
 	injecting := len(tickKeys) > 0 || a.keys.Pending() > 0
 
 	in := resolveKeys(a.kbModel, ebiten.IsKeyPressed, a.liveKeys, injecting, tickKeys, a.joystickKBEnabled)
-	// Inc J3a : résolution joystick clavier. Mapping fixe (J1=flèches+AltGr,
+	// Inc J3a : résolution joystick clavier. Mapping fixe (J1=flèches+RightShift,
 	// J2=WASD+LeftShift) défini dans joystick.go. Si le mode est désactivé
 	// (défaut), retourne machine.NeutralJoystick — état neutre côté machine.
-	in.Joystick = joystickFromKeys(ebiten.IsKeyPressed, a.joystickKBEnabled)
+	keyboardJoy := joystickFromKeys(ebiten.IsKeyPressed, a.joystickKBEnabled)
+	// Inc J4b : composition avec les gamepads matériels (max 2 simultanés, slot
+	// par ordre de connexion). Hot-plug détecté à chaque tick via réconciliation
+	// (updateGamepadSlots appelée en tête d'Update). Un gamepad déconnecté libère
+	// son slot et retombe sur NeutralJoystick par construction.
+	gamepadJoy := a.joystickFromGamepads()
+	in.Joystick = uimodel.MergeJoysticks(keyboardJoy, gamepadJoy)
 	// Le curseur Ebitengine est en repère Layout (= LOGIQUE). Pour le crayon optique,
 	// on le ramène au repère FRAMEBUFFER attendu par la machine : identité pour le MO5
 	// (logique == framebuffer), mais Y/2 pour le gate-array dont le Layout est étiré ×2
@@ -359,7 +385,10 @@ func (a *App) syncPause() {
 // signalées par l'UI. L'overlayUI partage l'état overlay.Model avec l'App (même pointeur),
 // donc Back()/GoMain()/GoBrowse() y sont reflétés ; un simple rebuild suffit.
 func (a *App) updateOverlay() error {
-	if inputJustPressed(ebiten.KeyEscape) {
+	// Échap clavier OU Start gamepad : équivalents pour fermer/remonter d'un cran
+	// l'overlay. Sans le Start gamepad ici, un utilisateur gamepad-only se
+	// retrouverait piégé dans un overlay ouvert (Inc J4b codex review #178 P2).
+	if inputJustPressed(ebiten.KeyEscape) || a.gamepadStartJustPressed() {
 		a.overlay.Back()
 		if !a.overlay.IsOpen() {
 			a.updateTitle()
