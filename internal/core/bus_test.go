@@ -160,6 +160,55 @@ func TestBus_Joystick_read(t *testing.T) {
 	}
 }
 
+// TestBus_Joystick_BitConvention_Inverted (Inc J1b) ancre la convention bits
+// LOGIQUE INVERSÉE côté MO5 (ref C dcmo5emulation.c Joysemul cases 0-9). Pour
+// CHAQUE direction et CHAQUE bouton fire individuellement, on vérifie le BIT
+// EXACT activé/désactivé. C'est ce test qui fige la sémantique des
+// bits — toute future modification doit garder ce test vert sous peine de
+// casser les jeux qui scrutent ces bits directement.
+//
+// MIROIR TO8D : la même table (à un mux d'adresses près 0xA7Cx ↔ 0xE7Cx) est
+// ancrée dans internal/machine/gatearray/io_test.go::TestSetJoystick_BitConvention_TO8D.
+// Toute divergence MO5/TO8D casserait la parité bits exigée par le partage
+// du modèle machine.JoystickInput entre les deux machines.
+func TestBus_Joystick_BitConvention_Inverted(t *testing.T) {
+	cases := []struct {
+		name           string
+		position       uint8
+		action         uint8
+		wantPosRead    uint8
+		wantActionRead uint8
+	}{
+		{"repos", 0xFF, 0xC0, 0xFF, 0xC0},
+		{"J1 nord (bit 0 = 0)", 0xFE, 0xC0, 0xFE, 0xC0},
+		{"J1 sud (bit 1 = 0)", 0xFD, 0xC0, 0xFD, 0xC0},
+		{"J1 ouest (bit 2 = 0)", 0xFB, 0xC0, 0xFB, 0xC0},
+		{"J1 est (bit 3 = 0)", 0xF7, 0xC0, 0xF7, 0xC0},
+		{"J2 nord (bit 4 = 0)", 0xEF, 0xC0, 0xEF, 0xC0},
+		{"J2 sud (bit 5 = 0)", 0xDF, 0xC0, 0xDF, 0xC0},
+		{"J2 ouest (bit 6 = 0)", 0xBF, 0xC0, 0xBF, 0xC0},
+		{"J2 est (bit 7 = 0)", 0x7F, 0xC0, 0x7F, 0xC0},
+		{"J1 fire (action bit 6 = 0)", 0xFF, 0x80, 0xFF, 0x80},
+		{"J2 fire (action bit 7 = 0)", 0xFF, 0x40, 0xFF, 0x40},
+		// J1 nord + J1 fire simultanément (typique du gameplay).
+		{"J1 nord + J1 fire", 0xFE, 0x80, 0xFE, 0x80},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := newMachine(t)
+			m.Write8(0xA7CE, 0x04) // mux position
+			m.Write8(0xA7CF, 0x04) // mux action
+			m.SetJoystick(core.JoystickInput{Position: c.position, Action: c.action})
+			if v := m.Read8(0xA7CC); v != c.wantPosRead {
+				t.Errorf("position : Read8(0xA7CC) = 0x%02X, want 0x%02X (input=0x%02X)", v, c.wantPosRead, c.position)
+			}
+			if v := m.Read8(0xA7CD); v != c.wantActionRead {
+				t.Errorf("action : Read8(0xA7CD) = 0x%02X, want 0x%02X (input=0x%02X)", v, c.wantActionRead, c.action)
+			}
+		})
+	}
+}
+
 // ── RAM vidéo page switch ─────────────────────────────────────────────────────
 
 func TestBus_VideoRAM_pageSwitch(t *testing.T) {
