@@ -253,6 +253,14 @@ func (g *GateArray) initprog() {
 	for i := range g.touche {
 		g.touche[i] = 0x80 // touches relâchées (réf C Initprog : touche[i] = 0x80)
 	}
+	// Inc J1a : reset des entrées joystick au repos. Le clavier est reset ici
+	// par symétrie (transitoire côté hôte) ; le joystick doit l'être aussi —
+	// sinon Initprog() (déclenché par bouton overlay, media error, ou cartouche
+	// montée) laisserait des bits direction/fire appuyés visibles côté CPU via
+	// 0xe7cc/0xe7cd. Codex review #171 P2 confirmé. Repos = 0xFF / 0xC0 (cf.
+	// machine.NeutralJoystick, logique inversée).
+	g.joysPosition = 0xFF
+	g.joysAction = 0xC0
 	g.carflags &= 0xec
 	// Mode de décodage forcé en standard, SANS relire e7dc (réf C Initprog :
 	// Decodevideo = Decode320x16, dcto8demulation.c:330). Le registre e7dc (port[0x1c])

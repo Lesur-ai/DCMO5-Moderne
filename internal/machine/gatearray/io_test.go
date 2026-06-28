@@ -89,6 +89,29 @@ func TestReadE7CDMusic(t *testing.T) {
 	}
 }
 
+// TestSetJoystick_RestAfterInitprog (Inc J1a, codex P2) : Initprog() est un
+// reset DOUX (RAM/ports conservés) mais doit relâcher les entrées transitoires
+// — y compris le joystick. Sans ce reset, déclencher Initprog (bouton overlay,
+// media error, cartouche montée) après une partie laisserait des bits
+// direction/fire appuyés visibles côté CPU via 0xe7cc/0xe7cd, simulant un
+// joystick agité même si l'hôte a relâché. Symétrie avec le clavier qui est
+// déjà reset dans initprog().
+func TestSetJoystick_RestAfterInitprog(t *testing.T) {
+	g := newGA()
+	// Simule J1 nord + J2 fire appuyés.
+	g.SetJoystick(0xFE, 0x40)
+	g.Initprog()
+	g.Write8(0xE7CE, 0x04)
+	g.Write8(0xE7CF, 0x04)
+	g.Write8(0xE7CD, 0x00) // sound = 0 pour isoler joysAction
+	if v := g.Read8(0xE7CC); v != 0xFF {
+		t.Errorf("e7cc après Initprog = 0x%02X, want 0xFF (toutes directions relâchées)", v)
+	}
+	if v := g.Read8(0xE7CD); v != 0xC0 {
+		t.Errorf("e7cd après Initprog = 0x%02X, want 0xC0 (boutons fire relâchés)", v)
+	}
+}
+
 // TestSetJoystick_RestAfterHardReset (Inc J1a) : après Reset, joysPosition et
 // joysAction retombent sur leur valeur de repos (0xFF, 0xC0) — la convention
 // LOGIQUE INVERSÉE où 0 = appuyé. Garde-fou contre une zéro-value Go non
