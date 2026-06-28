@@ -271,9 +271,12 @@ func (o *overlayUI) buildMain(card *widget.Container) {
 	// pour J2 (ne tape plus en BASIC) et le mapping flèches/Shift active aussi
 	// les bits joystick. Couleur accentuée (btnSel) quand ON pour indicateur
 	// visuel immédiat ; standard (btnImg) quand OFF.
-	joyImg, joyText, joyLabel := o.btnImg, o.txtColor, "Joystick : OFF"
+	// Libellé « Key Joystk » (≠ « Joystick » seul) : explicite que c'est la
+	// SIMULATION CLAVIER du joystick. Les gamepads matériels (J4b) sont
+	// toujours actifs sans toggle — ils n'apparaissent pas ici.
+	joyImg, joyText, joyLabel := o.btnImg, o.txtColor, "Key Joystk : OFF"
 	if o.joystickKBEnabled {
-		joyImg, joyText, joyLabel = o.btnSel, o.txtOnSel, "Joystick : ON"
+		joyImg, joyText, joyLabel = o.btnSel, o.txtOnSel, "Key Joystk : ON"
 	}
 	sys.AddChild(o.button(joyLabel, joyImg, joyText, func() { o.toggleJoystick = true }))
 	// Changement de machine : DANS la même rangée (compact — une section séparée ferait
