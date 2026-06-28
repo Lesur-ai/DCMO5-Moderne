@@ -379,7 +379,10 @@ func (a *App) syncPause() {
 // signalées par l'UI. L'overlayUI partage l'état overlay.Model avec l'App (même pointeur),
 // donc Back()/GoMain()/GoBrowse() y sont reflétés ; un simple rebuild suffit.
 func (a *App) updateOverlay() error {
-	if inputJustPressed(ebiten.KeyEscape) {
+	// Échap clavier OU Start gamepad : équivalents pour fermer/remonter d'un cran
+	// l'overlay. Sans le Start gamepad ici, un utilisateur gamepad-only se
+	// retrouverait piégé dans un overlay ouvert (Inc J4b codex review #178 P2).
+	if inputJustPressed(ebiten.KeyEscape) || a.gamepadStartJustPressed() {
 		a.overlay.Back()
 		if !a.overlay.IsOpen() {
 			a.updateTitle()
