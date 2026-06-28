@@ -12,6 +12,7 @@
 // symboles AZERTY-FR au format « libellé gauche / libellé droit » :
 //   - libellé GAUCHE = frappe SANS shift (typiquement accent ou symbole)
 //   - libellé DROIT  = frappe AVEC shift (typiquement chiffre)
+//
 // Convention « accent direct, chiffre en shift » alignée sur pckeycode[].
 // Décisions owner 28/06 :
 //   - layout AZERTY France-Windows v1, autres layouts hors scope
@@ -72,16 +73,16 @@ var charToTO8D = map[rune]charKey{
 	// Rangée chiffres + accents (Inc Kb). Convention « accent direct, chiffre en
 	// shift » (pckeycode[]). Indices et labels vérifiés dans dcto8dinterface.c
 	// (décodage Latin-1 → UTF-8).
-	'_': {0x01, false}, '6': {0x01, true},  // label « _ 6 »
-	'(': {0x09, false}, '5': {0x09, true},  // label « ( 5 »
+	'_': {0x01, false}, '6': {0x01, true}, // label « _ 6 »
+	'(': {0x09, false}, '5': {0x09, true}, // label « ( 5 »
 	'\'': {0x11, false}, '4': {0x11, true}, // label « ' 4 »
-	'"': {0x19, false}, '3': {0x19, true},  // label « " 3 »
-	'é': {0x21, false}, '2': {0x21, true},  // label « é 2 »
-	'*': {0x29, false}, '1': {0x29, true},  // label « * 1 »
-	'è': {0x31, false}, '7': {0x31, true},  // label « è 7 »
-	'!': {0x39, false}, '8': {0x39, true},  // label « ! 8 »
-	'ç': {0x41, false}, '9': {0x41, true},  // label « ç 9 »
-	'à': {0x49, false}, '0': {0x49, true},  // label « à 0 »
+	'"': {0x19, false}, '3': {0x19, true}, // label « " 3 »
+	'é': {0x21, false}, '2': {0x21, true}, // label « é 2 »
+	'*': {0x29, false}, '1': {0x29, true}, // label « * 1 »
+	'è': {0x31, false}, '7': {0x31, true}, // label « è 7 »
+	'!': {0x39, false}, '8': {0x39, true}, // label « ! 8 »
+	'ç': {0x41, false}, '9': {0x41, true}, // label « ç 9 »
+	'à': {0x49, false}, '0': {0x49, true}, // label « à 0 »
 
 	// Symboles « = + » et autres paires de la 4e rangée.
 	'=': {0x0c, false}, '+': {0x0c, true}, // label « = + »
@@ -92,10 +93,10 @@ var charToTO8D = map[rune]charKey{
 	']': {0x3e, false}, '}': {0x3e, true}, // label « ] } »
 	';': {0x3f, false}, '.': {0x3f, true}, // label « ; . »
 	'-': {0x44, false}, '\\': {0x44, true}, // label « - \ »
-	'ù': {0x45, false}, '%': {0x45, true},  // label « ù % »
-	':': {0x47, false}, '/': {0x47, true},  // label « : / »
-	')': {0x4c, false}, '°': {0x4c, true},  // label « ) ° »
-	'>': {0x4f, false}, '<': {0x4f, true},  // label « > < »
+	'ù': {0x45, false}, '%': {0x45, true}, // label « ù % »
+	':': {0x47, false}, '/': {0x47, true}, // label « : / »
+	')': {0x4c, false}, '°': {0x4c, true}, // label « ) ° »
+	'>': {0x4f, false}, '<': {0x4f, true}, // label « > < »
 }
 
 // to8dModel est le modèle clavier TO8D (singleton, table en lecture seule).
