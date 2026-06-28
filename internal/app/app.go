@@ -105,6 +105,13 @@ type App struct {
 	// du clavier émulation (cf. joystick.go isJoystickExclusiveKey conditionnel).
 	joystickKBEnabled bool
 
+	// Inc J4b : gamepads matériels en standard layout, max 2 simultanés (J1 / J2).
+	// Slot management par ordre de connexion (D8 plan workflow joystick). Le
+	// buffer connectBuf est réutilisé entre frames pour éviter les allocs (le
+	// nombre de gamepads connectés par frame est typiquement 0 ou 1).
+	gamepadSlots      gamepadSlots
+	gamepadConnectBuf []ebiten.GamepadID
+
 	// Médias montés : Closer des fichiers ouverts (fermeture à l'éjection/remplacement)
 	tapeCloser io.Closer
 	diskCloser io.Closer
@@ -330,10 +337,19 @@ func (a *App) Update() error {
 	injecting := len(tickKeys) > 0 || a.keys.Pending() > 0
 
 	in := resolveKeys(a.kbModel, ebiten.IsKeyPressed, a.liveKeys, injecting, tickKeys, a.joystickKBEnabled)
-	// Inc J3a : résolution joystick clavier. Mapping fixe (J1=flèches+AltGr,
+	// Inc J3a : résolution joystick clavier. Mapping fixe (J1=flèches+RightShift,
 	// J2=WASD+LeftShift) défini dans joystick.go. Si le mode est désactivé
 	// (défaut), retourne machine.NeutralJoystick — état neutre côté machine.
-	in.Joystick = joystickFromKeys(ebiten.IsKeyPressed, a.joystickKBEnabled)
+	keyboardJoy := joystickFromKeys(ebiten.IsKeyPressed, a.joystickKBEnabled)
+	// Inc J4b : composition avec les gamepads matériels (max 2 simultanés, slot
+	// par ordre de connexion). Hot-plug détecté via inpututil ; un gamepad
+	// déconnecté libère son slot et retombe sur NeutralJoystick par construction.
+	// Aucun toggle côté gamepad — un pad connecté qui ne touche rien est neutre,
+	// transparent à la composition (MergeJoysticks = AND bitwise, élément neutre
+	// = NeutralJoystick).
+	a.gamepadConnectBuf = a.updateGamepadSlots(a.gamepadConnectBuf)
+	gamepadJoy := a.joystickFromGamepads()
+	in.Joystick = uimodel.MergeJoysticks(keyboardJoy, gamepadJoy)
 	// Le curseur Ebitengine est en repère Layout (= LOGIQUE). Pour le crayon optique,
 	// on le ramène au repère FRAMEBUFFER attendu par la machine : identité pour le MO5
 	// (logique == framebuffer), mais Y/2 pour le gate-array dont le Layout est étiré ×2
