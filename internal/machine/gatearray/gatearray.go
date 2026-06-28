@@ -92,6 +92,15 @@ type GateArray struct {
 	// SoundLevel().
 	sound uint8
 
+	// Joystick TO8D (Inc J1a) : état idempotent des deux manettes, en LOGIQUE
+	// INVERSÉE (0 bit = direction/bouton appuyé). joysPosition = 4 bits J1 dans le
+	// nibble bas + 4 bits J2 dans le nibble haut ; joysAction = bits 6/7 pour
+	// fire J1/J2 (bits 0..5 inutilisés, restent à 1). Repos : 0xFF, 0xC0 (cf.
+	// machine.NeutralJoystick). Lus via 0xe7cc / 0xe7cd quand port[0x0e/0x0f]
+	// bit2 sélectionne le mode joystick (mux hardware, cf. readIO).
+	joysPosition uint8
+	joysAction   uint8
+
 	// CPU et périphériques (lot #115). cpu : référence pour les handlers d'E/S
 	// (registres A/B/X/Y/S/CC) ; attachée par AttachCPU à l'intégration moteur
 	// (#118). tape/disk/printer : médias montés. xpen/ypen/penbutton : pointeur
@@ -181,6 +190,8 @@ func (g *GateArray) hardReset() {
 	g.latch6846 = 65535
 	g.timer6846 = 65535
 	g.sound = 0
+	g.joysPosition = 0xFF // Inc J1a : repos = toutes directions relâchées (logique inversée)
+	g.joysAction = 0xC0   // Inc J1a : repos = boutons fire J1/J2 relâchés (bits 6/7), bits 0..5 à 1
 	g.penbutton = false
 	g.xpen, g.ypen = 0, 0
 	g.k7bit, g.k7octet = 0, 0
@@ -242,6 +253,14 @@ func (g *GateArray) initprog() {
 	for i := range g.touche {
 		g.touche[i] = 0x80 // touches relâchées (réf C Initprog : touche[i] = 0x80)
 	}
+	// Inc J1a : reset des entrées joystick au repos. Le clavier est reset ici
+	// par symétrie (transitoire côté hôte) ; le joystick doit l'être aussi —
+	// sinon Initprog() (déclenché par bouton overlay, media error, ou cartouche
+	// montée) laisserait des bits direction/fire appuyés visibles côté CPU via
+	// 0xe7cc/0xe7cd. Codex review #171 P2 confirmé. Repos = 0xFF / 0xC0 (cf.
+	// machine.NeutralJoystick, logique inversée).
+	g.joysPosition = 0xFF
+	g.joysAction = 0xC0
 	g.carflags &= 0xec
 	// Mode de décodage forcé en standard, SANS relire e7dc (réf C Initprog :
 	// Decodevideo = Decode320x16, dcto8demulation.c:330). Le registre e7dc (port[0x1c])
@@ -569,12 +588,27 @@ func (g *GateArray) readIO(a uint16) byte {
 			v |= 0x02
 		}
 		return v
+	case 0xe7cc:
+		// Registre direction joystick (Inc J1a) : si le bit2 de e7ce sélectionne le
+		// joystick, retourne g.joysPosition (en logique inversée, 0=appuyé) ; sinon
+		// port[0x0c] standard. Réf C dcto8demulation.c Mgetto8d :
+		// (port[0x0e]&4) ? joysposition : port[0x0c].
+		if g.port[0x0e]&4 != 0 {
+			return g.joysPosition
+		}
+		return g.port[0x0c]
 	case 0xe7cd:
-		// Registre action/musique : en mode musique (e7cf bit2) il reflète le niveau
-		// son courant (réf C : (port[0x0f]&4) ? joysaction|sound : port[0x0d] ; le
-		// joystick n'étant pas encore émulé, joysaction vaut 0).
+		// Registre action/musique : si le bit2 de e7cf sélectionne le mode musique/
+		// joystick, on retourne g.joysAction OR g.sound (les deux occupent le même
+		// registre matériel — le canal son et les boutons fire sont OR'és par le
+		// hardware). Réf C dcto8demulation.c Mgetto8d :
+		// (port[0x0f]&4) ? joysaction|sound : port[0x0d].
+		// Inc J1a : fix bug latent — l'ancienne implémentation retournait g.sound
+		// seul, donc taper le bouton fire J1/J2 n'aurait pas atteint le CPU même
+		// après câblage de SetJoystick. joysAction au repos = 0xC0, donc l'OR ne
+		// change rien tant qu'aucun bouton n'est pressé (compat tests existants).
 		if g.port[0x0f]&4 != 0 {
-			return g.sound
+			return g.joysAction | g.sound
 		}
 		return g.port[0x0d]
 	case 0xe7c6:

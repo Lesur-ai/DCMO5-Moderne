@@ -73,13 +73,118 @@ func TestReadE7CDMusic(t *testing.T) {
 	g := newGA()
 	g.Write8(0xE7CF, 0x04) // mode musique
 	g.Write8(0xE7CD, 0x2A) // niveau son
-	if v := g.Read8(0xE7CD); v != 0x2A {
-		t.Errorf("e7cd lu en mode musique = 0x%02X, want 0x2A (= niveau son)", v)
+	// Inc J1a : en mode musique e7cd retourne `joysAction | sound` (ref C
+	// dcto8demulation.c Mgetto8d). Au repos joysAction = 0xC0 (boutons fire
+	// J1/J2 relâchés, bits 0..5 à 1), donc l'OR ajoute 0xC0 au niveau son.
+	// Pré-Inc J1a : ce test attendait 0x2A car joysAction était ignoré (bug
+	// silencieux tant que joysAction restait à 0 — il l'était car la struct
+	// n'avait pas le champ).
+	if v := g.Read8(0xE7CD); v != 0xEA {
+		t.Errorf("e7cd lu en mode musique = 0x%02X, want 0xEA (= joysAction 0xC0 | sound 0x2A)", v)
 	}
 	g.Write8(0xE7CF, 0x00) // mode action : e7cd reflète port[0x0d]
 	g.Write8(0xE7CD, 0x11)
 	if v := g.Read8(0xE7CD); v != 0x11 {
 		t.Errorf("e7cd lu en mode action = 0x%02X, want 0x11", v)
+	}
+}
+
+// TestSetJoystick_RestAfterInitprog (Inc J1a, codex P2) : Initprog() est un
+// reset DOUX (RAM/ports conservés) mais doit relâcher les entrées transitoires
+// — y compris le joystick. Sans ce reset, déclencher Initprog (bouton overlay,
+// media error, cartouche montée) après une partie laisserait des bits
+// direction/fire appuyés visibles côté CPU via 0xe7cc/0xe7cd, simulant un
+// joystick agité même si l'hôte a relâché. Symétrie avec le clavier qui est
+// déjà reset dans initprog().
+func TestSetJoystick_RestAfterInitprog(t *testing.T) {
+	g := newGA()
+	// Simule J1 nord + J2 fire appuyés.
+	g.SetJoystick(0xFE, 0x40)
+	g.Initprog()
+	g.Write8(0xE7CE, 0x04)
+	g.Write8(0xE7CF, 0x04)
+	g.Write8(0xE7CD, 0x00) // sound = 0 pour isoler joysAction
+	if v := g.Read8(0xE7CC); v != 0xFF {
+		t.Errorf("e7cc après Initprog = 0x%02X, want 0xFF (toutes directions relâchées)", v)
+	}
+	if v := g.Read8(0xE7CD); v != 0xC0 {
+		t.Errorf("e7cd après Initprog = 0x%02X, want 0xC0 (boutons fire relâchés)", v)
+	}
+}
+
+// TestSetJoystick_RestAfterHardReset (Inc J1a) : après Reset, joysPosition et
+// joysAction retombent sur leur valeur de repos (0xFF, 0xC0) — la convention
+// LOGIQUE INVERSÉE où 0 = appuyé. Garde-fou contre une zéro-value Go non
+// reset qui ferait croire à toutes directions appuyées (cf. machine.NeutralJoystick).
+func TestSetJoystick_RestAfterHardReset(t *testing.T) {
+	g := newGA()
+	// Simule une partie où toutes les directions/boutons J1 sont appuyées.
+	g.SetJoystick(0x00, 0x00)
+	g.Reset()
+	g.Write8(0xE7CE, 0x04) // mux : e7cc → joysPosition
+	g.Write8(0xE7CF, 0x04) // mux : e7cd → joysAction | sound (sound = 0 après Reset)
+	if v := g.Read8(0xE7CC); v != 0xFF {
+		t.Errorf("e7cc après Reset = 0x%02X, want 0xFF (toutes directions relâchées)", v)
+	}
+	if v := g.Read8(0xE7CD); v != 0xC0 {
+		t.Errorf("e7cd après Reset = 0x%02X, want 0xC0 (boutons fire relâchés, sound=0)", v)
+	}
+}
+
+// TestSetJoystick_PositionMuxed (Inc J1a) : lecture de e7cc retourne joysPosition
+// quand port[0x0e]&4 = 1, sinon port[0x0c]. Vérifie le mux hardware et que
+// SetJoystick atteint bien le registre. Prouve la résolution du « manque » e7cc
+// pré-J1a (aucune entrée case dans readIO).
+func TestSetJoystick_PositionMuxed(t *testing.T) {
+	g := newGA()
+	g.SetJoystick(0xAB, 0xCD)
+
+	// Mux désactivé : retourne port[0x0c] (= 0 au boot).
+	g.Write8(0xE7CE, 0x00)
+	if v := g.Read8(0xE7CC); v != 0x00 {
+		t.Errorf("e7cc sans mux = 0x%02X, want port[0x0c]=0", v)
+	}
+
+	// Mux activé : retourne joysPosition.
+	g.Write8(0xE7CE, 0x04)
+	if v := g.Read8(0xE7CC); v != 0xAB {
+		t.Errorf("e7cc avec mux = 0x%02X, want joysPosition=0xAB", v)
+	}
+}
+
+// TestSetJoystick_ActionFireButton (Inc J1a) : c'est le test du VRAI fix B4.
+// Bouton fire J1 appuyé = bit 6 à 0 dans joysAction. Lu via e7cd en mode
+// musique avec sound = 0, on doit avoir bit 6 à 0 (0x80 = 1000_0000). Pré-fix,
+// le bit 6 était silencieusement supprimé car e7cd retournait g.sound seul.
+func TestSetJoystick_ActionFireButton(t *testing.T) {
+	g := newGA()
+	// Bouton fire J1 appuyé (bit 6 = 0), J2 relâché (bit 7 = 1) : 0x80.
+	g.SetJoystick(0xFF, 0x80)
+
+	g.Write8(0xE7CF, 0x04) // mux : e7cd → joysAction | sound
+	g.Write8(0xE7CD, 0x00) // sound = 0
+	if v := g.Read8(0xE7CD); v != 0x80 {
+		t.Errorf("e7cd avec fire J1 = 0x%02X, want 0x80 (= joysAction bit 6 à 0)", v)
+	}
+
+	// Sans mux : retourne port[0x0d] (= 0).
+	g.Write8(0xE7CF, 0x00)
+	if v := g.Read8(0xE7CD); v != 0x00 {
+		t.Errorf("e7cd sans mux = 0x%02X, want port[0x0d]=0", v)
+	}
+}
+
+// TestSetJoystick_ActionOrsWithSound (Inc J1a) : preuve fonctionnelle que e7cd
+// fait bien l'OR entre joysAction ET sound (= fix B4, ref C). Niveau son 0x2A
+// + bouton fire J2 appuyé (bit 7 = 0, J1 relâché = 0x40) doit donner 0x40 |
+// 0x2A = 0x6A.
+func TestSetJoystick_ActionOrsWithSound(t *testing.T) {
+	g := newGA()
+	g.SetJoystick(0xFF, 0x40) // J1 fire relâché (bit 6 = 1), J2 fire appuyé (bit 7 = 0)
+	g.Write8(0xE7CF, 0x04)    // mode musique/joystick
+	g.Write8(0xE7CD, 0x2A)    // sound = 0x2A
+	if v := g.Read8(0xE7CD); v != 0x6A {
+		t.Errorf("e7cd fire J2 + sound 0x2A = 0x%02X, want 0x6A (= joysAction 0x40 | sound 0x2A)", v)
 	}
 }
 
