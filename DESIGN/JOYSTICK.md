@@ -39,7 +39,7 @@ Mapping des bits :
 | `Position` | 7   | J2 est                                        |
 | `Action`   | 6   | J1 bouton fire                                |
 | `Action`   | 7   | J2 bouton fire                                |
-| `Action`   | 0-5 | inutilisés (toujours `1` au repos)            |
+| `Action`   | 0-5 | inutilisés côté joystick — recouverts par le canal son `sound` côté MO5/TO8D (OR'és par le hardware à la lecture `0xA7CD` / `0xE7CD` en mode musique). À `0` dans `NeutralJoystick` (`0xC0 = 0b1100_0000`). |
 
 **Piège évité** : la zéro-value Go d'un struct `JoystickInput{}` vaut
 `{0x00, 0x00}`, soit toutes les directions appuyées simultanément.
