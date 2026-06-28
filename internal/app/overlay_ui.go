@@ -133,7 +133,11 @@ func (o *overlayUI) overlayCard() *widget.Container {
 		),
 		widget.ContainerOpts.Layout(widget.NewRowLayout(
 			widget.RowLayoutOpts.Direction(widget.DirectionVertical),
-			widget.RowLayoutOpts.Padding(&widget.Insets{Top: 16, Bottom: 16, Left: 20, Right: 20}),
+			// Padding droit légèrement supérieur au gauche : compense l'asymétrie visuelle
+			// du grid médias dont la colonne 2 (champ) prend toute la largeur restante après
+			// le label, ce qui colle le rectangle du champ au bord droit sinon (visible quand
+			// le champ est survolé/focalisé en colFieldHi, peu en colField idle).
+			widget.RowLayoutOpts.Padding(&widget.Insets{Top: 16, Bottom: 16, Left: 20, Right: 28}),
 			widget.RowLayoutOpts.Spacing(9),
 		)),
 	)
@@ -329,8 +333,11 @@ func (o *overlayUI) mediaField(d uimodel.WidgetDescriptor) *widget.Container {
 		o.rebuild()
 	}
 
+	// Container porteur : pas de BackgroundImage propre — le fond visible vient du
+	// Button enfant (fieldImg.Idle = colField). Ajouter un BackgroundImage ici créerait
+	// une double couche qui élargit visuellement le champ quand le Button passe en
+	// Hover (colFieldHi sur colField → halo perçu en hauteur).
 	field := widget.NewContainer(
-		widget.ContainerOpts.BackgroundImage(eimage.NewNineSliceColor(colField)),
 		widget.ContainerOpts.WidgetOpts(widget.WidgetOpts.MinSize(0, 34)),
 		widget.ContainerOpts.Layout(widget.NewGridLayout(
 			widget.GridLayoutOpts.Columns(2),
