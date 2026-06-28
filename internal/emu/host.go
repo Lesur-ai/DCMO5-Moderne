@@ -44,6 +44,15 @@ type InputState struct {
 	PenX    int
 	PenY    int
 	PenDown bool
+
+	// Joystick : état idempotent des deux manettes (logique inversée, cf. machine.
+	// JoystickInput). Repos = machine.NeutralJoystick (= {0xFF, 0xC0}). Tout
+	// appelant qui construit un InputState DOIT partir de NeutralJoystick : la
+	// zéro-value Go {0x00, 0x00} serait interprétée comme « toutes directions
+	// appuyées + boutons enfoncés » par la machine. Host.New initialise déjà le
+	// champ interne avec NeutralJoystick — l'App.Update doit faire de même
+	// quand elle construit son InputState avant SetInput.
+	Joystick machine.JoystickInput
 }
 
 type cmdKind int
@@ -101,7 +110,7 @@ func New(m machine.Machine, gain int) *Host {
 		stream:    audio.NewStream(gain, sr*audioRingMaxMS/1000),
 		fbFront:   make([]uint32, fw*fh),
 		fbBack:    make([]uint32, fw*fh),
-		input:     InputState{Keys: make([]bool, keyCount)},
+		input:     InputState{Keys: make([]bool, keyCount), Joystick: machine.NeutralJoystick},
 		inputKeys: make([]bool, keyCount),
 		cmds:      make(chan command, 16),
 		stop:      make(chan struct{}),
@@ -156,6 +165,7 @@ func (h *Host) SetInput(in InputState) {
 	// réallocation). Les touches au-delà de l'instantané fourni sont relâchées
 	// (sinon une touche pressée resterait coincée).
 	h.input.PenX, h.input.PenY, h.input.PenDown = in.PenX, in.PenY, in.PenDown
+	h.input.Joystick = in.Joystick // Inc J2a : propager l'état joystick (struct value, copie sûre).
 	n := copy(h.input.Keys, in.Keys)
 	for i := n; i < len(h.input.Keys); i++ {
 		h.input.Keys[i] = false
@@ -299,6 +309,12 @@ func (h *Host) tick(cycles int) int {
 		h.machine.SetKey(machine.Key(k), in.Keys[k])
 	}
 	h.machine.SetPointer(machine.PointerInput{Kind: machine.PointerPen, X: in.PenX, Y: in.PenY, Button: in.PenDown})
+	// Inc J2a : publication de l'état joystick idempotent. La machine (MO5
+	// core.SetJoystick / TO8D gatearray.SetJoystick via adapter) écrase ses
+	// champs internes — convention LOGIQUE INVERSÉE (0=appuyé), repos publié
+	// par Host.New comme machine.NeutralJoystick (= 0xFF, 0xC0). L'utilisateur
+	// scrute le port via le CPU 6809 (0xA7CC/0xE7CC + mux port[0x0E]&4).
+	h.machine.SetJoystick(in.Joystick)
 	consumed := h.machine.Step(cycles)
 	for {
 		n := h.machine.DrainAudio(h.drainBuf)

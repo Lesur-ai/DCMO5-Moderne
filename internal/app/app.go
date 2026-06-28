@@ -253,7 +253,7 @@ func (a *App) Update() error {
 			// l'ouverture pendant ~1 frame (une touche relâchée pendant l'overlay resterait
 			// « pressée »). Purge = tout relâché : jamais de touche fantôme ; une touche
 			// réellement tenue se ré-affirme au tick suivant (republication normale).
-			a.host.SetInput(emu.InputState{})
+			a.host.SetInput(emu.InputState{Joystick: machine.NeutralJoystick})
 		}
 		a.syncPause() // une action (fermeture) a pu changer l'état
 		return nil
@@ -943,7 +943,15 @@ func learnLiveKeys(model *keyboard.Model, learned map[ebiten.Key]liveKey, justPr
 // touche-caractère tenue, les modificateurs physiques restent positionnels.
 // Pendant une injection (--exec/collage), Shift/CNT physiques sont filtrés.
 func resolveKeys(model *keyboard.Model, pressed func(ebiten.Key) bool, learned map[ebiten.Key]liveKey, injecting bool, tickKeys []int) emu.InputState {
-	in := emu.InputState{Keys: make([]bool, model.KeyCount)}
+	// Joystick au repos par défaut (cf. machine.NeutralJoystick, Inc J0/J2a) :
+	// la zéro-value Go {0x00, 0x00} serait interprétée par la machine comme
+	// « toutes directions appuyées » en logique inversée — régression silencieuse
+	// dès que le pipeline joystick est en service. Inc J3a remplacera ce repos
+	// par l'état lu depuis uimodel.JoystickFromKeys.
+	in := emu.InputState{
+		Keys:     make([]bool, model.KeyCount),
+		Joystick: machine.NeutralJoystick,
+	}
 
 	liveCharHeld := false
 	shiftFromChars := false
