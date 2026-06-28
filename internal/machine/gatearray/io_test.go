@@ -188,6 +188,58 @@ func TestSetJoystick_ActionOrsWithSound(t *testing.T) {
 	}
 }
 
+// TestSetJoystick_BitConvention_TO8D (Inc J1b) ancre la convention bits
+// LOGIQUE INVERSÉE côté TO8D, en MIROIR strict du test MO5
+// internal/core/bus_test.go::TestBus_Joystick_BitConvention_Inverted.
+//
+// La table doit RESTER STRICTEMENT IDENTIQUE entre les deux fichiers (à un
+// mux d'adresses près 0xA7Cx ↔ 0xE7Cx) : c'est ce qui prouve que la
+// convention machine.JoystickInput (Position bits 0-3 = J1 N/S/O/E, 4-7 = J2,
+// Action bits 6/7 = fire J1/J2, 0 = appuyé) est respectée IDENTIQUEMENT côté
+// MO5 ET TO8D. Une divergence est un bug critique : casserait les jeux
+// portés d'une machine à l'autre, ou la couche hôte (uimodel future) qui
+// partagera le même JoystickInput entre les deux.
+//
+// L'OR avec g.sound est neutralisé en écrivant sound=0 avant chaque lecture
+// e7cd (cf. case 0xe7cd de readIO : retourne joysAction | sound).
+func TestSetJoystick_BitConvention_TO8D(t *testing.T) {
+	cases := []struct {
+		name           string
+		position       uint8
+		action         uint8
+		wantPosRead    uint8
+		wantActionRead uint8
+	}{
+		{"repos", 0xFF, 0xC0, 0xFF, 0xC0},
+		{"J1 nord (bit 0 = 0)", 0xFE, 0xC0, 0xFE, 0xC0},
+		{"J1 sud (bit 1 = 0)", 0xFD, 0xC0, 0xFD, 0xC0},
+		{"J1 ouest (bit 2 = 0)", 0xFB, 0xC0, 0xFB, 0xC0},
+		{"J1 est (bit 3 = 0)", 0xF7, 0xC0, 0xF7, 0xC0},
+		{"J2 nord (bit 4 = 0)", 0xEF, 0xC0, 0xEF, 0xC0},
+		{"J2 sud (bit 5 = 0)", 0xDF, 0xC0, 0xDF, 0xC0},
+		{"J2 ouest (bit 6 = 0)", 0xBF, 0xC0, 0xBF, 0xC0},
+		{"J2 est (bit 7 = 0)", 0x7F, 0xC0, 0x7F, 0xC0},
+		{"J1 fire (action bit 6 = 0)", 0xFF, 0x80, 0xFF, 0x80},
+		{"J2 fire (action bit 7 = 0)", 0xFF, 0x40, 0xFF, 0x40},
+		{"J1 nord + J1 fire", 0xFE, 0x80, 0xFE, 0x80},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			g := newGA()
+			g.SetJoystick(c.position, c.action)
+			g.Write8(0xE7CE, 0x04) // mux position
+			g.Write8(0xE7CF, 0x04) // mux action
+			g.Write8(0xE7CD, 0x00) // sound = 0, isole joysAction de l'OR
+			if v := g.Read8(0xE7CC); v != c.wantPosRead {
+				t.Errorf("position : Read8(0xE7CC) = 0x%02X, want 0x%02X (input=0x%02X)", v, c.wantPosRead, c.position)
+			}
+			if v := g.Read8(0xE7CD); v != c.wantActionRead {
+				t.Errorf("action : Read8(0xE7CD) = 0x%02X, want 0x%02X (input=0x%02X)", v, c.wantActionRead, c.action)
+			}
+		})
+	}
+}
+
 func TestReadE7C3PenButton(t *testing.T) {
 	g, _ := newGAWithCPU()
 	if g.Read8(0xE7C3)&0x02 != 0 {
