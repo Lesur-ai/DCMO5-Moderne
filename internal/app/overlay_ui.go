@@ -239,18 +239,16 @@ func (o *overlayUI) buildMain(card *widget.Container) {
 	sys.AddChild(o.button("Reset", o.btnImg, o.txtColor, func() { o.reset = true }))
 	sys.AddChild(o.button("Init prog", o.btnImg, o.txtColor, func() { o.initprog = true }))
 	sys.AddChild(o.button("Quitter", o.btnImg, o.txtColor, func() { o.quit = true }))
-	card.AddChild(sys)
-
-	// Machine : bouton « Changer de machine » → vue de confirmation. Affiché seulement s'il
-	// existe une AUTRE machine (NextProfile, pur). Avec MO5/TO8D, bascule vers l'autre.
+	// Changement de machine : DANS la même rangée (compact — une section séparée ferait
+	// déborder la carte au-delà de la fenêtre 672×432). Affiché seulement s'il existe une
+	// AUTRE machine (overlay.NextProfile, pur). → vue de confirmation (ConfirmSwitch).
 	if _, ok := overlay.NextProfile(o.profiles, o.profile.ID); ok {
-		card.AddChild(o.separator())
-		card.AddChild(o.sectionLabel("Machine"))
-		card.AddChild(o.button("Changer de machine", o.btnImg, o.txtColor, func() {
+		sys.AddChild(o.button("Changer machine", o.btnImg, o.txtColor, func() {
 			o.model.GoConfirmSwitch()
 			o.rebuild()
 		}))
 	}
+	card.AddChild(sys)
 
 	if o.errText != "" {
 		card.AddChild(widget.NewText(

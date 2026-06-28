@@ -253,21 +253,58 @@ func main() {
 
 // runLauncher démarre l'application en mode launcher : liste des profils enregistrés
 // (plus le profil de démonstration si DCMO5_UI_DEMO est défini), chemin ROM mémorisé
-// romResolverFor construit un résolveur de ROM système par machine à partir du Store de
-// config (relu à la demande). Injecté dans l'App (SetROMResolver) pour le changement de
-// machine à chaud : au switch, l'App résout la ROM de la cible via sa config persistée. Une
-// machine jamais lancée renvoie "" → le switch échoue proprement (ROM requise manquante).
+// romResolverFor construit un résolveur de ROM système par machine, injecté dans l'App
+// (SetROMResolver) pour le changement de machine à chaud. Stratégie, du plus spécifique au
+// repli :
+//  1. chemin mémorisé en config (config.ROMFor) s'il EXISTE encore ;
+//  2. sinon, même nom de fichier dans le dossier rom/ courant (config pointant un ancien
+//     emplacement — ex. chemin absolu d'un répertoire déplacé/supprimé) ;
+//  3. sinon, convention rom/<id>.rom.
+//
+// Si rien n'existe, renvoie le chemin configuré (ou "") : PrepareSwitch/New échouera alors
+// proprement (message dans l'overlay, session intacte).
 func romResolverFor(store *config.Store) func(string) string {
 	return func(id string) string {
-		if store == nil {
-			return ""
+		configured := ""
+		if store != nil {
+			if c, err := store.Load(); err == nil {
+				configured = c.ROMFor(id)
+			}
 		}
-		c, err := store.Load()
-		if err != nil {
-			return ""
+		if configured != "" && romFileExists(configured) {
+			return configured
 		}
-		return c.ROMFor(id)
+		if configured != "" {
+			if cand := filepath.Join("rom", filepath.Base(configured)); romFileExists(cand) {
+				return cand // config pointe un emplacement obsolète : même fichier dans rom/
+			}
+		}
+		if name := bundledROMName[id]; name != "" {
+			if cand := filepath.Join("rom", name); romFileExists(cand) {
+				return cand // ROM livrée pour cette machine (machine jamais lancée → pas de config)
+			}
+		}
+		if cand := filepath.Join("rom", id+".rom"); romFileExists(cand) {
+			return cand // dernier repli : convention de nommage (machine hors table)
+		}
+		return configured
 	}
+}
+
+// bundledROMName : nom du fichier ROM livré dans rom/ pour chaque machine. Sert de repli au
+// changement de machine quand la config ne mémorise encore aucun chemin pour la cible (ex.
+// machine jamais lancée) : la convention rom/<id>.rom ne couvre pas les vrais noms versionnés
+// (mo5-v1.1.rom ≠ mo5.rom). Table volontairement côté cmd (composition) ; à déplacer dans le
+// MachineProfile si le besoin se généralise.
+var bundledROMName = map[string]string{
+	"mo5":  "mo5-v1.1.rom",
+	"to8d": "to8d.rom",
+}
+
+// romFileExists indique si un fichier ROM existe (os.Stat sans erreur, hors répertoire).
+func romFileExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && !info.IsDir()
 }
 
 // pré-rempli, répertoire de départ = répertoire courant. La machine est instanciée à
