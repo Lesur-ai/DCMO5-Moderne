@@ -133,7 +133,7 @@ func TestResolveKeys_PhysicalShiftPositionalWhenNoChar(t *testing.T) {
 func TestResolveKeys_SpecialKeysHeld(t *testing.T) {
 	// Les touches spéciales (flèches) sont tenues positionnellement.
 	in := resolveKeys(keyboard.MO5Model(), pressedSet(ebiten.KeyArrowRight), map[ebiten.Key]liveKey{}, false, nil)
-	if !in.Keys[keyMapping[ebiten.KeyArrowRight]] {
+	if !in.Keys[keyboard.MO5Model().SpecialKeys[int(ebiten.KeyArrowRight)]] {
 		t.Error("flèche droite devrait être tenue")
 	}
 }
