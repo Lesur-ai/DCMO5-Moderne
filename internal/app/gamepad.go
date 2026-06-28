@@ -23,6 +23,7 @@ package app
 
 import (
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/uimodel"
@@ -129,6 +130,28 @@ func (a *App) gamepadSnapshot(slotIdx int) uimodel.GamepadSnapshot {
 		FireA: ebiten.IsStandardGamepadButtonPressed(id, ebiten.StandardGamepadButtonRightBottom),
 		FireB: ebiten.IsStandardGamepadButtonPressed(id, ebiten.StandardGamepadButtonRightRight),
 	}
+}
+
+// gamepadStartJustPressed retourne true si l'un des slots attribués détecte
+// une pression NEUVE sur le bouton Start/Menu (StandardGamepadButtonCenterRight)
+// cette frame. Sert à ouvrir l'overlay depuis le gamepad pour les utilisateurs
+// qui jouent sans clavier (B6 plan workflow joystick). « Just pressed » et pas
+// « pressed » : sinon maintenir Start au démarrage ouvrirait/fermerait l'overlay
+// 60×/s.
+//
+// Slot vide → ignoré (idPtr nil). Gamepad sans standard layout → ignoré aussi
+// (IsStandardGamepadButtonJustPressed retourne false).
+func (a *App) gamepadStartJustPressed() bool {
+	for i := range a.gamepadSlots {
+		s := &a.gamepadSlots[i]
+		if s.id == nil {
+			continue
+		}
+		if inpututil.IsStandardGamepadButtonJustPressed(*s.id, ebiten.StandardGamepadButtonCenterRight) {
+			return true
+		}
+	}
+	return false
 }
 
 // joystickFromGamepads compose l'état joystick venant des deux slots gamepad

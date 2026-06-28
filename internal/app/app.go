@@ -276,7 +276,11 @@ func (a *App) Update() error {
 	// court-circuit en haut de Update aurait rendu la main (c'est updateOverlay qui gère
 	// Échap pour remonter/fermer). On construit/rafraîchit l'arbre ebitenui sur l'état média
 	// courant et on gèle l'émulation AU MÊME TICK que l'ouverture (sinon une frame avance).
-	if inputJustPressed(ebiten.KeyEscape) {
+	// Inc J4b (B6 plan workflow joystick) : le bouton Start/Menu du gamepad
+	// (StandardGamepadButtonCenterRight) ouvre AUSSI l'overlay — sinon un user
+	// en gamepad seul ne pourrait pas accéder à Reset/Init prog/Quitter/Changer
+	// machine/Joystick. On scrute les deux slots gamepad attribués.
+	if inputJustPressed(ebiten.KeyEscape) || a.gamepadStartJustPressed() {
 		a.overlay.Open()
 		a.openOverlayUI()
 		a.syncPause()
