@@ -36,6 +36,25 @@ func (m *Model) IsModifier(key int) bool {
 	return key == m.ShiftKey || key == m.CNTKey || (m.ACCKey >= 0 && key == m.ACCKey)
 }
 
+// ModifierKeys retourne les indices des touches modificatrices dans l'ordre
+// d'application : SHIFT, CNT, puis ACC si présent (ACCKey < 0 = absent). L'hôte
+// (emu.Host.tick) applique ces touches AVANT toute autre. C'est nécessaire sur
+// les machines à clavier ACTIF (TO8D : le gate-array latch le scancode caractère
+// avec l'état modificateurs courant, cf. gatearray/keyboard.go to8key). Sur les
+// claviers PASSIFS (MO5 : matrice scannée par ROM), l'ordre est indifférent —
+// la méthode est sûre dans les deux cas.
+//
+// IMPORTANT : toute touche modificatrice ajoutée à un Model (futur FCT TO9+,
+// p. ex.) DOIT être retournée ici, sinon elle sera posée APRÈS les caractères
+// dans Host.tick et le latching gate-array verra l'état modificateur précédent.
+func (m *Model) ModifierKeys() []int {
+	keys := []int{m.ShiftKey, m.CNTKey}
+	if m.ACCKey >= 0 {
+		keys = append(keys, m.ACCKey)
+	}
+	return keys
+}
+
 // mo5Model est le modèle clavier MO5 (singleton : la table chars est en lecture
 // seule). Partagé par MO5Model() et le wrapper de compatibilité CharToMO5Key.
 var mo5Model = &Model{

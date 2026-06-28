@@ -273,7 +273,29 @@ func (h *Host) run() {
 // déterministe.
 func (h *Host) tick(cycles int) int {
 	in := h.snapshotInput()
-	for k := range in.Keys {
+	// Application des touches en DEUX passes : modificateurs d'abord, autres
+	// touches ensuite. Sur TO8D le gate-array latch le scancode caractère AVEC
+	// l'état modificateurs au moment du SetKey caractère (cf. gatearray/keyboard.go
+	// to8key, bits 0x80 pour SHIFT et CNT inversé) : si SHIFT est posé APRÈS le
+	// caractère, le latch capture l'état modificateur précédent. Sur MO5 (matrice
+	// passive scannée par ROM), l'ordre est neutre — la boucle reste correcte.
+	// Indices des modifs data-driven via KeyboardModel.ModifierKeys() : ajouter un
+	// modificateur sur une machine future (FCT TO9+, p. ex.) le rend automatiquement
+	// prioritaire ici sans toucher au host.
+	model := h.machine.KeyboardModel()
+	modKeys := model.ModifierKeys()
+	isMod := make(map[int]struct{}, len(modKeys))
+	for _, k := range modKeys {
+		if k < 0 || k >= len(in.Keys) {
+			continue
+		}
+		h.machine.SetKey(machine.Key(k), in.Keys[k])
+		isMod[k] = struct{}{}
+	}
+	for k := 0; k < len(in.Keys); k++ {
+		if _, ok := isMod[k]; ok {
+			continue
+		}
 		h.machine.SetKey(machine.Key(k), in.Keys[k])
 	}
 	h.machine.SetPointer(machine.PointerInput{Kind: machine.PointerPen, X: in.PenX, Y: in.PenY, Button: in.PenDown})
