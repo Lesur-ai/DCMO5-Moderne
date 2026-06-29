@@ -28,6 +28,13 @@ import "github.com/Lesur-ai/dcmo5/internal/machine"
 // L'opération est commutative et associative (AND est commutatif/associatif),
 // donc l'ordre des arguments est sans importance et on peut composer plus de
 // deux sources par appels successifs (cf. tests).
+//
+// CHOIX DE DESIGN D5 (29/06/2026) — opposés inter-sources : si le clavier
+// publie J1↑ et le gamepad publie J1↓, le résultat a les deux bits à 0 (↑+↓
+// simultanés). Pas de cancel post-merge. Raisons : (1) cas réel quasi-nul
+// (même joueur sur clavier ET gamepad en directions opposées) ; (2) fidélité
+// matérielle (le hardware Thomson ne cancellait pas les opposés sur le port
+// physique) ; (3) évite de la logique per-joueur dans le hot path.
 func MergeJoysticks(a, b machine.JoystickInput) machine.JoystickInput {
 	return machine.JoystickInput{
 		Position: a.Position & b.Position,

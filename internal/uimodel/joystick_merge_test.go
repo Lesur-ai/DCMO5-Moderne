@@ -111,3 +111,29 @@ func TestMergeJoysticks_Commutative(t *testing.T) {
 		t.Error("Merge n'est pas commutatif")
 	}
 }
+
+// TestMergeJoysticks_OppositeDirections (D5.T1) : opposés inter-sources. Si le
+// clavier publie J1 nord (bit 0=0) et le gamepad publie J1 sud (bit 1=0), le
+// résultat a les DEUX bits à 0 — la machine voit ↑+↓ simultanément. C'est un
+// choix de design délibéré (D5 séance design 29/06/2026) : pas de cancel
+// post-merge. Le hardware Thomson réel ne cancellait pas les opposés sur le port
+// physique. Ce test DOCUMENTE le comportement retenu ; l'inverser nécessiterait
+// une décision explicite de changement d'architecture.
+func TestMergeJoysticks_OppositeDirections(t *testing.T) {
+	keyboardJ1Nord := machine.JoystickInput{Position: 0xFE, Action: 0xC0} // J1 bit0=0 (nord)
+	gamepadJ1Sud := machine.JoystickInput{Position: 0xFD, Action: 0xC0}   // J1 bit1=0 (sud)
+	got := MergeJoysticks(keyboardJ1Nord, gamepadJ1Sud)
+	// AND brut : 0xFE & 0xFD = 0xFC (bits 0 ET 1 à 0 = nord+sud simultanés)
+	want := machine.JoystickInput{Position: 0xFC, Action: 0xC0}
+	if got != want {
+		t.Errorf("Merge(J1Nord, J1Sud) = %+v, want %+v (opposés doivent passer, pas être annulés)", got, want)
+	}
+	// Vérifie aussi est+ouest (J1 bits 2+3)
+	keyboardJ1Ouest := machine.JoystickInput{Position: 0xFB, Action: 0xC0} // J1 bit2=0
+	gamepadJ1Est := machine.JoystickInput{Position: 0xF7, Action: 0xC0}    // J1 bit3=0
+	got2 := MergeJoysticks(keyboardJ1Ouest, gamepadJ1Est)
+	want2 := machine.JoystickInput{Position: 0xF3, Action: 0xC0} // bits 2+3 à 0
+	if got2 != want2 {
+		t.Errorf("Merge(J1Ouest, J1Est) = %+v, want %+v (opposés doivent passer)", got2, want2)
+	}
+}

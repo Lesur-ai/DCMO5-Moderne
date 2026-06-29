@@ -87,9 +87,10 @@ type App struct {
 	// avec ebitenui. Non-nil ⇒ mode launcher (host==nil, aucune émulation). À
 	// l'action « Démarrer », l'App instancie la machine, monte les médias, démarre
 	// le Host puis repasse launcher=nil (mode émulateur).
-	launcher    *launcher
-	onStart     func(profileID string, cfg machine.Config) // hook de persistance config à l'action « Démarrer » (mode launcher)
-	hostStarted bool                                       // host.Start() a été appelé (garde le Stop différé)
+	launcher           *launcher
+	onStart            func(profileID string, cfg machine.Config) // hook de persistance config à l'action « Démarrer » (mode launcher)
+	onJoystickKBChange func(enabled bool)                         // hook de persistance du toggle joystick clavier (B9)
+	hostStarted        bool                                       // host.Start() a été appelé (garde le Stop différé)
 
 	// overlay : machine d'état PURE de l'overlay Échap (zéro-value = fermé, aucun
 	// constructeur). Ouvert/fermé par Échap (cf. Update). overlayUI est l'arbre ebitenui,
@@ -176,6 +177,16 @@ func (a *App) SetOnStart(fn func(profileID string, cfg machine.Config)) { a.onSt
 // persistée, côté cmd). Consommé par le changement de machine à chaud (Inc 5) pour
 // construire la config de la cible. nil (défaut) → aucune résolution.
 func (a *App) SetROMResolver(fn func(machineID string) string) { a.romResolver = fn }
+
+// SetOnJoystickKBChange injecte un callback appelé chaque fois que le toggle
+// joystick clavier change d'état (B9 : persistance globale). Le callback reçoit
+// le nouvel état (true = activé). nil (défaut) → pas de persistance.
+func (a *App) SetOnJoystickKBChange(fn func(enabled bool)) { a.onJoystickKBChange = fn }
+
+// SetJoystickKBEnabled fixe l'état initial du toggle joystick clavier, typiquement
+// depuis la config persistante au démarrage (B9). Sans appel, le toggle est false
+// (désactivé par défaut).
+func (a *App) SetJoystickKBEnabled(b bool) { a.joystickKBEnabled = b }
 
 // attachMachine câble une machine sur l'App (tampons d'affichage, Host, modèle
 // clavier). Partagé par New (CLI direct) et par la transition launcher→émulateur :
@@ -360,6 +371,14 @@ func (a *App) Update() error {
 	// son slot et retombe sur NeutralJoystick par construction.
 	gamepadJoy := a.joystickFromGamepads()
 	in.Joystick = uimodel.MergeJoysticks(keyboardJoy, gamepadJoy)
+	// D11 (audit Codex 28/06) : quand la fenêtre Ebitengine perd le focus, forcer
+	// NeutralJoystick. Sans cette garde, une direction tenue au moment de l'alt-tab
+	// reste « collée » car l'événement de relâchement n'est jamais vu. Le clavier
+	// émulation n'a PAS ce problème (learnLiveKeys/resolveKeys ne voient plus les
+	// touches tenues → relâchement implicite à la frame suivante).
+	if !ebiten.IsFocused() {
+		in.Joystick = machine.NeutralJoystick
+	}
 	// Le curseur Ebitengine est en repère Layout (= LOGIQUE). Pour le crayon optique,
 	// on le ramène au repère FRAMEBUFFER attendu par la machine : identité pour le MO5
 	// (logique == framebuffer), mais Y/2 pour le gate-array dont le Layout est étiré ×2
@@ -439,6 +458,9 @@ func (a *App) updateOverlay() error {
 		// le bouton de l'overlay pour que son libellé reflète l'état courant.
 		a.joystickKBEnabled = !a.joystickKBEnabled
 		a.overlayUI.setJoystickKBEnabled(a.joystickKBEnabled)
+		if a.onJoystickKBChange != nil {
+			a.onJoystickKBChange(a.joystickKBEnabled)
+		}
 	}
 	return nil
 }

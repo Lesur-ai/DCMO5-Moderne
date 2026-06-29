@@ -347,6 +347,13 @@ func runLauncher(initial machine.Config, noAudio bool, store *config.Store, mach
 		c.SetROMFor(profileID, rom) // mémorise la ROM PAR machine (n'écrase pas les autres)
 		store.Save(c)
 	})
+	// B9 : restaurer l'état du toggle joystick clavier depuis la config (préférence
+	// GLOBALE, pas par machine — séance design 29/06/2026).
+	a.SetJoystickKBEnabled(config.JoystickKeyboardPreference(store))
+	// Persister le toggle joystick clavier à chaque changement (overlay « Key Joystk »).
+	a.SetOnJoystickKBChange(func(enabled bool) {
+		_ = config.PersistJoystickKeyboard(store, enabled)
+	})
 	if err := app.Run(a); err != nil && !errors.Is(err, app.ErrUserQuit) {
 		fmt.Fprintln(os.Stderr, "dcmo5:", err)
 		os.Exit(1)

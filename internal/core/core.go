@@ -1,5 +1,11 @@
 // Package core représente la machine Thomson MO5 complète.
 // Il ne dépend d'aucune bibliothèque graphique, audio ni de chemins fichiers.
+//
+// NOTE MIGRATION v3 : quand MO6/PC128 sera implémenté (famille FamilyMO), les
+// parties communes MO (bus, vidéo, dispatch) seront extraites dans un paquet
+// internal/machine/mocore ; le résidu MO5-spécifique sera fusionné dans
+// internal/machine/mo5. Pour l'instant, ce paquet est le MO5 complet ;
+// l'adapter machine/mo5 le wrappe (cf. internal/machine/mo5/mo5.go).
 package core
 
 import (

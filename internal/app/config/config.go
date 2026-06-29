@@ -26,6 +26,13 @@ type Config struct {
 	LastDisk     string            `json:"last_disk"`    // dernier fichier disquette
 	LastCart     string            `json:"last_cart"`    // dernière cartouche
 	KeyboardMap  string            `json:"keyboard_map"` // "default" ou chemin fichier mapping custom
+
+	// JoystickKeyboard persiste l'état du toggle « Key Joystk » (F12) : true =
+	// le clavier émet des directions/fire joystick (flèches+RightShift pour J1,
+	// WASD+LeftShift pour J2). Préférence GLOBALE et non par machine (B9 séance
+	// design 29/06/2026) : c'est un choix utilisateur ("je veux utiliser mon
+	// clavier comme joystick"), pas une propriété du modèle Thomson.
+	JoystickKeyboard bool `json:"joystick_keyboard,omitempty"`
 }
 
 // ROMFor retourne le chemin ROM mémorisé pour la machine machineID, ou "" si aucun.
@@ -102,6 +109,36 @@ func (s *Store) Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: parser: %w", err)
 	}
 	return cfg, nil
+}
+
+// JoystickKeyboardPreference lit la préférence globale du joystick clavier.
+// En absence de store ou si la config est illisible, le mode reste désactivé :
+// c'est le comportement historique et le choix le moins surprenant au démarrage.
+func JoystickKeyboardPreference(store *Store) bool {
+	if store == nil {
+		return false
+	}
+	cfg, err := store.Load()
+	if err != nil {
+		return false
+	}
+	return cfg.JoystickKeyboard
+}
+
+// PersistJoystickKeyboard persiste la préférence globale du joystick clavier en
+// préservant les autres champs de configuration. Une erreur de lecture bloque
+// volontairement l'écriture : sauvegarder une Config{} de repli pourrait écraser
+// des chemins ROM/médias valides si l'erreur était transitoire.
+func PersistJoystickKeyboard(store *Store, enabled bool) error {
+	if store == nil {
+		return nil
+	}
+	cfg, err := store.Load()
+	if err != nil {
+		return err
+	}
+	cfg.JoystickKeyboard = enabled
+	return store.Save(cfg)
 }
 
 // Save persiste la configuration dans le fichier.
