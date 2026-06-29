@@ -26,6 +26,23 @@ func TestDirectBoot(t *testing.T) {
 	}
 }
 
+func TestDirectBootSupported(t *testing.T) {
+	cases := []struct {
+		id   string
+		want bool
+	}{
+		{"mo5", true},
+		{"to9p", true},
+		{"to8d", false},
+		{"inconnu", false},
+	}
+	for _, c := range cases {
+		if got := launch.DirectBootSupported(c.id); got != c.want {
+			t.Errorf("DirectBootSupported(%q) = %v, want %v", c.id, got, c.want)
+		}
+	}
+}
+
 // TestDemoProfile_NotInstantiable : le profil démo couvre les 4 ParamKind et n'est pas
 // instanciable (New renvoie une erreur) — « Démarrer » sert de test visuel du chemin
 // d'erreur sans crash.
