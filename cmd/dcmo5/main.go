@@ -16,6 +16,7 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 	"github.com/Lesur-ai/dcmo5/internal/machine/mo5"
 	_ "github.com/Lesur-ai/dcmo5/internal/machine/to8d" // enregistre le profil TO8D (init)
+	_ "github.com/Lesur-ai/dcmo5/internal/machine/to9p" // enregistre le profil TO9+ (init)
 	"github.com/Lesur-ai/dcmo5/internal/media/impl"
 )
 
@@ -26,7 +27,7 @@ var version = "dev"
 func main() {
 	showVersion := flag.Bool("version", false, "afficher la version et quitter")
 	machineID := flag.String("machine", "mo5", "machine à émuler (défaut: mo5)")
-	romPath := flag.String("rom", "", "chemin vers la ROM système MO5 (16 Ko)")
+	romPath := flag.String("rom", "", "chemin vers la ROM système de la machine")
 	tapePath := flag.String("tape", "", "fichier cassette .k7 à monter")
 	diskPath := flag.String("disk", "", "fichier disquette .fd à monter")
 	cartPath := flag.String("cart", "", "fichier cartouche .rom à monter")
@@ -85,11 +86,15 @@ func main() {
 		return
 	}
 
-	// Résoudre les chemins : CLI prioritaire, puis config. Le boot direct est MO5-only
-	// (core.NewMachine) → on prend la ROM mémorisée du MO5, jamais celle d'une autre
-	// machine (sinon une ROM TO8D 80 Ko ferait échouer la construction MO5).
+	// Résoudre les chemins : CLI prioritaire, puis config/résolveur de la machine
+	// demandée. Le MO5 conserve son chemin historique core.NewMachine ; les autres
+	// profils passent par leur MachineProfile.New.
 	if *romPath == "" {
-		*romPath = cfg.ROMFor("mo5")
+		if *machineID == "mo5" {
+			*romPath = cfg.ROMFor("mo5")
+		} else {
+			*romPath = romResolverFor(store)(*machineID)
+		}
 	}
 	if *tapePath == "" {
 		*tapePath = cfg.LastTape
@@ -99,6 +104,20 @@ func main() {
 	}
 	if *cartPath == "" {
 		*cartPath = cfg.LastCart
+	}
+
+	prof, ok := machine.ByID(*machineID)
+	if !ok {
+		ids := make([]string, 0)
+		for _, p := range machine.Profiles() {
+			ids = append(ids, p.ID)
+		}
+		fmt.Fprintf(os.Stderr, "dcmo5: machine inconnue %q. Disponibles : %s\n", *machineID, strings.Join(ids, ", "))
+		os.Exit(1)
+	}
+	if !launch.DirectBootSupported(*machineID) {
+		fmt.Fprintf(os.Stderr, "dcmo5: boot direct CLI non supporté pour %s dans ce lot — utilisez le launcher\n", prof.Name)
+		os.Exit(1)
 	}
 
 	opts := core.Options{
@@ -118,17 +137,22 @@ func main() {
 	var tapeCloser, diskCloser io.Closer
 
 	// ROM système
-	if *romPath != "" {
-		data, err := os.ReadFile(*romPath)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "dcmo5: ROM:", err)
-			os.Exit(1)
+	if *machineID == "mo5" {
+		if *romPath != "" {
+			data, err := os.ReadFile(*romPath)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "dcmo5: ROM:", err)
+				os.Exit(1)
+			}
+			opts.ROMSys = data
+		} else {
+			romMissing = true
+			fmt.Fprintln(os.Stderr, "dcmo5: ROM manquante — lancez avec -rom /chemin/mo5.rom")
+			fmt.Fprintln(os.Stderr, "dcmo5: l'émulateur démarrera sans ROM (état indéfini)")
 		}
-		opts.ROMSys = data
-	} else {
-		romMissing = true
-		fmt.Fprintln(os.Stderr, "dcmo5: ROM manquante — lancez avec -rom /chemin/mo5.rom")
-		fmt.Fprintln(os.Stderr, "dcmo5: l'émulateur démarrera sans ROM (état indéfini)")
+	} else if *romPath == "" {
+		fmt.Fprintf(os.Stderr, "dcmo5: ROM requise pour %s — lancez avec -rom /chemin/rom.rom\n", prof.Name)
+		os.Exit(1)
 	}
 
 	// Cassette
@@ -184,9 +208,11 @@ func main() {
 	}
 
 	// Construction de la machine sélectionnée via le registre des profils. Le MO5
-	// est bâti par la voie cœur (pour brancher l'instrumentation E/S non couverte par
-	// le contrat) puis enrobé par l'adaptateur. Les autres profils seront constructibles
-	// en CLI au fil des lots v2 ; le launcher (lot 11) les instanciera génériquement.
+	// garde la voie cœur historique (instrumentation E/S non couverte par le contrat)
+	// puis est enrobé par l'adaptateur. Le TO9+ est le seul profil non-MO5 activé en
+	// boot direct dans ce lot ; les autres restent lancés via le launcher tant que leur
+	// chemin CLI n'est pas validé explicitement. Cette liste doit rester alignée avec
+	// launch.DirectBootSupported.
 	var m machine.Machine
 	switch *machineID {
 	case "mo5":
@@ -203,12 +229,28 @@ func main() {
 		}
 		coreM.Reset()
 		m = mo5.Wrap(coreM)
-	default:
-		ids := make([]string, 0)
-		for _, p := range machine.Profiles() {
-			ids = append(ids, p.ID)
+	case "to9p":
+		machineCfg := machine.Config{}
+		if *romPath != "" {
+			machineCfg[machine.KeyROM] = *romPath
 		}
-		fmt.Fprintf(os.Stderr, "dcmo5: machine inconnue %q. Disponibles : %s\n", *machineID, strings.Join(ids, ", "))
+		built, err := prof.New(machineCfg)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "dcmo5: init machine:", err)
+			os.Exit(1)
+		}
+		if opts.Tape != nil {
+			built.MountTape(opts.Tape)
+		}
+		if opts.Disk != nil {
+			built.MountDisk(opts.Disk)
+		}
+		if opts.Cartridge != nil {
+			built.MountCartridge(opts.Cartridge)
+		}
+		m = built
+	default:
+		fmt.Fprintf(os.Stderr, "dcmo5: profil %q déclaré bootable mais non câblé dans le switch — bug d'alignement\n", *machineID)
 		os.Exit(1)
 	}
 
@@ -218,20 +260,10 @@ func main() {
 	// On ne persiste pas les médias non encore fonctionnels pour ne pas
 	// induire l'utilisateur en erreur.
 	if store != nil && !romMissing {
-		cfg.SetROMFor("mo5", *romPath) // boot direct = MO5
+		cfg.SetROMFor(*machineID, *romPath)
 		store.Save(cfg)
 	}
 
-	// Boot direct CLI = MO5 uniquement (le switch ci-dessus rejette les autres). On
-	// résout le VRAI profil MO5 dans le registre : il porte la famille (géométrie
-	// d'affichage) ET le schéma de Params consommé par l'overlay. Garanti enregistré
-	// par l'import de internal/machine/mo5 (init) ; son absence serait un bug de build,
-	// d'où l'échec net plutôt qu'une dégradation silencieuse.
-	prof, ok := machine.ByID("mo5")
-	if !ok {
-		fmt.Fprintln(os.Stderr, "dcmo5: profil \"mo5\" introuvable dans le registre")
-		os.Exit(1)
-	}
 	a := app.New(m, prof)
 	a.SetROMStatus(romMissing)
 	a.SetROMResolver(romResolverFor(store)) // ROM des autres machines (changement à chaud, Inc 5)
@@ -303,6 +335,7 @@ func romResolverFor(store *config.Store) func(string) string {
 var bundledROMName = map[string]string{
 	"mo5":  "mo5-v1.1.rom",
 	"to8d": "to8d.rom",
+	"to9p": "to9p.rom",
 }
 
 // romFileExists indique si un fichier ROM existe (os.Stat sans erreur, hors répertoire).

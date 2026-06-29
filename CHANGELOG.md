@@ -35,6 +35,17 @@ Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
   [#146](https://github.com/Lesur-ai/dcmo5/pull/146)). Affichage au **bon
   ratio** via `DisplayGeometry` ([#147](https://github.com/Lesur-ai/dcmo5/issues/147)
   corrigé par [#152](https://github.com/Lesur-ai/dcmo5/pull/152)).
+- **Profil TO9+ minimal** : profil `to9p`, découpage ROM 80 Ko
+  (64 Ko BASIC/logiciels + 16 Ko moniteur), repli launcher/CLI sur
+  `rom/to9p.rom`, hook de patch ROM en mémoire posé mais sans patch TO9+
+  effectif dans ce lot ([#186](https://github.com/Lesur-ai/dcmo5/issues/186) /
+  [#187](https://github.com/Lesur-ai/dcmo5/pull/187)).
+- **Assets logiciels TO/MEMO7** : ajout des disquettes `blueberry_to8.fd`,
+  `bob-winner_moto.fd`, `lemmings_to8.fd`, `les-bd-1_to8.fd`,
+  `les-bd-2_to8.fd`, `space-racer_to8.fd`, ainsi que des cartouches
+  `compilation_memo7.rom`, `blitz_memo7.rom` et `autotest3_memo7.rom`
+  dans `software/memo7/`
+  ([#187](https://github.com/Lesur-ai/dcmo5/pull/187)).
 - **Overlay de pilotage Échap** (lot [#117](https://github.com/Lesur-ai/dcmo5/issues/117),
   PRs [#148](https://github.com/Lesur-ai/dcmo5/pull/148)–[#161](https://github.com/Lesur-ai/dcmo5/pull/161)) :
   remplace le menu v1 par une carte `ebitenui` superposée au framebuffer

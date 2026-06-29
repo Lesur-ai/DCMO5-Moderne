@@ -23,6 +23,19 @@ func DirectBoot(romFlagSet, execFlagSet bool) bool {
 	return romFlagSet || execFlagSet
 }
 
+// DirectBootSupported indique si un profil enregistré peut contourner le launcher
+// dans le périmètre courant. Le MO5 conserve le chemin historique ; le TO9+ est
+// activé par le lot #186. Le TO8D reste volontairement launcher-only tant que son
+// chemin CLI direct n'a pas été validé explicitement.
+func DirectBootSupported(machineID string) bool {
+	switch machineID {
+	case "mo5", "to9p":
+		return true
+	default:
+		return false
+	}
+}
+
 // SelectIndex résout l'index du profil dont l'ID == machineID dans profiles, pour
 // PRÉSÉLECTIONNER la machine demandée via --machine au launcher (au lieu de l'ignorer).
 // explicit indique si --machine a été fourni EXPLICITEMENT : un ID inconnu fourni
