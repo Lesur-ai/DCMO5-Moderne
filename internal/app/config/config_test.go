@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -111,4 +112,151 @@ func TestConfig_Save_atomicWrite(t *testing.T) {
 	if cfg.ROMPath != "v2" {
 		t.Errorf("après deux Save: ROMPath = %q, want v2", cfg.ROMPath)
 	}
+}
+
+// TestConfig_JoystickKeyboard_persistence (B9) : le toggle joystick clavier est
+// une préférence GLOBALE (pas par machine, séance design 29/06/2026). Vérifie
+// que le champ est persisté, lu à la valeur par défaut quand absent, et ne
+// pollue pas les autres champs.
+func TestConfig_JoystickKeyboard_persistence(t *testing.T) {
+	store, _ := config.NewStoreAt(t.TempDir())
+	// Défaut : false (absent du JSON → zéro-value Go).
+	cfg, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.JoystickKeyboard {
+		t.Error("JoystickKeyboard devrait être false par défaut (fichier absent)")
+	}
+	// Activer et persister.
+	cfg.JoystickKeyboard = true
+	cfg.SetROMFor("mo5", "/opt/mo5.rom")
+	if err := store.Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// Relire : le toggle est restauré et la ROM n'est pas affectée.
+	got, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !got.JoystickKeyboard {
+		t.Error("JoystickKeyboard devrait être true après Save/Load")
+	}
+	if got.ROMFor("mo5") != "/opt/mo5.rom" {
+		t.Errorf("ROMFor(mo5) = %q, want /opt/mo5.rom (pas pollué par JoystickKeyboard)", got.ROMFor("mo5"))
+	}
+	// Désactiver et vérifier que omitempty ne casse pas la relecture.
+	got.JoystickKeyboard = false
+	if err := store.Save(got); err != nil {
+		t.Fatalf("Save(false): %v", err)
+	}
+	got2, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load after Save(false): %v", err)
+	}
+	if got2.JoystickKeyboard {
+		t.Error("JoystickKeyboard devrait être false après re-Save(false)")
+	}
+}
+
+func TestJoystickKeyboardPreference(t *testing.T) {
+	t.Run("nil store disables preference", func(t *testing.T) {
+		if got := config.JoystickKeyboardPreference(nil); got {
+			t.Fatal("JoystickKeyboardPreference(nil) = true, want false")
+		}
+	})
+
+	t.Run("persisted value is restored", func(t *testing.T) {
+		store, err := config.NewStoreAt(t.TempDir())
+		if err != nil {
+			t.Fatalf("NewStoreAt: %v", err)
+		}
+		if err := store.Save(config.Config{JoystickKeyboard: true}); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+		if got := config.JoystickKeyboardPreference(store); !got {
+			t.Fatal("JoystickKeyboardPreference(store) = false, want true")
+		}
+	})
+
+	t.Run("load error disables preference", func(t *testing.T) {
+		dir := t.TempDir()
+		store, err := config.NewStoreAt(dir)
+		if err != nil {
+			t.Fatalf("NewStoreAt: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte("{"), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if got := config.JoystickKeyboardPreference(store); got {
+			t.Fatal("JoystickKeyboardPreference(corrupt store) = true, want false")
+		}
+	})
+}
+
+func TestPersistJoystickKeyboard(t *testing.T) {
+	t.Run("nil store is a no-op", func(t *testing.T) {
+		if err := config.PersistJoystickKeyboard(nil, true); err != nil {
+			t.Fatalf("PersistJoystickKeyboard(nil): %v", err)
+		}
+	})
+
+	t.Run("updates toggle and preserves other fields", func(t *testing.T) {
+		store, err := config.NewStoreAt(t.TempDir())
+		if err != nil {
+			t.Fatalf("NewStoreAt: %v", err)
+		}
+		before := config.Config{
+			LastTape:    "/media/game.k7",
+			LastDisk:    "/media/disk.fd",
+			LastCart:    "/media/cart.rom",
+			KeyboardMap: "default",
+		}
+		before.SetROMFor("mo5", "/rom/mo5.rom")
+		before.SetROMFor("to8d", "/rom/to8d.rom")
+		if err := store.Save(before); err != nil {
+			t.Fatalf("Save: %v", err)
+		}
+
+		if err := config.PersistJoystickKeyboard(store, true); err != nil {
+			t.Fatalf("PersistJoystickKeyboard(true): %v", err)
+		}
+
+		got, err := store.Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if !got.JoystickKeyboard {
+			t.Fatal("JoystickKeyboard = false, want true")
+		}
+		if got.ROMFor("mo5") != "/rom/mo5.rom" || got.ROMFor("to8d") != "/rom/to8d.rom" {
+			t.Fatalf("ROM mappings not preserved: mo5=%q to8d=%q", got.ROMFor("mo5"), got.ROMFor("to8d"))
+		}
+		if got.LastTape != before.LastTape || got.LastDisk != before.LastDisk || got.LastCart != before.LastCart || got.KeyboardMap != before.KeyboardMap {
+			t.Fatalf("non-joystick fields not preserved: got=%+v before=%+v", got, before)
+		}
+	})
+
+	t.Run("load error does not overwrite config file", func(t *testing.T) {
+		dir := t.TempDir()
+		store, err := config.NewStoreAt(dir)
+		if err != nil {
+			t.Fatalf("NewStoreAt: %v", err)
+		}
+		configPath := filepath.Join(dir, "config.json")
+		if err := os.WriteFile(configPath, []byte("{"), 0o600); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		if err := config.PersistJoystickKeyboard(store, true); err == nil {
+			t.Fatal("PersistJoystickKeyboard(corrupt config) = nil, want error")
+		}
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			t.Fatalf("ReadFile: %v", err)
+		}
+		if string(data) != "{" {
+			t.Fatalf("corrupt config was overwritten: %q", string(data))
+		}
+	})
 }

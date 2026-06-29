@@ -77,7 +77,8 @@ Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
   - **Joystick clavier** activable via bouton overlay « **Key Joystk : ON/OFF** ».
     J1 = flèches + RightShift fire ; J2 = WASD (= ZQSD visuel AZERTY-FR) +
     LeftShift fire. WASD exclus du clavier émulation quand ON (sinon BASIC
-    pollué) ; OFF = WASD tapent normalement.
+    pollué) ; OFF = WASD tapent normalement. Le toggle est persisté comme
+    préférence utilisateur globale.
   - **Gamepad matériel** : standard layout Ebitengine, jusqu'à 2 manettes
     simultanées (J1 + J2) par ordre de connexion, hot-plug par réconciliation
     à chaque frame, deadzone 0.3, DPad OR stick gauche, fire = bouton A OR B.
@@ -96,6 +97,9 @@ Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
 
 ### Corrigé
 
+- **Joystick clavier après perte de focus** : la fenêtre publie désormais un
+  joystick neutre quand Ebitengine perd le focus, évitant qu'une direction
+  maintenue reste collée après un alt-tab.
 - **Bug latent registre joystick TO8D `0xE7CD`** ([#171](https://github.com/Lesur-ai/dcmo5/pull/171)) :
   la lecture retournait `g.sound` seul au lieu de `g.joysAction | g.sound`
   (cf. ref C `dcto8demulation.c Mgetto8d`). Silencieux tant que `joysAction`
