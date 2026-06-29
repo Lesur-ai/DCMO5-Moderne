@@ -1,4 +1,4 @@
-// Fichier : keyboard.go — clavier TO8D du gate-array (lot #116).
+// Fichier : keyboard.go — clavier gate-array (TO8D aujourd'hui, TO9+ plus tard).
 //
 // Référence : dcto8demulation.c TO8key() (l.134-164) et dcto8dkeyb.c (table des
 // scancodes, KEYBOARDKEY_MAX = 84). Sur le FRONT d'appui d'une touche
@@ -8,23 +8,40 @@
 // TriggerKeyboardIRQ (lot #114). CAPSLOCK (touche 0x50) force le bit 0x80 sur les
 // 26 lettres. L'acquittement (E7C3 bit 0x20 effacé) est déjà géré (lot #114).
 //
-// CONTRAT D'ORDRE (modèle idempotent) : SetKey ne déclenche to8key qu'au FRONT
-// (changement d'état), fidèlement à l'événement discret de la réf C. Le caller
-// (host / adaptateur machine, #118) DOIT appliquer les transitions des touches
-// modificatrices (SHIFT 0x51/0x52, CNT 0x53) AVANT les touches-caractère d'une
-// même frame, sinon le bit SHIFT/CTRL du scancode reflète un état partiel.
+// CONTRAT D'ORDRE (modèle idempotent) : SetKey ne déclenche le traitement clavier
+// qu'au FRONT (changement d'état), fidèlement à l'événement discret de la réf C.
+// Le caller (host / adaptateur machine, #118) DOIT appliquer les transitions des
+// touches modificatrices (SHIFT 0x51/0x52, CNT 0x53) AVANT les touches-caractère
+// d'une même frame, sinon le bit SHIFT/CTRL du scancode reflète un état partiel.
 
 package gatearray
 
-// keyboardKeyMax est le nombre de touches du clavier TO8D (réf C KEYBOARDKEY_MAX).
+// keyboardKeyMax est le nombre de touches des claviers gate-array TO8D/TO9+
+// (réf C KEYBOARDKEY_MAX / TO9PKEY_MAX).
 const keyboardKeyMax = 84
 
-// SetKey applique l'état idempotent d'une touche TO8D (scancode k dans
-// [0, keyboardKeyMax)). Elle ne déclenche le traitement matériel (to8key) qu'au
+type keyboardDef struct {
+	characterMax int
+	capsLockKey  int
+	shiftKeys    []int
+	ctrlKey      int
+	handlePress  func(g *GateArray, key int, shiftPressed bool, ctrlPressed bool)
+}
+
+var to8dKeyboardDef = keyboardDef{
+	characterMax: 0x4f,
+	capsLockKey:  0x50,
+	shiftKeys:    []int{0x51, 0x52},
+	ctrlKey:      0x53,
+	handlePress:  (*GateArray).handleTO8DKeyPress,
+}
+
+// SetKey applique l'état idempotent d'une touche gate-array (k dans
+// [0, keyboardKeyMax)). Elle ne déclenche le traitement matériel qu'au
 // FRONT, c.-à-d. quand l'état change réellement (le modèle hôte réapplique l'état
 // à chaque frame ; la réf C, elle, reçoit des événements discrets).
 func (g *GateArray) SetKey(k int, pressed bool) {
-	if k < 0 || k >= keyboardKeyMax {
+	if k < 0 || k >= len(g.touche) {
 		return
 	}
 	var state byte = 0x80 // relâchée
@@ -35,16 +52,16 @@ func (g *GateArray) SetKey(k int, pressed bool) {
 		return // pas de transition : ne pas rejouer le front
 	}
 	g.touche[k] = state
-	g.to8key(k)
+	g.handleKeyTransition(k)
 }
 
-// to8key reproduit TO8key() (dcto8demulation.c:134-164). Sur relâchement, libère
-// E7C8/IRQ uniquement quand plus aucune touche alphanumérique n'est enfoncée. Sur
-// appui d'une touche ≤ 0x4F, écrit scancode + bit SHIFT à l'offset FIXE 0x30F8 du
-// moniteur, l'indicateur CTRL en 0x3125, pose E7C8 bit0 et lève l'IRQ clavier.
-func (g *GateArray) to8key(n int) {
+// handleKeyTransition applique la partie commune des claviers gate-array : front,
+// relâchement global, capslock et calcul des modificateurs. La publication
+// matérielle de la touche pressée est déléguée à la définition de clavier.
+func (g *GateArray) handleKeyTransition(n int) {
+	def := g.keyboard
 	if g.touche[n] != 0 { // touche relâchée (0x80)
-		for i := 0; i < 0x50; i++ {
+		for i := 0; i <= def.characterMax && i < len(g.touche); i++ {
 			if g.touche[i] == 0 { // une touche alphanumérique reste enfoncée
 				return
 			}
@@ -54,21 +71,45 @@ func (g *GateArray) to8key(n int) {
 		return
 	}
 	// touche enfoncée (touche[n] == 0x00)
-	if n == 0x50 { // CAPSLOCK : bascule
+	if n == def.capsLockKey { // CAPSLOCK : bascule
 		g.capslock = !g.capslock
 	}
-	if n > 0x4f { // SHIFT / CNT / joysticks / capslock : pas de scancode
+	if n > def.characterMax { // SHIFT / CNT / joysticks / capslock : pas de code caractère
 		return
 	}
+	if def.handlePress == nil {
+		return
+	}
+	def.handlePress(g, n, g.anyKeyPressed(def.shiftKeys), g.keyPressed(def.ctrlKey))
+}
+
+func (g *GateArray) keyPressed(k int) bool {
+	return k >= 0 && k < len(g.touche) && g.touche[k] == 0
+}
+
+func (g *GateArray) anyKeyPressed(keys []int) bool {
+	for _, k := range keys {
+		if g.keyPressed(k) {
+			return true
+		}
+	}
+	return false
+}
+
+// handleTO8DKeyPress reproduit la publication TO8key() (dcto8demulation.c:134-164).
+// Sur appui d'une touche ≤ 0x4F, écrit scancode + bit SHIFT à l'offset FIXE
+// 0x30F8 du moniteur, l'indicateur CTRL en 0x3125, pose E7C8 bit0 et lève l'IRQ
+// clavier.
+func (g *GateArray) handleTO8DKeyPress(n int, shiftPressed bool, ctrlPressed bool) {
 	var shift byte
-	if g.touche[0x51] == 0 || g.touche[0x52] == 0 { // SHIFT gauche ou droit enfoncé
+	if shiftPressed {
 		shift = 0x80
 	}
 	if g.capslock && isTO8DLetter(n) { // capslock force la majuscule sur les 26 lettres
 		shift = 0x80
 	}
 	g.romMon[0x30f8] = byte(n) | shift // scancode + indicateur SHIFT (offset FIXE banque 1)
-	if g.touche[0x53] == 0 {           // CNT enfoncé → indicateur CTRL
+	if ctrlPressed {
 		g.romMon[0x3125] = 1
 	} else {
 		g.romMon[0x3125] = 0

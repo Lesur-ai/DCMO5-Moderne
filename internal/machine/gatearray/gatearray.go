@@ -123,11 +123,13 @@ type GateArray struct {
 	k7bit   uint8
 	k7octet uint8
 
-	// Clavier TO8D (lot #116). touche[k] : état idempotent par scancode TO8D
-	// (0x00 = enfoncée, 0x80 = relâchée ; réf C dcto8demulation.c TO8key). capslock :
-	// verrou majuscules, posé à true au hard reset uniquement (réf C : Hardreset).
+	// Clavier gate-array. touche[k] : état idempotent par touche machine
+	// (0x00 = enfoncée, 0x80 = relâchée). keyboard décrit la variante matérielle
+	// (TO8D aujourd'hui ; TO9+ plus tard). capslock : verrou majuscules, posé à
+	// true au hard reset uniquement (réf C : Hardreset).
 	touche   [keyboardKeyMax]byte
 	capslock bool
+	keyboard keyboardDef
 }
 
 // videoMode est le mode de décodage vidéo gate-array (sélection par e7dc).
@@ -141,11 +143,17 @@ const (
 	mode640x2                         // 80 colonnes : 640×200, 2 couleurs
 )
 
-// New construit un gate-array. romMon (≤ 16 Ko, moniteur système) et romBasic
-// (≤ 64 Ko, ROM interne) sont copiés dans des tampons de taille fixe (tronqués
-// au besoin, complétés de zéros). La machine est mise en état de reset matériel.
+// New construit un gate-array avec le clavier TO8D historique. romMon (≤ 16 Ko,
+// moniteur système) et romBasic (≤ 64 Ko, ROM interne) sont copiés dans des
+// tampons de taille fixe (tronqués au besoin, complétés de zéros). La machine
+// est mise en état de reset matériel.
 func New(romMon, romBasic []byte) *GateArray {
+	return newWithKeyboard(romMon, romBasic, to8dKeyboardDef)
+}
+
+func newWithKeyboard(romMon, romBasic []byte, keyboard keyboardDef) *GateArray {
 	g := &GateArray{}
+	g.keyboard = keyboard
 	copy(g.romMon[:], romMon)
 	copy(g.romBasic[:], romBasic)
 	g.hardReset()
