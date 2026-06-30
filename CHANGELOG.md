@@ -40,6 +40,10 @@ Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
   `rom/to9p.rom`, hook de patch ROM en mémoire posé mais sans patch TO9+
   effectif dans ce lot ([#186](https://github.com/Lesur-ai/dcmo5/issues/186) /
   [#187](https://github.com/Lesur-ai/dcmo5/pull/187)).
+- **Clavier TO9+** : modèle clavier `TO9PModel` et variante gate-array TO9+
+  explicite. Les frappes TO9+ publient désormais le code ASCII attendu via
+  `E7DE/E7DF` d'après DCTO9P v11, au lieu d'hériter du chemin clavier TO8D
+  (`0x30F8`/`0x3125`). Le smoke firmware/GUI complet reste au Lot 4.
 - **Assets logiciels TO/MEMO7** : ajout des disquettes `blueberry_to8.fd`,
   `bob-winner_moto.fd`, `lemmings_to8.fd`, `les-bd-1_to8.fd`,
   `les-bd-2_to8.fd`, `space-racer_to8.fd`, ainsi que des cartouches

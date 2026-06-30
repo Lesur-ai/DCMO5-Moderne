@@ -9,6 +9,7 @@ import (
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 	_ "github.com/Lesur-ai/dcmo5/internal/machine/mo5"  // enregistre profil mo5
 	_ "github.com/Lesur-ai/dcmo5/internal/machine/to8d" // enregistre profil to8d
+	_ "github.com/Lesur-ai/dcmo5/internal/machine/to9p" // enregistre profil to9p
 	"github.com/hajimehoshi/ebiten/v2"
 )
 
@@ -182,13 +183,13 @@ func modelsUnderTest(t *testing.T) []struct {
 	model *keyboard.Model
 } {
 	t.Helper()
-	// Garde-fou : machine.Profiles() doit contenir au moins mo5 et to8d. Si la
+	// Garde-fou : machine.Profiles() doit contenir au moins mo5, to8d et to9p. Si la
 	// liste change, ce test guidera l'ajout au tableau ci-dessus.
 	ids := map[string]bool{}
 	for _, p := range machine.Profiles() {
 		ids[p.ID] = true
 	}
-	for _, want := range []string{"mo5", "to8d"} {
+	for _, want := range []string{"mo5", "to8d", "to9p"} {
 		if !ids[want] {
 			t.Fatalf("machine.Profiles() ne contient pas le profil %q — registry cassée", want)
 		}
@@ -199,6 +200,7 @@ func modelsUnderTest(t *testing.T) []struct {
 	}{
 		{"mo5", keyboard.MO5Model()},
 		{"to8d", keyboard.TO8DModel()},
+		{"to9p", keyboard.TO9PModel()},
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Lesur-ai/dcmo5/internal/keyboard"
 	"github.com/Lesur-ai/dcmo5/internal/machine"
 )
 
@@ -133,8 +134,8 @@ func TestNewFromROMWiresROMIntoGateArray(t *testing.T) {
 	if w, h := m.FrameSize(); w != 672 || h != 216 {
 		t.Fatalf("FrameSize = %dx%d, attendu 672x216", w, h)
 	}
-	if km := m.KeyboardModel(); km == nil || km.KeyCount != 84 {
-		t.Fatalf("KeyboardModel = %+v, attendu placeholder TO8D 84 touches jusqu'au Lot 3 clavier ASCII TO9+", km)
+	if km := m.KeyboardModel(); km != keyboard.TO9PModel() {
+		t.Fatalf("KeyboardModel = %+v, attendu TO9PModel %+v", km, keyboard.TO9PModel())
 	}
 	a, ok := m.(*adapter)
 	if !ok {
@@ -146,5 +147,18 @@ func TestNewFromROMWiresROMIntoGateArray(t *testing.T) {
 	a.ga.Write8(0xe7c3, 0x04) // active la ROM interne BASIC sur l'espace 0x0000-0x3FFF.
 	if got, want := a.ga.Read8(0x0000), romBasic[0]; got != want {
 		t.Fatalf("BASIC câblé à 0x0000 = 0x%02x, attendu romBasic[0]=0x%02x", got, want)
+	}
+
+	a.ga.Write8(0xe7c3, 0x10) // sélection banque moniteur 1 pour observer le chemin TO8D.
+	before := a.ga.Read8(0xf0f8)
+	a.ga.SetKey(0x02, true) // Y : TO9+ publie ASCII, pas scancode moniteur TO8D.
+	if got := a.ga.Read8(0xe7de); got != 0x01 {
+		t.Fatalf("TO9+ E7DE après frappe = 0x%02x, attendu 0x01", got)
+	}
+	if got := a.ga.Read8(0xe7df); got != 0x59 {
+		t.Fatalf("TO9+ E7DF après frappe Y = 0x%02x, attendu 0x59", got)
+	}
+	if after := a.ga.Read8(0xf0f8); after != before {
+		t.Fatalf("TO9+ a muté le chemin moniteur TO8D : F0F8 avant=0x%02x après=0x%02x", before, after)
 	}
 }

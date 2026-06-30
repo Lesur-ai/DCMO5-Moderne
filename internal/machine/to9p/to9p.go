@@ -1,9 +1,9 @@
 // Package to9p expose le Thomson TO9+ derrière le contrat internal/machine.
 //
-// Lot #186 : ce paquet pose seulement le profil minimal et le découpage ROM
-// TO9+ (64 KiB BASIC/logiciels + 16 KiB moniteur) sur le Device gate-array
-// partagé. Les points réellement spécifiques au TO9+ (clavier ASCII, patchs ROM
-// complets, date/boot, signature de boot) restent aux lots suivants.
+// Lots #186/#188 : ce paquet pose le profil TO9+, le découpage ROM
+// (64 KiB BASIC/logiciels + 16 KiB moniteur) et le clavier ASCII TO9+ sur le
+// Device gate-array partagé. Les patchs ROM complets, la date/boot et le smoke
+// firmware/GUI restent aux lots suivants.
 package to9p
 
 import (
@@ -63,10 +63,9 @@ func (a *adapter) EjectPrinter()                    { a.ga.EjectPrinter() }
 
 func (a *adapter) CPUSnapshot() cpu6809.Snapshot { return a.Engine.CPU().Snapshot() }
 
-// KeyboardModel reste temporairement TO8D : le clavier ASCII TO9+ est le Lot 3 de
-// l'EPIC #184. Le Device gate-array lui-même est partagé ; ne pas interpréter ce
-// modèle comme une validation du clavier TO9+.
-func (a *adapter) KeyboardModel() *keyboard.Model { return keyboard.TO8DModel() }
+// KeyboardModel retourne le modèle hôte TO9+ : mêmes indices physiques de base
+// que la famille TO, mais publication ASCII spécifique via le gate-array TO9+.
+func (a *adapter) KeyboardModel() *keyboard.Model { return keyboard.TO9PModel() }
 
 func splitROM(blob []byte) (romBasic, romMon []byte, err error) {
 	if len(blob) != romTotalSize {
@@ -89,7 +88,7 @@ func newFromROM(blob []byte) (machine.Machine, error) {
 		return nil, fmt.Errorf("to9p: invariant de découpage ROM violé avant patch")
 	}
 
-	ga := gatearray.New(romMon, romBasic)
+	ga := gatearray.NewTO9P(romMon, romBasic)
 	eng := engine.New(ga, 0)
 	ga.AttachCPU(eng.CPU())
 	ga.AttachBeam(eng.VideoBeam)
