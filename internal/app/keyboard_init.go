@@ -103,7 +103,49 @@ var to8dSpecialKeys = map[int]int{
 	int(ebiten.KeyKPEnter):   0x36, // Ent pad (≠ ENT principale 0x46)
 }
 
+// to9pSpecialKeys est separee de to8dSpecialKeys meme si les indices physiques
+// coincident aujourd'hui : le gate-array TO9+ publie des codes ASCII sur E7DF,
+// et ce modele doit pouvoir diverger sans toucher au TO8D.
+var to9pSpecialKeys = map[int]int{
+	int(ebiten.KeyShiftLeft):    0x51,
+	int(ebiten.KeyShiftRight):   0x51,
+	int(ebiten.KeyControlLeft):  0x53,
+	int(ebiten.KeyControlRight): 0x53,
+	int(ebiten.KeyAltLeft):      0x14,
+	int(ebiten.KeyAltRight):     0x14,
+
+	int(ebiten.KeyEnter):     0x46,
+	int(ebiten.KeySpace):     0x34,
+	int(ebiten.KeyBackspace): 0x16,
+	int(ebiten.KeyDelete):    0x06,
+	int(ebiten.KeyInsert):    0x0e,
+	int(ebiten.KeyEnd):       0x30,
+
+	int(ebiten.KeyArrowUp):    0x04,
+	int(ebiten.KeyArrowDown):  0x3d,
+	int(ebiten.KeyArrowLeft):  0x0d,
+	int(ebiten.KeyArrowRight): 0x05,
+
+	int(ebiten.KeyF1): 0x20,
+	int(ebiten.KeyF2): 0x00,
+	int(ebiten.KeyF4): 0x10,
+
+	int(ebiten.KeyKP0):       0x1e,
+	int(ebiten.KeyKP1):       0x15,
+	int(ebiten.KeyKP2):       0x25,
+	int(ebiten.KeyKP3):       0x4e,
+	int(ebiten.KeyKP4):       0x1d,
+	int(ebiten.KeyKP5):       0x2d,
+	int(ebiten.KeyKP6):       0x2e,
+	int(ebiten.KeyKP7):       0x1c,
+	int(ebiten.KeyKP8):       0x24,
+	int(ebiten.KeyKP9):       0x35,
+	int(ebiten.KeyKPDecimal): 0x26,
+	int(ebiten.KeyKPEnter):   0x36,
+}
+
 func init() {
 	keyboard.MO5Model().SpecialKeys = mo5SpecialKeys
 	keyboard.TO8DModel().SpecialKeys = to8dSpecialKeys
+	keyboard.TO9PModel().SpecialKeys = to9pSpecialKeys
 }

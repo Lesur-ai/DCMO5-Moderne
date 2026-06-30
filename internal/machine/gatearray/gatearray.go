@@ -151,6 +151,13 @@ func New(romMon, romBasic []byte) *GateArray {
 	return newWithKeyboard(romMon, romBasic, to8dKeyboardDef)
 }
 
+// NewTO9P construit un gate-array avec la variante clavier TO9+ : les touches
+// publient un code ASCII sur E7DF via le flag E7DE, au lieu d'écrire le scancode
+// dans les offsets moniteur TO8D. Le reste du Device gate-array reste partagé.
+func NewTO9P(romMon, romBasic []byte) *GateArray {
+	return newWithKeyboard(romMon, romBasic, to9pKeyboardDef)
+}
+
 func newWithKeyboard(romMon, romBasic []byte, keyboard keyboardDef) *GateArray {
 	g := &GateArray{}
 	g.keyboard = keyboard
@@ -628,6 +635,12 @@ func (g *GateArray) readIO(a uint16) byte {
 		// stockage, masqué à l'indexation — réf C : x7da[port[0x1b]++ & 0x1f]).
 		v := g.x7da[g.port[0x1b]&0x1f]
 		g.port[0x1b]++
+		return v
+	case 0xe7df:
+		v := g.port[0x1f]
+		if g.keyboard.clearPendingOnASCIIRead {
+			g.port[0x1e] = 0x00
+		}
 		return v
 	case 0xe7e4:
 		return g.port[0x1d] & 0xf0
