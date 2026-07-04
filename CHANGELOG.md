@@ -6,13 +6,20 @@ l'émulateur Thomson MO5 [DCMO5 v11](http://dcmo5.free.fr/)).
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ;
 versionnage [SemVer](https://semver.org/lang/fr/).
 
-## [Non publié] — v2, multi-machines (TO8D utilisable)
+## [Non publié]
 
-Généralisation **multi-machines** : émulation du **TO8D** en plus du MO5. Le
-TO8D boote, se pilote au clavier français AZERTY, accepte les manettes
-(clavier + gamepad standard), et permet le **changement de machine à chaud**
-sans relancer l'émulateur. Le **MO5 (v1) reste pleinement fonctionnel** —
-aucune régression côté MO5 (parité bits joystick figée par tests miroirs).
+_Aucune entrée pour le moment._
+
+## [2.1.0] — 2026-07-04 — v2.1, multi-machines (TO8D + TO9+)
+
+Généralisation **multi-machines** : émulation du **TO8D** et du **TO9+** en
+plus du MO5. Le TO8D boote, se pilote au clavier français AZERTY, accepte les
+manettes (clavier + gamepad standard), et permet le **changement de machine à
+chaud** sans relancer l'émulateur. Le TO9+ boote sur ROM réelle, applique ses
+patchs ROM en mémoire, accepte la saisie clavier BASIC, expose le joystick
+clavier sans gel sur direction maintenue, et dispose d'un smoke GUI borné. Le
+**MO5 (v1) reste pleinement fonctionnel** — aucune régression côté MO5 (parité
+bits joystick figée par tests miroirs).
 
 Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
 [`DESIGN/JOYSTICK.md`](DESIGN/JOYSTICK.md).
@@ -78,9 +85,17 @@ Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
   media → teardownAudio → attach → mount → applyWindowSize → initAudio →
   Start`. Validation pure `PrepareSwitch` AVANT arrêt (ROM absente → erreur
   affichée, session intacte). Éjection systématique des médias (familles
-  incompatibles). Lancement direct via `--machine to8d` au CLI sans ROM
+  incompatibles). Présélection du launcher via `--machine to8d` sans ROM
   pré-configurée : repli en cascade sur `rom/to8d.rom`
   ([#170](https://github.com/Lesur-ai/dcmo5/pull/170)).
+- **Switch machine unifié et ROMs pré-remplies** : le changement de machine
+  parcourt les profils enregistrés (MO5, TO8D, TO9+) au lieu d'un aller-retour
+  figé MO5 ↔ TO8D. Le launcher et l'overlay utilisent le même résolveur en
+  cascade : ROM configurée si elle existe, fichier de même nom dans `rom/`,
+  ROM livrée du profil (`rom/mo5-v1.1.rom`, `rom/to8d.rom`, `rom/to9p.rom`),
+  puis convention `rom/<id>.rom` si applicable
+  ([#199](https://github.com/Lesur-ai/dcmo5/issues/199) /
+  [#200](https://github.com/Lesur-ai/dcmo5/pull/200)).
 - **Clavier TO8D AZERTY-FR complet** (PRs
   [#165](https://github.com/Lesur-ai/dcmo5/pull/165) Inc Kc /
   [#166](https://github.com/Lesur-ai/dcmo5/pull/166) Inc Ka /
@@ -141,6 +156,12 @@ Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
 - **Joystick clavier après perte de focus** : la fenêtre publie désormais un
   joystick neutre quand Ebitengine perd le focus, évitant qu'une direction
   maintenue reste collée après un alt-tab.
+- **Joystick clavier TO9+ sur appui long** : en mode joystick clavier, les
+  flèches TO9+ ne sont plus injectées en parallèle dans le clavier firmware.
+  Maintenir une direction ne fige donc plus l'émulation comme une pause, tout
+  en conservant le comportement MO5/TO8D existant
+  ([#201](https://github.com/Lesur-ai/dcmo5/issues/201) /
+  [#202](https://github.com/Lesur-ai/dcmo5/pull/202)).
 - **Bug latent registre joystick TO8D `0xE7CD`** ([#171](https://github.com/Lesur-ai/dcmo5/pull/171)) :
   la lecture retournait `g.sound` seul au lieu de `g.joysAction | g.sound`
   (cf. ref C `dcto8demulation.c Mgetto8d`). Silencieux tant que `joysAction`
@@ -210,4 +231,6 @@ cassette, disquette/DOS, cartouche, clavier, son), avec ROM et logiciels inclus.
   [issue #86](https://github.com/Lesur-ai/dcmo5/issues/86).
 - Extensions hors périmètre v1 (Nanoréseau, QD90-128, IN57-001, DI90-011).
 
+[Non publié]: https://github.com/Lesur-ai/dcmo5/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/Lesur-ai/dcmo5/releases/tag/v2.1.0
 [1.0.0]: https://github.com/Lesur-ai/dcmo5/releases/tag/v1.0.0

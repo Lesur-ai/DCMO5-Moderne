@@ -6,11 +6,11 @@ Portage moderne de l'émulateur Thomson MO5 [DCMO5 v11](http://dcmo5.free.fr/)
 Ce projet est un logiciel libre sous licence **GNU GPL v3+**. Voir `LICENSE`
 et `NOTICE`.
 
-**Version : 1.0.0** (MO5) — historique dans [`CHANGELOG.md`](CHANGELOG.md). Une
-**v2 multi-machines (MO5 + TO8D)** est en cours de préparation : le TO8D est
-maintenant **utilisable** (clavier AZERTY-FR complet, joystick clavier +
-gamepad standard, changement de machine à chaud). Voir la section dédiée
-plus bas.
+**Version : 2.1.0** — historique dans [`CHANGELOG.md`](CHANGELOG.md). Cette
+version ajoute le socle **multi-machines** : MO5, TO8D et TO9+. Le TO8D est
+utilisable (clavier AZERTY-FR complet, joystick clavier + gamepad standard,
+changement de machine à chaud) et le TO9+ dispose d'un boot validé, du clavier
+BASIC et du joystick clavier.
 
 ## Captures d'écran
 
@@ -20,7 +20,7 @@ plus bas.
 
 ---
 
-## Périmètre v1
+## Périmètre historique v1 — MO5
 
 ### Fonctionnalités émulées
 
@@ -63,13 +63,13 @@ DCMO5 v11 :
 
 ---
 
-## En développement (v2) — multi-machines (TO8D utilisable)
+## Version 2.1.0 — multi-machines (TO8D + TO9+)
 
-La v2 ajoute le **Thomson TO8D** à côté du MO5. Architecture de profils de
-machine + moteur d'émulation partagé, base TO8D complète (gate-array mémoire/
-vidéo/timer/E/S + clavier AZERTY-FR + joystick), clavier généralisé
-*data-driven* et IHM *data-driven* (ebitenui, cross-compilation Windows
-`CGO_ENABLED=0`).
+La version 2.1.0 ajoute les **Thomson TO8D** et **TO9+** à côté du MO5.
+Architecture de profils de machine + moteur d'émulation partagé, base
+gate-array complète (mémoire/vidéo/timer/E/S + clavier + joystick), clavier
+généralisé *data-driven* et IHM *data-driven* (ebitenui, cross-compilation
+Windows `CGO_ENABLED=0`).
 
 **Ce qui est utilisable côté TO8D** :
 - Boot avec ROM, BASIC opérationnel, ratio d'affichage correct.
@@ -80,10 +80,11 @@ vidéo/timer/E/S + clavier AZERTY-FR + joystick), clavier généralisé
   bouton Start ouvre l'overlay).
 - Changement de machine MO5 ↔ TO8D **à chaud** via l'overlay (`Échap` →
   bouton « Changer machine »), médias éjectés au switch et son préservé.
-- Lancement direct via `dcmo5 --machine to8d` : repli en cascade sur
-  `rom/to8d.rom` si la ROM n'est pas mémorisée en config.
+- Présélection via `dcmo5 --machine to8d` : le launcher s'ouvre sur le TO8D
+  avec repli en cascade sur `rom/to8d.rom` si la ROM n'est pas mémorisée en
+  config.
 
-**TO9+ (v2.1, en validation)** :
+**Ce qui est validé côté TO9+** :
 - Profil `to9p`, ROM `rom/to9p.rom` et clavier TO9+ ASCII distinct du chemin
   TO8D (`E7DE/E7DF`).
 - Patchs ROM TO9+ appliqués en mémoire, alignés sur DCTO9P v11, pour détourner
@@ -104,6 +105,15 @@ vidéo/timer/E/S + clavier AZERTY-FR + joystick), clavier généralisé
 - Smoke clavier minimal validé avec `--exec '1\n'` : le firmware quitte le menu
   TO9+ et arrive au prompt BASIC. Cette preuve valide une saisie bout-en-bout,
   sans prétendre certifier tous les logiciels souris/crayon.
+- Joystick clavier TO9+ validé : maintenir une flèche ne bloque plus
+  l'émulation, car les flèches ne sont plus envoyées simultanément au clavier
+  firmware TO9+ quand le mode joystick clavier est actif.
+
+**Switch machine et ROMs par défaut** :
+- Le bouton « Changer machine » parcourt les profils disponibles (MO5, TO8D,
+  TO9+) au lieu d'un aller-retour limité MO5 ↔ TO8D.
+- Le launcher et l'overlay pré-remplissent les ROMs livrées quand elles
+  existent : `rom/mo5-v1.1.rom`, `rom/to8d.rom`, `rom/to9p.rom`.
 
 **Overlay de pilotage Échap** : remplace le menu v1. Carte `ebitenui`
 superposée au framebuffer gelé, médias éditables + actions système (Reset
@@ -114,12 +124,11 @@ Le **MO5 (v1) décrit ci-dessus reste pleinement fonctionnel et inchangé** —
 non-régression contrôlée par tests miroirs (parité bits joystick MO5/TO8D
 figée par la suite CI).
 
-Suivi dans l'épopée [#106](https://github.com/Lesur-ai/dcmo5/issues/106) ;
-conception détaillée dans
+Conception détaillée dans
 [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) et
 [`DESIGN/JOYSTICK.md`](DESIGN/JOYSTICK.md). Le détail
-des évolutions est tenu dans [`CHANGELOG.md`](CHANGELOG.md) (section « Non
-publié »).
+des évolutions est tenu dans [`CHANGELOG.md`](CHANGELOG.md) (section
+`2.1.0`).
 
 ---
 
@@ -138,11 +147,12 @@ Le cœur d'émulation (`core`, `cpu6809`, `media`, `spec`) ne dépend d'aucune
 bibliothèque graphique, audio ou fichier. Ebitengine est limité à la couche
 application. *(Schéma du cœur MO5 v1.)*
 
-> **v2 (en cours)** : la généralisation multi-machines ajoute `internal/machine`
+> **v2.1** : la généralisation multi-machines ajoute `internal/machine`
 > (profils + registre), `internal/engine` (boucle d'émulation partagée),
 > `internal/keyboard` (clavier *data-driven*) et `internal/uimodel` (IHM
-> *data-driven*), avec le gate-array TO8D sous `internal/machine/gatearray`. La
-> direction de dépendance (cœur sans UI) est préservée. Détails dans
+> *data-driven*), avec la famille gate-array TO8D/TO9+ sous
+> `internal/machine/gatearray`. La direction de dépendance (cœur sans UI) est
+> préservée. Détails dans
 > [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md).
 
 Voir [`DESIGN/ARCHITECTURE.md`](DESIGN/ARCHITECTURE.md) pour les décisions
@@ -154,9 +164,11 @@ structurantes.
 
 Pour que l'émulateur soit **utilisable immédiatement**, ce dépôt inclut :
 
-- `rom/` — ROM système **MO5** (`mo5-v1.1.rom`) et ROM du contrôleur de disquette
-  **CD90-640** (`cd90-640.rom`) ;
-- `software/` — une sélection de **logiciels MO5 historiques** (`.k7`, `.fd`, `.rom`).
+- `rom/` — ROM système **MO5** (`mo5-v1.1.rom`), ROM du contrôleur de disquette
+  **CD90-640** (`cd90-640.rom`) et ROMs Thomson TO/MO utilisées par les profils
+  multi-machines (`to8d.rom`, `to9p.rom`, etc.) ;
+- `software/` — une sélection de **logiciels Thomson historiques** (`.k7`,
+  `.fd`, `.rom`, `.EPROM`).
 
 > **Provenance & droits.** Ces contenus proviennent du matériel et de l'écosystème
 > Thomson MO5 (commercialisé en 1984) et de la communauté de préservation/émulation
@@ -236,11 +248,18 @@ sudo dnf install -y \
 ### Démarrage rapide
 
 La ROM et des logiciels étant inclus dans le dépôt, l'émulateur est utilisable
-immédiatement (lancé depuis la racine du projet) :
+immédiatement (lancé depuis la racine du projet). Le launcher pré-remplit les
+ROMs par machine, et les exemples CLI explicites restent possibles :
 
 ```bash
-# BASIC (la ROM rom/mo5-v1.1.rom est trouvée automatiquement)
+# BASIC MO5 avec la ROM livrée
 go run ./cmd/dcmo5 -rom rom/mo5-v1.1.rom
+
+# Launcher présélectionné TO8D, ROM rom/to8d.rom pré-remplie
+go run ./cmd/dcmo5 --machine to8d
+
+# Boot direct TO9+ avec la ROM livrée
+go run ./cmd/dcmo5 --machine to9p --rom rom/to9p.rom --no-audio
 
 # Charger un jeu cassette
 go run ./cmd/dcmo5 -rom rom/mo5-v1.1.rom -tape software/yahtzee-mo5.k7
@@ -270,6 +289,7 @@ go run ./cmd/dcmo5 -rom rom/mo5-v1.1.rom -cart software/glouton-memo5.rom
 | `-exec "<séquence>"` | Tape une séquence de touches au démarrage (`\n` = ENTRÉE, `\t` = TAB) |
 | `-exec-delay <s>` | Délai avant `--exec`, le temps que l'invite BASIC apparaisse (défaut 3 s) |
 | `-no-audio` | Désactive la sortie audio |
+| `-version` | Affiche la version du binaire et quitte |
 
 ### Raccourcis clavier (hôte)
 
