@@ -1,10 +1,12 @@
 package to9p
 
 import (
+	"bytes"
 	"hash/fnv"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Lesur-ai/dcmo5/internal/keyboard"
 	"github.com/Lesur-ai/dcmo5/internal/machine"
@@ -12,9 +14,11 @@ import (
 
 func romTestPath() string { return filepath.Join("..", "..", "..", "rom", "to9p.rom") }
 
+var testBootDate = time.Date(2026, time.January, 2, 0, 0, 0, 0, time.UTC)
+
 const (
 	bootCycles    = 1_200_000
-	bootSignature = 0xdfa2f5c5
+	bootSignature = 0xbe3a0985
 )
 
 func mustBoot(t *testing.T) machine.Machine {
@@ -23,7 +27,7 @@ func mustBoot(t *testing.T) machine.Machine {
 	if err != nil {
 		t.Fatalf("lecture ROM TO9+ : %v", err)
 	}
-	m, err := newFromROM(blob)
+	m, err := newFromROM(blob, testBootDate)
 	if err != nil {
 		t.Fatalf("boot TO9+ : %v", err)
 	}
@@ -100,7 +104,7 @@ func TestNewFromConfigErrors(t *testing.T) {
 	if _, err := newFromConfig(machine.Config{machine.KeyROM: "/inexistant.rom"}); err == nil {
 		t.Error("ROM introuvable : erreur attendue")
 	}
-	if _, err := newFromROM(make([]byte, 1024)); err == nil {
+	if _, err := newFromROM(make([]byte, 1024), testBootDate); err == nil {
 		t.Error("taille ROM invalide : erreur attendue")
 	}
 }
@@ -140,24 +144,89 @@ func TestSplitROMCopiesAndLayout(t *testing.T) {
 	}
 }
 
-func TestApplyROMPatchesNoOpContract(t *testing.T) {
+func TestPatchTablesWellFormed(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		patches []romPatch
+	}{
+		{"monitor", monitorPatches},
+		{"basic", basicPatches},
+	} {
+		for i, p := range tc.patches {
+			if len(p.original) == 0 || len(p.original) != len(p.patched) {
+				t.Fatalf("%s patch %d (%s) longueurs invalides: original=%d patched=%d",
+					tc.name, i, p.desc, len(p.original), len(p.patched))
+			}
+		}
+	}
+}
+
+func TestApplyROMPatchesContract(t *testing.T) {
 	romBasic := make([]byte, romBasicSize)
 	romMon := make([]byte, romMonSize)
-	romBasic[0], romMon[0] = 0x12, 0x34
+	for _, p := range basicPatches {
+		copy(romBasic[p.off:], p.original)
+	}
+	for _, p := range monitorPatches {
+		copy(romMon[p.off:], p.original)
+	}
 
 	r1 := applyROMPatches(romMon, romBasic)
 	r2 := applyROMPatches(romMon, romBasic)
-	if !r1.OK || r1.Applied != 0 || r1.Already != 0 {
-		t.Fatalf("1re passe patch = %+v, attendu OK no-op", r1)
+	if !r1.OK || r1.Applied != len(basicPatches)+len(monitorPatches) || r1.Already != 0 {
+		t.Fatalf("1re passe patch = %+v, attendu OK Applied=%d Already=0",
+			r1, len(basicPatches)+len(monitorPatches))
 	}
-	if !r2.OK || r2.Applied != 0 || r2.Already != 0 {
-		t.Fatalf("2e passe patch = %+v, attendu idempotent no-op", r2)
+	if !r2.OK || r2.Applied != 0 || r2.Already != len(basicPatches)+len(monitorPatches) {
+		t.Fatalf("2e passe patch = %+v, attendu OK Applied=0 Already=%d",
+			r2, len(basicPatches)+len(monitorPatches))
 	}
-	if romBasic[0] != 0x12 || romMon[0] != 0x34 {
-		t.Fatalf("patch no-op a muté les ROMs : basic[0]=0x%02x mon[0]=0x%02x", romBasic[0], romMon[0])
+	for _, p := range basicPatches {
+		if got := romBasic[p.off : p.off+len(p.patched)]; !bytes.Equal(got, p.patched) {
+			t.Fatalf("basic patch %s non appliqué: got % x want % x", p.desc, got, p.patched)
+		}
+	}
+	for _, p := range monitorPatches {
+		if got := romMon[p.off : p.off+len(p.patched)]; !bytes.Equal(got, p.patched) {
+			t.Fatalf("monitor patch %s non appliqué: got % x want % x", p.desc, got, p.patched)
+		}
 	}
 	if r := applyROMPatches(make([]byte, romMonSize-1), romBasic); r.OK {
 		t.Fatalf("moniteur hors taille accepté : %+v", r)
+	}
+}
+
+func TestApplyROMPatchesRejectsUnknownVariant(t *testing.T) {
+	romBasic := make([]byte, romBasicSize)
+	romMon := make([]byte, romMonSize)
+	for _, p := range basicPatches {
+		copy(romBasic[p.off:], p.original)
+	}
+	for _, p := range monitorPatches {
+		copy(romMon[p.off:], p.original)
+	}
+	romBasic[basicPatches[0].off] = 0xaa
+	if r := applyROMPatches(romMon, romBasic); r.OK {
+		t.Fatalf("ROM BASIC inconnue acceptée : %+v", r)
+	}
+	if got := romMon[monitorPatches[0].off]; got != monitorPatches[0].original[0] {
+		t.Fatalf("échec basic a muté le moniteur: got 0x%02x", got)
+	}
+
+	romBasic = make([]byte, romBasicSize)
+	romMon = make([]byte, romMonSize)
+	for _, p := range basicPatches {
+		copy(romBasic[p.off:], p.original)
+	}
+	for _, p := range monitorPatches {
+		copy(romMon[p.off:], p.original)
+	}
+	romMon[monitorPatches[0].off] = 0xaa
+	if r := applyROMPatches(romMon, romBasic); r.OK {
+		t.Fatalf("ROM moniteur inconnue acceptée : %+v", r)
+	}
+	if got := romBasic[basicPatches[0].off]; got != basicPatches[0].original[0] {
+		t.Fatalf("échec moniteur a muté le BASIC: got 0x%02x", got)
 	}
 }
 
@@ -181,6 +250,34 @@ func TestSplitROMMatchesTrackedReference(t *testing.T) {
 	}
 }
 
+func TestApplyROMPatchesMatchesTrackedReference(t *testing.T) {
+	blob, err := os.ReadFile(romTestPath())
+	if err != nil {
+		t.Fatalf("lecture ROM TO9+ : %v", err)
+	}
+	romBasic, romMon, err := splitROM(blob)
+	if err != nil {
+		t.Fatalf("split ROM réelle : %v", err)
+	}
+	rep := applyROMPatches(romMon, romBasic)
+	if !rep.OK || rep.Applied != len(basicPatches)+len(monitorPatches) || rep.Already != 0 {
+		t.Fatalf("patch ROM réelle = %+v, attendu OK Applied=%d Already=0",
+			rep, len(basicPatches)+len(monitorPatches))
+	}
+	if got := romBasic[0xf2f1 : 0xf2f1+2]; !bytes.Equal(got, []byte{0x45, 0x39}) {
+		t.Fatalf("trap écriture cassette BASIC = % x, want 45 39", got)
+	}
+	if got := romBasic[0xfd1e : 0xfd1e+3]; !bytes.Equal(got, []byte{0x4e, 0x12, 0x20}) {
+		t.Fatalf("trap coordonnées souris BASIC = % x, want 4e 12 20", got)
+	}
+	if got := romMon[0x1aa1 : 0x1aa1+2]; !bytes.Equal(got, []byte{0x4b, 0x39}) {
+		t.Fatalf("trap crayon moniteur = % x, want 4b 39", got)
+	}
+	if got := romMon[0x3193 : 0x3193+2]; !bytes.Equal(got, []byte{0x4e, 0x39}) {
+		t.Fatalf("trap souris moniteur = % x, want 4e 39", got)
+	}
+}
+
 func TestNewFromROMWiresROMIntoGateArray(t *testing.T) {
 	blob, err := os.ReadFile(romTestPath())
 	if err != nil {
@@ -190,7 +287,7 @@ func TestNewFromROMWiresROMIntoGateArray(t *testing.T) {
 	if err != nil {
 		t.Fatalf("split ROM réelle : %v", err)
 	}
-	m, err := newFromROM(blob)
+	m, err := newFromROM(blob, testBootDate)
 	if err != nil {
 		t.Fatalf("newFromROM: %v", err)
 	}
@@ -223,6 +320,16 @@ func TestNewFromROMWiresROMIntoGateArray(t *testing.T) {
 	}
 	if after := a.ga.Read8(0xf0f8); after != before {
 		t.Fatalf("TO9+ a muté le chemin moniteur TO8D : F0F8 avant=0x%02x après=0x%02x", before, after)
+	}
+	a.ga.Write8(0xe7c3, 0x00) // banque moniteur 0 : offset 0x1a72 visible à 0xfa72.
+	if got := a.ga.Read8(0xfa72); got != 0x52 {
+		t.Fatalf("trap clic souris moniteur patché = 0x%02x, want 0x52", got)
+	}
+	if got := a.ga.Read8(0xfa73); got != 0x20 {
+		t.Fatalf("suite trap clic souris moniteur patché = 0x%02x, want 0x20", got)
+	}
+	if got := a.ga.Read8(0xfa74); got != 0x0e {
+		t.Fatalf("suite trap clic souris moniteur patché = 0x%02x, want 0x0e", got)
 	}
 }
 
