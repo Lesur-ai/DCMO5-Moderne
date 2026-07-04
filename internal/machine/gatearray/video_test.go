@@ -35,13 +35,21 @@ func setColor(g *gatearray.GateArray, n, r, v, b int) {
 // writeColorByte / writeFormByte écrivent l'octet « couleurs » / « formes » du
 // premier octet vidéo (ligne 0, octet 0) via la RAM vidéo CPU (e7c3 page bit0).
 func writeColorByte(g *gatearray.GateArray, v byte) {
+	writeColorByteAt(g, 0, v)
+}
+
+func writeColorByteAt(g *gatearray.GateArray, off int, v byte) {
 	g.Write8(0xE7C3, 0x00) // page couleurs → 0x4000 = ram[0]
-	g.Write8(0x4000, v)
+	g.Write8(uint16(0x4000+off), v)
 }
 
 func writeFormByte(g *gatearray.GateArray, v byte) {
+	writeFormByteAt(g, 0, v)
+}
+
+func writeFormByteAt(g *gatearray.GateArray, off int, v byte) {
 	g.Write8(0xE7C3, 0x01) // page formes → 0x4000 = ram[0x2000]
-	g.Write8(0x4000, v)
+	g.Write8(uint16(0x4000+off), v)
 }
 
 // firstActivePixel : index dans le framebuffer du pixel k (0..15) du premier
@@ -221,5 +229,71 @@ func TestPaletteLatch(t *testing.T) {
 	g.DecodeFrame(fb)
 	if v := fb[0]; v != wantColor(7, 7, 5) {
 		t.Errorf("après octet impair : bordure = 0x%08X, want 0x%08X (latch validé)", v, wantColor(7, 7, 5))
+	}
+}
+
+func TestRenderVideoLineKeepsPaletteHistory(t *testing.T) {
+	g := newGA()
+	setColor(g, 1, 1, 0, 0)
+	setColor(g, 2, 0, 2, 0)
+
+	g.Write8(0xE7DD, 0x01)
+	g.RenderVideoLine(48)
+	g.Write8(0xE7DD, 0x02)
+	g.RenderVideoLine(49)
+
+	fb := newFrame()
+	g.DecodeFrame(fb)
+	if v := fb[0]; v != wantColor(1, 0, 0) {
+		t.Fatalf("ligne déjà balayée recolorée = 0x%08X, want ancienne palette rouge", v)
+	}
+	if v := fb[xb]; v != wantColor(0, 2, 0) {
+		t.Fatalf("ligne suivante = 0x%08X, want nouvelle palette verte", v)
+	}
+}
+
+func TestRenderVideoSegmentsKeepsPaletteHistoryWithinLine(t *testing.T) {
+	g := newGA()
+	g.Write8(0xE7DC, 0x21) // mode 320x4 : index couleur direct par bits.
+	setColor(g, 1, 1, 0, 0)
+	writeColorByteAt(g, 0, 0xff)
+	writeFormByteAt(g, 0, 0x00)
+	writeColorByteAt(g, 1, 0xff)
+	writeFormByteAt(g, 1, 0x00)
+
+	g.RenderVideoSegments(56, 12) // segment 1 fige avec l'ancienne palette.
+	setColor(g, 1, 0, 2, 0)
+	g.RenderVideoSegments(56, 28) // segment 2 fige avec la nouvelle palette.
+
+	fb := newFrame()
+	g.DecodeFrame(fb)
+	if v := fb[firstActivePixel(0)]; v != wantColor(1, 0, 0) {
+		t.Fatalf("segment déjà balayé recoloré = 0x%08X, want ancienne palette rouge", v)
+	}
+	if v := fb[firstActivePixel(16)]; v != wantColor(0, 2, 0) {
+		t.Fatalf("segment suivant = 0x%08X, want nouvelle palette verte", v)
+	}
+}
+
+func TestRenderVideoSegmentsLatchesBorderForWholeLine(t *testing.T) {
+	g := newGA()
+	setColor(g, 1, 1, 0, 0)
+	setColor(g, 2, 0, 2, 0)
+
+	g.Write8(0xE7DD, 0x01)
+	g.RenderVideoSegments(255, 11) // début de la dernière ligne active : bordure rouge latchée.
+	g.Write8(0xE7DD, 0x02)
+	g.RenderVideoSegments(255, 64) // segment 41 ne doit pas passer vert sur la même ligne.
+	g.RenderVideoSegments(256, 64) // ligne suivante : bordure verte complète.
+
+	fb := newFrame()
+	g.DecodeFrame(fb)
+	rightBorderLastActiveLine := (255-48)*xb + 41*16
+	nextLine := (256 - 48) * xb
+	if v := fb[rightBorderLastActiveLine]; v != wantColor(1, 0, 0) {
+		t.Fatalf("bord droit anticipé = 0x%08X, want bordure latchée rouge", v)
+	}
+	if v := fb[nextLine]; v != wantColor(0, 2, 0) {
+		t.Fatalf("ligne suivante = 0x%08X, want nouvelle bordure verte", v)
 	}
 }

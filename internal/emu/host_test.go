@@ -117,6 +117,16 @@ func TestHost_PausedReaderSilence(t *testing.T) {
 	}
 }
 
+func TestHost_FramebufferPublishCadenceMatchesVideoFrame(t *testing.T) {
+	got := framebufferPublishPeriodCycles()
+	if got != spec.VideoCyclesPerFrame {
+		t.Fatalf("cadence publication framebuffer = %d cycles, attendu une trame Thomson = %d cycles", got, spec.VideoCyclesPerFrame)
+	}
+	if got == spec.CPUClockHz/60 {
+		t.Fatal("publication framebuffer restée calée sur 60 Hz hôte au lieu de la trame vidéo matérielle")
+	}
+}
+
 // TestHost_ConcurrentAccessNoRace lance la goroutine d'émulation et sollicite
 // toutes les surfaces partagées en parallèle. À exécuter avec -race.
 func TestHost_ConcurrentAccessNoRace(t *testing.T) {

@@ -15,6 +15,17 @@ type fakeDevice struct {
 	traps       int
 	cyclesSum   int  // somme des c reçus via OnInstructionCycles (invariant)
 	assertTimer bool // si vrai, asserte IRQTimer à chaque instruction (test livraison IRQ)
+	lines       []int
+}
+
+type renderedSegment struct {
+	line  int
+	cycle int
+}
+
+type fakeSegmentDevice struct {
+	*fakeDevice
+	segments []renderedSegment
 }
 
 func newFake() *fakeDevice {
@@ -43,6 +54,10 @@ func (d *fakeDevice) OnInstructionCycles(c int, irq *machine.IRQLines) {
 	if d.assertTimer {
 		irq.Assert(machine.IRQTimer)
 	}
+}
+func (d *fakeDevice) RenderVideoLine(n int) { d.lines = append(d.lines, n) }
+func (d *fakeSegmentDevice) RenderVideoSegments(line, cycle int) {
+	d.segments = append(d.segments, renderedSegment{line: line, cycle: cycle})
 }
 
 // Vérification à la compilation que fakeDevice satisfait le contrat.
@@ -115,6 +130,33 @@ func TestEngineFramebuffer(t *testing.T) {
 		if px != 0xFF00FF00 {
 			t.Fatalf("pixel %d = 0x%08X (DecodeFrame non délégué)", i, px)
 		}
+	}
+}
+
+func TestEngineRendersVideoLineOnBoundary(t *testing.T) {
+	d := newFake()
+	e := New(d, spec.AudioSampleRate)
+	e.Reset()
+	e.Step(spec.VideoCyclesPerLine)
+	if len(d.lines) != 1 || d.lines[0] != 0 {
+		t.Fatalf("lignes rendues = %v, want [0]", d.lines)
+	}
+}
+
+func TestEngineRendersVideoSegmentsDuringLine(t *testing.T) {
+	d := &fakeSegmentDevice{fakeDevice: newFake()}
+	e := New(d, spec.AudioSampleRate)
+	e.Reset()
+	e.Step(spec.VideoCyclesPerLine)
+	if len(d.segments) == 0 {
+		t.Fatal("aucun segment rendu")
+	}
+	last := d.segments[len(d.segments)-1]
+	if last.line != 0 || last.cycle != spec.VideoCyclesPerLine {
+		t.Fatalf("dernier segment = %+v, want line=0 cycle=%d", last, spec.VideoCyclesPerLine)
+	}
+	if len(d.lines) != 0 {
+		t.Fatalf("fallback ligne appelé malgré renderer segmentaire : %v", d.lines)
 	}
 }
 

@@ -21,8 +21,8 @@ import (
 // Timing vidéo Thomson (commun MO5 / famille TO) : 64 cycles par ligne, 312 lignes
 // par trame → IRQ 50 Hz. Ref: dcmo5emulation.c / dcto8demulation.c Run().
 const (
-	cyclesPerLine = 64
-	linesPerFrame = 312
+	cyclesPerLine = spec.VideoCyclesPerLine
+	linesPerFrame = spec.VideoLinesPerFrame
 )
 
 // Device est la partie d'une machine que le moteur pilote : bus mémoire, dispatch
@@ -59,6 +59,14 @@ type Device interface {
 // Un Device qui n'implémente pas cette interface conserve l'IRQ de trame (défaut MO5).
 type frameIRQSuppressor interface {
 	SuppressFrameIRQ() bool
+}
+
+type videoLineRenderer interface {
+	RenderVideoLine(videolinenumber int)
+}
+
+type videoSegmentRenderer interface {
+	RenderVideoSegments(videolinenumber, videolinecycle int)
 }
 
 // Engine exécute une machine via son Device. Il possède le CPU, l'accumulateur
@@ -179,8 +187,17 @@ func (e *Engine) Step(cycles int) int {
 
 		// Cadence vidéo ligne/trame.
 		e.videolinecycle += c
+		if r, ok := e.dev.(videoSegmentRenderer); ok {
+			r.RenderVideoSegments(e.videolinenumber, e.videolinecycle)
+		}
 		for e.videolinecycle >= cyclesPerLine {
 			e.videolinecycle -= cyclesPerLine
+			if _, ok := e.dev.(videoSegmentRenderer); ok {
+				// Le renderer segmentaire a déjà capturé toute la ligne visible
+				// au passage à >= 64 cycles, comme Displaysegment() dans DCTO9P.
+			} else if r, ok := e.dev.(videoLineRenderer); ok {
+				r.RenderVideoLine(e.videolinenumber)
+			}
 			e.videolinenumber++
 			if e.videolinenumber >= linesPerFrame {
 				e.videolinenumber = 0

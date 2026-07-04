@@ -221,8 +221,8 @@ func (h *Host) run() {
 	defer close(h.done)
 	last := time.Now()
 	fbAccum := 0
-	overshoot := 0                   // cycles consommés en trop au quantum précédent (Step finit l'instruction/trap)
-	fbPeriod := spec.CPUClockHz / 60 // publier le framebuffer ~60 fois/s
+	overshoot := 0 // cycles consommés en trop au quantum précédent (Step finit l'instruction/trap)
+	fbPeriod := framebufferPublishPeriodCycles()
 	maxCatchup := spec.CPUClockHz / maxCatchupCyclesDiv
 	for {
 		// Draine TOUTES les commandes en attente avant de cadencer : un lot de commandes
@@ -268,14 +268,16 @@ func (h *Host) run() {
 				overshoot = 0
 			}
 			fbAccum += consumed
-			if fbAccum >= fbPeriod {
-				fbAccum = 0
+			for fbAccum >= fbPeriod {
+				fbAccum -= fbPeriod
 				h.publishFrame()
 			}
 		}
 		time.Sleep(emuTickSleep)
 	}
 }
+
+func framebufferPublishPeriodCycles() int { return spec.VideoCyclesPerFrame }
 
 // tick applique les entrées, avance l'émulation de cycles cycles et pousse le son
 // produit dans la ring. Retourne le nombre de cycles réellement consommés (Step

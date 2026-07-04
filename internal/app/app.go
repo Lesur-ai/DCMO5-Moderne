@@ -805,6 +805,7 @@ func (a *App) Draw(screen *ebiten.Image) {
 
 	// Rendu plein écran habituel : le framebuffer remplit le repère logique (Ebitengine
 	// met ensuite à l'échelle de la fenêtre). MO5 : échelle 1 ; gate-array : ×2 en hauteur.
+	screen.Fill(color.RGBA{R: 0, G: 0, B: 0, A: 0xFF})
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Scale(
 		float64(screen.Bounds().Dx())/float64(a.fw),

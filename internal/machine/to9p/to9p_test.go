@@ -18,7 +18,7 @@ var testBootDate = time.Date(2026, time.January, 2, 0, 0, 0, 0, time.UTC)
 
 const (
 	bootCycles    = 1_200_000
-	bootSignature = 0xbe3a0985
+	bootSignature = 0xc5c52665
 )
 
 func mustBoot(t *testing.T) machine.Machine {
