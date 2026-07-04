@@ -191,3 +191,12 @@ func TestTO8DModelIsModifier(t *testing.T) {
 		t.Error("IsModifier(0x02) = true, want false")
 	}
 }
+
+func TestTO8DModelKeepsArrowSpecialKeysInJoystickMode(t *testing.T) {
+	m := TO8DModel()
+	for _, key := range []int{0x04, 0x3d, 0x0d, 0x05} {
+		if m.SuppressSpecialKeyInJoystickMode(key) {
+			t.Fatalf("TO8D key 0x%02x must keep double-input behavior in joystick keyboard mode", key)
+		}
+	}
+}

@@ -17,10 +17,13 @@
 //
 // Mécanisme d'exclusion (D5 plan workflow joystick) :
 //
-//   - Flèches  : DOUBLE-INPUT accepté. ArrowUp etc. continuent d'activer les
-//     touches MO5/TO8D via SpecialKeys (cf. keyboard_init.go) ET
-//     publient simultanément les bits joystick J1. Conforme à la
-//     ref C dcto8d en OR (vs keybpriority exclusif, reporté v2).
+//   - Flèches  : DOUBLE-INPUT accepté sur MO5/TO8D. ArrowUp etc. continuent
+//     d'activer les touches machine via SpecialKeys (cf. keyboard_init.go) ET
+//     publient simultanément les bits joystick J1. Conforme à la ref C dcto8d
+//     en OR (vs keybpriority exclusif, reporté v2). Exception TO9+ : les flèches
+//     deviennent joystick-only quand le mode joystick clavier est activé, car le
+//     firmware TO9+ réagit mal à une flèche clavier tenue en parallèle du joystick
+//     (exception déclarée par keyboard.Model.JoystickKeyboardSuppressSpecialKeys).
 //   - LeftShift : DOUBLE-INPUT accepté (exception). Conserve sa fonction Shift
 //     MO5/TO8D ET active le bit J2 fire — retirer Shift du clavier
 //     serait trop intrusif (utilisateur ne peut plus shifter en
@@ -59,8 +62,9 @@ var appJoystickMapping = uimodel.KeyboardJoystickMapping{
 // être exclues du clavier émulation MO5/TO8D. Voir doc de fichier pour la
 // règle complète (D5 plan workflow joystick).
 //
-// Ne contient PAS les flèches ni KeyShiftLeft/KeyShiftRight (double-input
-// D5/exception). Seuls les WASD sont à exclure du clavier émulation.
+// Ne contient PAS les flèches ni KeyShiftLeft/KeyShiftRight pour MO5/TO8D
+// (double-input D5/exception). Seuls les WASD sont à exclure du clavier
+// émulation de base.
 var joystickExclusiveKeys = map[ebiten.Key]struct{}{
 	ebiten.KeyW: {},
 	ebiten.KeyA: {},

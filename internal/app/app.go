@@ -1107,9 +1107,12 @@ func resolveKeys(model *keyboard.Model, pressed func(ebiten.Key) bool, learned m
 		}
 		// Inc J3a : touches réservées au joystick exclues du clavier émulation
 		// QUAND le mode joystick clavier est activé (toggle F12). Couvre AltGr
-		// (sinon ACC parasite à chaque fire J1). KeyShiftLeft et les flèches
-		// NE SONT PAS exclues (cf. D5 : double-input acceptés).
+		// (sinon ACC parasite à chaque fire J1). Les exclusions dépendantes de la
+		// machine (ex. flèches TO9+ joystick-only) sont déclarées par keyboard.Model.
 		if isJoystickExclusiveKey(ebiten.Key(eKeyInt), joystickKBEnabled) {
+			continue
+		}
+		if joystickKBEnabled && model.SuppressSpecialKeyInJoystickMode(machineKey) {
 			continue
 		}
 		if pressed(ebiten.Key(eKeyInt)) && machineKey < model.KeyCount {

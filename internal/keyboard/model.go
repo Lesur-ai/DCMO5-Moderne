@@ -32,7 +32,11 @@ type Model struct {
 	ACCKey      int
 	ENTKey      int
 	SpecialKeys map[int]int
-	chars       map[rune]charKey
+	// JoystickKeyboardSuppressSpecialKeys contient les touches machine SpecialKeys
+	// à ne PAS publier dans le clavier émulé quand le mode joystick clavier est
+	// activé. Les touches restent disponibles pour le joystick via internal/app.
+	JoystickKeyboardSuppressSpecialKeys map[int]bool
+	chars                               map[rune]charKey
 }
 
 // CharToKey traduit un caractère en (touche, shift). ok=false si le caractère n'a
@@ -45,6 +49,15 @@ func (m *Model) CharToKey(r rune) (key int, shift bool, ok bool) {
 // IsModifier indique si l'index de touche est un modificateur (SHIFT/CNT/ACC).
 func (m *Model) IsModifier(key int) bool {
 	return key == m.ShiftKey || key == m.CNTKey || (m.ACCKey >= 0 && key == m.ACCKey)
+}
+
+// SuppressSpecialKeyInJoystickMode indique si une touche positionnelle de ce modèle
+// doit être masquée du clavier émulé quand le mode joystick clavier est actif.
+func (m *Model) SuppressSpecialKeyInJoystickMode(key int) bool {
+	if m == nil || m.JoystickKeyboardSuppressSpecialKeys == nil {
+		return false
+	}
+	return m.JoystickKeyboardSuppressSpecialKeys[key]
 }
 
 // ModifierKeys retourne les indices des touches modificatrices dans l'ordre
