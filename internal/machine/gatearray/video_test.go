@@ -243,3 +243,23 @@ func TestRenderVideoLineKeepsPaletteHistory(t *testing.T) {
 		t.Fatalf("ligne suivante = 0x%08X, want nouvelle palette verte", v)
 	}
 }
+
+func TestRenderVideoSegmentsKeepsPaletteHistoryWithinLine(t *testing.T) {
+	g := newGA()
+	setColor(g, 1, 1, 0, 0)
+	setColor(g, 2, 0, 2, 0)
+
+	g.Write8(0xE7DD, 0x01)
+	g.RenderVideoSegments(48, 11) // segmentmax=1 : seul le segment 0 est fige.
+	g.Write8(0xE7DD, 0x02)
+	g.RenderVideoSegments(48, 27) // segments suivants figes avec la nouvelle bordure.
+
+	fb := newFrame()
+	g.DecodeFrame(fb)
+	if v := fb[0]; v != wantColor(1, 0, 0) {
+		t.Fatalf("segment déjà balayé recoloré = 0x%08X, want ancienne palette rouge", v)
+	}
+	if v := fb[16]; v != wantColor(0, 2, 0) {
+		t.Fatalf("segment suivant = 0x%08X, want nouvelle palette verte", v)
+	}
+}

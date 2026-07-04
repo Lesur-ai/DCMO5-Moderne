@@ -78,6 +78,8 @@ type GateArray struct {
 	pcolor        [16]uint32 // palette RGBA RENDUE (latchée), cf. paletteWrite
 	scanout       [xbitmap * ybitmap]uint32
 	scanoutValid  bool
+	scanLine      int
+	scanSegment   int
 	pagevideoBase int
 	bordercolor   int
 	vmode         videoMode
@@ -213,6 +215,8 @@ func (g *GateArray) hardReset() {
 	g.xpen, g.ypen = 0, 0
 	g.k7bit, g.k7octet = 0, 0
 	g.scanoutValid = false
+	g.scanLine = -1
+	g.scanSegment = 0
 }
 
 // AttachCPU relie le CPU utilisé par les handlers d'E/S (lecture/écriture des

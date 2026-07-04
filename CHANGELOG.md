@@ -129,10 +129,11 @@ Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
 
 - **Clignotement écran palette TO8D/TO9+** ([#197](https://github.com/Lesur-ai/dcmo5/issues/197)) :
   la publication du framebuffer par le Host est désormais cadencée sur la trame
-  vidéo Thomson (`64×312` cycles), et le gate-array fige les lignes au fil du
-  balayage. Les changements de palette/page vidéo pendant une trame ne recolorent
-  donc plus rétroactivement toute l'image, ce qui stabilise les écrans firmware
-  qui préparent ou affichent la palette 4096 couleurs.
+  vidéo Thomson (`64×312` cycles), et le gate-array fige les segments vidéo au
+  fil du balayage, comme DCTO9P/Theodore. Les changements de palette/page vidéo
+  pendant une trame ou une ligne ne recolorent donc plus rétroactivement toute
+  l'image, ce qui stabilise les écrans firmware qui préparent ou affichent la
+  palette 4096 couleurs.
 - **Joystick clavier après perte de focus** : la fenêtre publie désormais un
   joystick neutre quand Ebitengine perd le focus, évitant qu'une direction
   maintenue reste collée après un alt-tab.

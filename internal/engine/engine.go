@@ -65,6 +65,10 @@ type videoLineRenderer interface {
 	RenderVideoLine(videolinenumber int)
 }
 
+type videoSegmentRenderer interface {
+	RenderVideoSegments(videolinenumber, videolinecycle int)
+}
+
 // Engine exécute une machine via son Device. Il possède le CPU, l'accumulateur
 // d'échantillonnage audio, les compteurs de balayage vidéo et les lignes d'IRQ.
 type Engine struct {
@@ -183,9 +187,15 @@ func (e *Engine) Step(cycles int) int {
 
 		// Cadence vidéo ligne/trame.
 		e.videolinecycle += c
+		if r, ok := e.dev.(videoSegmentRenderer); ok {
+			r.RenderVideoSegments(e.videolinenumber, e.videolinecycle)
+		}
 		for e.videolinecycle >= cyclesPerLine {
 			e.videolinecycle -= cyclesPerLine
-			if r, ok := e.dev.(videoLineRenderer); ok {
+			if _, ok := e.dev.(videoSegmentRenderer); ok {
+				// Le renderer segmentaire a déjà capturé toute la ligne visible
+				// au passage à >= 64 cycles, comme Displaysegment() dans DCTO9P.
+			} else if r, ok := e.dev.(videoLineRenderer); ok {
 				r.RenderVideoLine(e.videolinenumber)
 			}
 			e.videolinenumber++

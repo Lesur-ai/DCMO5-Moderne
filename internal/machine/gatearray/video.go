@@ -7,10 +7,9 @@
 // La réf décode au fil du balayage dans une surface SDL redimensionnable via une
 // table xpixel[] de mise à l'échelle. Ici la frame est FIXE à XBITMAP×YBITMAP :
 // en fixant la largeur cible à XBITMAP, xpixel[i] devient l'identité, donc chaque
-// octet vidéo produit exactement 16 pixels logiques (un « segment »). On génère
-// la trame entière depuis la mémoire (indépendamment du balayage courant), comme
-// le MO5 : 42 segments par ligne (0 et 41 = bordure, 1–40 = 40 octets actifs),
-// 216 lignes (8 bordure haute + 200 actives + 8 bordure basse).
+// octet vidéo produit exactement 16 pixels logiques (un « segment »). Le moteur
+// fige progressivement ces segments (0 et 41 = bordure, 1–40 = 40 octets actifs)
+// sur 216 lignes visibles (8 bordure haute + 200 actives + 8 bordure basse).
 package gatearray
 
 const (
@@ -50,9 +49,9 @@ func (g *GateArray) refreshPalette() {
 }
 
 // DecodeFrame rend le framebuffer courant dans dst (≥ xbitmap*ybitmap).
-// Si le moteur a déjà balayé des lignes, on expose le scanout progressif : les
+// Si le moteur a déjà balayé des segments, on expose le scanout progressif : les
 // changements de palette/page vidéo en cours de trame ne recolorent pas les
-// lignes déjà rendues. Sinon on reconstruit une frame complète, chemin pratique
+// pixels déjà rendus. Sinon on reconstruit une frame complète, chemin pratique
 // pour les tests unitaires isolés.
 func (g *GateArray) DecodeFrame(dst []uint32) {
 	if len(dst) < xbitmap*ybitmap {
@@ -73,9 +72,40 @@ func (g *GateArray) decodeFullFrame(dst []uint32) {
 	}
 }
 
-// RenderVideoLine est appelé par le moteur quand une ligne Thomson vient d'être
-// balayée. Il fige cette ligne avec l'état vidéo courant, comme la référence SDL
-// qui dessine progressivement au lieu de reconstruire toute la trame après coup.
+// RenderVideoSegments est appelé par le moteur après chaque instruction avec la
+// position de faisceau courante. Il reproduit Displaysegment() de DCTO9P/Theodore :
+// seuls les segments déjà balayés dans la ligne sont figés, avec l'état vidéo
+// courant (palette/page/mode). C'est nécessaire pour les écrans firmware qui
+// changent palette ou page pendant une même ligne, notamment l'écran palette.
+func (g *GateArray) RenderVideoSegments(videolinenumber, videolinecycle int) {
+	if videolinenumber < 48 || videolinenumber >= 48+ybitmap {
+		return
+	}
+	if !g.scanoutValid {
+		g.decodeFullFrame(g.scanout[:])
+		g.scanoutValid = true
+	}
+	y := videolinenumber - 48
+	segmentMax := videolinecycle - 10
+	if segmentMax > 42 {
+		segmentMax = 42
+	}
+	if segmentMax <= 0 {
+		return
+	}
+	if g.scanLine != videolinenumber {
+		g.scanLine = videolinenumber
+		g.scanSegment = 0
+	}
+	for g.scanSegment < segmentMax {
+		g.renderDisplaySegment(g.scanout[:], y, g.scanSegment, g.pcolor[g.bordercolor&0x0f])
+		g.scanSegment++
+	}
+}
+
+// RenderVideoLine conserve un chemin de secours pour les tests et pour un moteur
+// qui ne saurait pas encore rendre au segment. Le moteur courant privilégie
+// RenderVideoSegments.
 func (g *GateArray) RenderVideoLine(videolinenumber int) {
 	if videolinenumber < 48 || videolinenumber >= 48+ybitmap {
 		return
@@ -86,6 +116,25 @@ func (g *GateArray) RenderVideoLine(videolinenumber int) {
 	}
 	border := g.pcolor[g.bordercolor&0x0f]
 	g.renderDisplayLine(g.scanout[:], videolinenumber-48, border)
+}
+
+func (g *GateArray) renderDisplaySegment(dst []uint32, y, segment int, border uint32) {
+	if segment < 0 || segment >= 42 {
+		return
+	}
+	row := y * xbitmap
+	px := row + segment*segPixels
+	if vln := y + 48; vln < 56 || vln > 255 || segment == 0 || segment == 41 {
+		for x := 0; x < segPixels; x++ {
+			dst[px+x] = border
+		}
+		return
+	}
+	line := (y + 48) - 56
+	idx := line*activeBytes + (segment - 1)
+	colorByte := g.ram[g.pagevideoBase+idx]
+	formByte := g.ram[g.pagevideoBase+(idx|0x2000)]
+	g.decodeByte(dst[px:px+segPixels], colorByte, formByte, &g.pcolor)
 }
 
 func (g *GateArray) renderDisplayLine(dst []uint32, y int, border uint32) {
