@@ -281,8 +281,8 @@ func (o *overlayUI) buildMain(card *widget.Container) {
 	sys.AddChild(o.button(joyLabel, joyImg, joyText, func() { o.toggleJoystick = true }))
 	// Changement de machine : DANS la même rangée (compact — une section séparée ferait
 	// déborder la carte au-delà de la fenêtre 672×432). Affiché seulement s'il existe une
-	// AUTRE machine (overlay.NextProfile, pur). → vue de confirmation (ConfirmSwitch).
-	if _, ok := overlay.NextProfile(o.profiles, o.profile.ID); ok {
+	// AUTRE machine (overlay.SwitchTargets, pur). → vue de choix/confirmation.
+	if len(overlay.SwitchTargets(o.profiles, o.profile.ID)) > 0 {
 		sys.AddChild(o.button("Changer machine", o.btnImg, o.txtColor, func() {
 			o.model.GoConfirmSwitch()
 			o.rebuild()
@@ -303,13 +303,13 @@ func (o *overlayUI) buildMain(card *widget.Container) {
 	card.AddChild(o.primaryButton("Appliquer et reprendre", func() { o.apply = true }))
 }
 
-// buildConfirmSwitch rend la vue de confirmation du changement de machine : la cible
-// (NextProfile, pur), un avertissement (les médias seront éjectés), puis Confirmer (arme
-// le signal switch) / Annuler (retour Main). Si aucune cible (ne devrait pas arriver depuis
-// le bouton), on retombe sur Main.
+// buildConfirmSwitch rend la vue de changement de machine : toutes les cibles possibles
+// (SwitchTargets, pur), un avertissement (les médias seront éjectés), puis un bouton par
+// cible (arme le signal switch) / Annuler (retour Main). Si aucune cible (ne devrait pas
+// arriver depuis le bouton), on retombe sur Main.
 func (o *overlayUI) buildConfirmSwitch(card *widget.Container) {
-	target, ok := overlay.NextProfile(o.profiles, o.profile.ID)
-	if !ok {
+	targets := overlay.SwitchTargets(o.profiles, o.profile.ID)
+	if len(targets) == 0 {
 		o.model.GoMain()
 		o.buildMain(card)
 		return
@@ -321,7 +321,7 @@ func (o *overlayUI) buildConfirmSwitch(card *widget.Container) {
 		)),
 	)
 	header.AddChild(widget.NewText(widget.TextOpts.Text("Changer de machine", o.faceTitle, colText)))
-	header.AddChild(widget.NewText(widget.TextOpts.Text("Passer de "+o.profile.Name+" à "+target.Name, o.faceLabel, colMuted)))
+	header.AddChild(widget.NewText(widget.TextOpts.Text("Depuis "+o.profile.Name, o.faceLabel, colMuted)))
 	card.AddChild(header)
 	card.AddChild(o.separator())
 	card.AddChild(widget.NewText(
@@ -346,11 +346,13 @@ func (o *overlayUI) buildConfirmSwitch(card *widget.Container) {
 		o.rebuild()
 	}))
 	card.AddChild(actions)
-	// Action primaire : confirmer la bascule vers la cible.
-	card.AddChild(o.primaryButton("Passer à "+target.Name, func() {
-		o.switchTarget = target
-		o.switchArmed = true
-	}))
+	for _, target := range targets {
+		target := target
+		card.AddChild(o.primaryButton("Passer à "+target.Name, func() {
+			o.switchTarget = target
+			o.switchArmed = true
+		}))
+	}
 }
 
 // mediaField rend un Param File média comme un champ éditable (calqué sur launcher.fileField,

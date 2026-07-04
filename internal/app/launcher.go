@@ -86,6 +86,11 @@ type launcher struct {
 	mediaDir string
 	lister   uimodel.Lister
 
+	// romResolver préremplit la ROM système propre au profil sélectionné. Injecté par
+	// App.SetROMResolver depuis cmd : le launcher reste data-driven et ne connaît pas
+	// les noms de fichiers livrés dans rom/.
+	romResolver func(machineID string) string
+
 	// Navigateur de fichiers actif si browseKey != "" (clé du Param File en cours).
 	browseKey  string
 	browseDir  string
@@ -294,7 +299,7 @@ func (l *launcher) buildMain(card *widget.Container) {
 				return
 			}
 			l.selected = idx
-			l.values = uimodel.InitialValues(l.profiles[idx]) // reset : pas de fuite inter-profils
+			l.values = uimodel.InitialValuesWithROM(l.profiles[idx], l.romResolver) // reset : pas de fuite inter-profils
 			l.errText = ""
 			l.rebuild()
 		}))

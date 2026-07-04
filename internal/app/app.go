@@ -176,9 +176,24 @@ func NewLauncher(profiles []machine.MachineProfile, mediaDir string, noAudio boo
 func (a *App) SetOnStart(fn func(profileID string, cfg machine.Config)) { a.onStart = fn }
 
 // SetROMResolver injecte le résolveur de ROM système par machine (lecture de la config
-// persistée, côté cmd). Consommé par le changement de machine à chaud (Inc 5) pour
-// construire la config de la cible. nil (défaut) → aucune résolution.
-func (a *App) SetROMResolver(fn func(machineID string) string) { a.romResolver = fn }
+// persistée, côté cmd). Consommé par le changement de machine à chaud (Inc 5) et par
+// le launcher quand l'utilisateur change de profil avant de démarrer. nil (défaut) →
+// aucune résolution.
+func (a *App) SetROMResolver(fn func(machineID string) string) {
+	a.romResolver = fn
+	if a.launcher != nil {
+		a.launcher.romResolver = fn
+		if fn == nil {
+			return
+		}
+		if rom, _ := a.launcher.values[machine.KeyROM].(string); rom == "" {
+			if resolved := fn(a.launcher.currentProfile().ID); resolved != "" {
+				a.launcher.values[machine.KeyROM] = resolved
+				a.launcher.rebuild()
+			}
+		}
+	}
+}
 
 // SetOnJoystickKBChange injecte un callback appelé chaque fois que le toggle
 // joystick clavier change d'état (B9 : persistance globale). Le callback reçoit

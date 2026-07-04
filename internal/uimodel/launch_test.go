@@ -79,6 +79,44 @@ func TestInitialValues_NoLeakBetweenProfiles(t *testing.T) {
 	}
 }
 
+func TestInitialValuesWithROM_PrefillsCurrentProfileOnly(t *testing.T) {
+	p := fakeProfile()
+	got := uimodel.InitialValuesWithROM(p, func(id string) string {
+		if id != "fake" {
+			t.Fatalf("resolver appelé avec id=%q, want fake", id)
+		}
+		return "rom/fake.rom"
+	})
+	if got[machine.KeyROM] != "rom/fake.rom" {
+		t.Fatalf("ROM préremplie = %v, want rom/fake.rom", got[machine.KeyROM])
+	}
+	if got["ram"] != 512 || got["turbo"] != false || got["speed"] != 1 {
+		t.Fatalf("defaults perdus après préremplissage ROM : %+v", got)
+	}
+	if _, ok := got[machine.KeyTape]; ok {
+		t.Fatalf("média live ne doit pas être inventé au préremplissage : %+v", got)
+	}
+}
+
+func TestInitialValuesWithROM_NoResolverOrNoROMParam(t *testing.T) {
+	if got := uimodel.InitialValuesWithROM(fakeProfile(), nil); got[machine.KeyROM] != nil {
+		t.Fatalf("resolver nil ne doit pas préremplir la ROM : %+v", got)
+	}
+	withoutROM := machine.MachineProfile{
+		ID: "naked", Name: "Naked", Family: machine.FamilyMO,
+		Params: []machine.Param{{Key: "ram", Label: "RAM", Kind: machine.ParamInt, Default: 64}},
+	}
+	got := uimodel.InitialValuesWithROM(withoutROM, func(string) string {
+		return "rom/naked.rom"
+	})
+	if _, ok := got[machine.KeyROM]; ok {
+		t.Fatalf("profil sans Param ROM ne doit pas recevoir de clé rom : %+v", got)
+	}
+	if got["ram"] != 64 {
+		t.Fatalf("default du profil sans ROM perdu : %+v", got)
+	}
+}
+
 // TestResolveDiskROM vérifie l'auto-détection de la ROM contrôleur cd90-640.rom à côté de
 // la ROM système (miroir du boot CLI) : détectée si présente ; jamais d'écrasement d'une
 // disk-rom explicite ; rien sans ROM ou sans fichier voisin.
