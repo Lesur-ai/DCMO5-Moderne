@@ -137,6 +137,37 @@ func TestNextProfile_CyclesThreeMachines(t *testing.T) {
 	}
 }
 
+// SwitchTargets alimente la vue explicite de changement de machine : avec trois
+// profils, l'utilisateur doit voir les deux cibles possibles, pas un toggle binaire.
+func TestSwitchTargets_ListsAllOtherMachines(t *testing.T) {
+	profiles := []machine.MachineProfile{{ID: "mo5"}, {ID: "to8d"}, {ID: "to9p"}}
+	got := overlay.SwitchTargets(profiles, "mo5")
+	if len(got) != 2 || got[0].ID != "to8d" || got[1].ID != "to9p" {
+		t.Fatalf("SwitchTargets(mo5) = %+v, want [to8d to9p]", got)
+	}
+	got = overlay.SwitchTargets(profiles, "to8d")
+	if len(got) != 2 || got[0].ID != "mo5" || got[1].ID != "to9p" {
+		t.Fatalf("SwitchTargets(to8d) = %+v, want [mo5 to9p]", got)
+	}
+}
+
+func TestSwitchTargets_CurrentAbsentReturnsAllChoices(t *testing.T) {
+	profiles := []machine.MachineProfile{{ID: "mo5"}, {ID: "to8d"}}
+	got := overlay.SwitchTargets(profiles, "inconnu")
+	if len(got) != 2 || got[0].ID != "mo5" || got[1].ID != "to8d" {
+		t.Fatalf("courante absente : SwitchTargets = %+v, want tous les profils", got)
+	}
+}
+
+func TestSwitchTargets_SingleOrEmpty(t *testing.T) {
+	if got := overlay.SwitchTargets([]machine.MachineProfile{{ID: "mo5"}}, "mo5"); got != nil {
+		t.Fatalf("une seule machine : aucune cible attendue, got %+v", got)
+	}
+	if got := overlay.SwitchTargets(nil, "mo5"); got != nil {
+		t.Fatalf("aucune machine : aucune cible attendue, got %+v", got)
+	}
+}
+
 // --- SwitchPersisted : config mémorisée (ROM) de la machine cible ---
 
 // ROM connue → injectée sous KeyROM.

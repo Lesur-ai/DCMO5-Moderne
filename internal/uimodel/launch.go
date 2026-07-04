@@ -75,3 +75,27 @@ func InitialValues(p machine.MachineProfile) machine.Config {
 	}
 	return out
 }
+
+// InitialValuesWithROM retourne les valeurs initiales d'un profil, enrichies avec la
+// ROM système résolue pour CE profil quand elle est connue. Le résolveur est injecté par
+// la couche appelante : uimodel reste pur et ne connaît ni config persistée ni dossier
+// rom/. Si le profil ne déclare pas de Param "rom", rien n'est ajouté.
+func InitialValuesWithROM(p machine.MachineProfile, romFor func(string) string) machine.Config {
+	out := InitialValues(p)
+	if romFor == nil || !hasParam(p, machine.KeyROM) {
+		return out
+	}
+	if rom := romFor(p.ID); rom != "" {
+		out[machine.KeyROM] = rom
+	}
+	return out
+}
+
+func hasParam(p machine.MachineProfile, key string) bool {
+	for _, param := range p.Params {
+		if param.Key == key {
+			return true
+		}
+	}
+	return false
+}

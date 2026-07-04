@@ -79,6 +79,33 @@ func NextProfile(profiles []machine.MachineProfile, currentID string) (machine.M
 	return profiles[(idx+1)%len(profiles)], true
 }
 
+// SwitchTargets retourne toutes les machines proposées comme cible depuis currentID.
+// Contrairement à NextProfile, cette fonction ne choisit pas à la place de l'utilisateur :
+// elle sert aux UI qui affichent une vraie liste de cibles (MO5, TO8D, TO9+, ...). Si la
+// machine courante est absente de profiles, on renvoie toute la liste : mieux vaut laisser
+// l'utilisateur choisir explicitement que masquer le changement sur un état incohérent.
+func SwitchTargets(profiles []machine.MachineProfile, currentID string) []machine.MachineProfile {
+	if len(profiles) < 2 {
+		return nil
+	}
+	out := make([]machine.MachineProfile, 0, len(profiles)-1)
+	foundCurrent := false
+	for _, p := range profiles {
+		if p.ID == currentID {
+			foundCurrent = true
+			continue
+		}
+		out = append(out, p)
+	}
+	if !foundCurrent {
+		return append([]machine.MachineProfile(nil), profiles...)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // SwitchPersisted construit la Config « mémorisée » à passer à PrepareSwitch pour la
 // machine cible, à partir d'un résolveur de ROM par identifiant de machine (romFor, qui
 // lit la config persistée — couche impure côté cmd). On n'y met que la ROM système si elle
