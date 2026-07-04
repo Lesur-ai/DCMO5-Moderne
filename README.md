@@ -86,9 +86,11 @@ vidéo/timer/E/S + clavier AZERTY-FR + joystick), clavier généralisé
 **TO9+ (v2.1, en validation)** :
 - Profil `to9p`, ROM `rom/to9p.rom` et clavier TO9+ ASCII distinct du chemin
   TO8D (`E7DE/E7DF`).
+- Patchs ROM TO9+ appliqués en mémoire, alignés sur DCTO9P v11, pour détourner
+  les routines cassette/disque/souris/crayon/clavier vers les traps émulés.
 - Boot non-GUI couvert par un invariant déterministe sur la ROM réelle :
   progression depuis le vecteur reset `0xFDA0`, framebuffer rendu et signature
-  FNV-1a `0xdfa2f5c5`.
+  FNV-1a `0xc2a774c5`.
 - Smoke GUI borné disponible via le vrai chemin Ebitengine (`cmd` → `app.Run`
   → `Host` → `Draw`) :
 
@@ -98,8 +100,9 @@ vidéo/timer/E/S + clavier AZERTY-FR + joystick), clavier généralisé
   go run ./cmd/dcmo5 --machine to9p --rom rom/to9p.rom --no-audio
   ```
 
-- Cette preuve valide le boot/rendu application, mais pas encore la
-  compatibilité interactive complète TO9+.
+- Smoke clavier minimal validé avec `--exec '1\n'` : le firmware quitte le menu
+  TO9+ et arrive au prompt BASIC. Cette preuve valide une saisie bout-en-bout,
+  sans prétendre certifier tous les logiciels souris/crayon.
 
 **Overlay de pilotage Échap** : remplace le menu v1. Carte `ebitenui`
 superposée au framebuffer gelé, médias éditables + actions système (Reset

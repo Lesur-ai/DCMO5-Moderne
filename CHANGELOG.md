@@ -37,21 +37,27 @@ Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
   corrigé par [#152](https://github.com/Lesur-ai/dcmo5/pull/152)).
 - **Profil TO9+ minimal** : profil `to9p`, découpage ROM 80 Ko
   (64 Ko BASIC/logiciels + 16 Ko moniteur), repli launcher/CLI sur
-  `rom/to9p.rom`, hook de patch ROM en mémoire posé mais sans patch TO9+
-  effectif dans ce lot ([#186](https://github.com/Lesur-ai/dcmo5/issues/186) /
+  `rom/to9p.rom` ([#186](https://github.com/Lesur-ai/dcmo5/issues/186) /
   [#187](https://github.com/Lesur-ai/dcmo5/pull/187)).
+- **Patchs ROM TO9+ effectifs** : les copies mémoire BASIC/moniteur sont
+  alignées sur DCTO9P v11 pour détourner cassette, disque, souris, crayon,
+  imprimante et clavier vers les traps émulés. Le patcher est tout-ou-rien,
+  idempotent et refuse les variantes ROM inconnues
+  ([#195](https://github.com/Lesur-ai/dcmo5/issues/195)).
 - **Clavier TO9+** : modèle clavier `TO9PModel` et variante gate-array TO9+
   explicite. Les frappes TO9+ publient désormais le code ASCII attendu via
   `E7DE/E7DF` d'après DCTO9P v11, au lieu d'hériter du chemin clavier TO8D
   (`0x30F8`/`0x3125`).
 - **Boot TO9+ non-GUI validé** : invariant déterministe sur `rom/to9p.rom`
   (PC reset `0xFDA0`, progression CPU, framebuffer rendu/non uniforme,
-  déterminisme inter-instances et signature FNV-1a `0xdfa2f5c5`).
+  déterminisme inter-instances et signature FNV-1a `0xc2a774c5` après patchs
+  ROM en mémoire).
 - **Smoke GUI TO9+ borné** : variables de diagnostic `DCMO5_SMOKE_FRAMES` et
   `DCMO5_SMOKE_SCREENSHOT` pour lancer TO9+ par le vrai chemin Ebitengine,
   capturer un PNG après un nombre de frames rendues, puis quitter proprement.
-  Cela valide le chemin application/rendu, sans prétendre certifier la
-  compatibilité interactive complète TO9+.
+  Cela valide le chemin application/rendu. Un smoke `--exec '1\n'` valide en
+  plus la saisie clavier jusqu'au prompt BASIC, sans prétendre certifier tous
+  les logiciels souris/crayon.
 - **Assets logiciels TO/MEMO7** : ajout des disquettes `blueberry_to8.fd`,
   `bob-winner_moto.fd`, `lemmings_to8.fd`, `les-bd-1_to8.fd`,
   `les-bd-2_to8.fd`, `space-racer_to8.fd`, ainsi que des cartouches

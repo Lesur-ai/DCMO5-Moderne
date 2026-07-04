@@ -132,6 +132,29 @@ func TestResolveKeys_AntiDoubleShift(t *testing.T) {
 	}
 }
 
+func TestResolveKeys_TO9PLiveDigitUsesTO9PModel(t *testing.T) {
+	learned := map[ebiten.Key]liveKey{}
+	learnLiveKeys(keyboard.TO9PModel(), learned, []ebiten.Key{ebiten.KeyDigit1}, []rune{'1'}, pressedSet(), false)
+	got, has := learned[ebiten.KeyDigit1]
+	if !has {
+		t.Fatal("KeyDigit1 devrait être apprise via le modèle TO9+")
+	}
+	to9Key, shift, ok := keyboard.TO9PModel().CharToKey('1')
+	if !ok || !shift {
+		t.Fatalf("TO9PModel.CharToKey('1') = key:%d shift:%t ok:%t, want shift true", to9Key, shift, ok)
+	}
+	if got.mo5 != to9Key || !got.shift {
+		t.Fatalf("learned[KeyDigit1] = %+v, want key:%d shift:true", got, to9Key)
+	}
+	in := resolveKeys(keyboard.TO9PModel(), pressedSet(ebiten.KeyDigit1), learned, false, nil, false)
+	if !in.Keys[to9Key] {
+		t.Fatalf("touche TO9+ %d non tenue après résolution live", to9Key)
+	}
+	if !in.Keys[keyboard.TO9PModel().ShiftKey] {
+		t.Fatal("Shift TO9+ doit être posé pour taper '1' en live")
+	}
+}
+
 func TestResolveKeys_SuppressesAltGrWhenCharHeld(t *testing.T) {
 	// Caractère tenu + AltGr physique (Ctrl+Alt) → ACC/CNT MO5 ne doivent PAS
 	// fuiter (ex. AltGr+0 = '@' sur AZERTY : le caractère encode déjà tout).
