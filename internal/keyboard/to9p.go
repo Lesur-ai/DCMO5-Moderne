@@ -79,7 +79,13 @@ var to9pModel = &Model{
 	CNTKey:   to9pKeyCNT,
 	ACCKey:   to9pKeyACC,
 	ENTKey:   to9pKeyENT,
-	chars:    charToTO9P,
+	JoystickKeyboardSuppressSpecialKeys: map[int]bool{
+		0x04: true, // flèche haut
+		0x3d: true, // flèche bas
+		0x0d: true, // flèche gauche
+		0x05: true, // flèche droite
+	},
+	chars: charToTO9P,
 }
 
 // TO9PModel retourne le modele clavier du Thomson TO9+.

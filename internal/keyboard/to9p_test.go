@@ -53,3 +53,17 @@ func TestTO9PModelModifierKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestTO9PModelSuppressesArrowSpecialKeysInJoystickMode(t *testing.T) {
+	m := TO9PModel()
+	for _, key := range []int{0x04, 0x3d, 0x0d, 0x05} {
+		if !m.SuppressSpecialKeyInJoystickMode(key) {
+			t.Fatalf("TO9+ key 0x%02x should be suppressed from keyboard when joystick keyboard mode is enabled", key)
+		}
+	}
+	for _, key := range []int{0x46, 0x51, 0x53, 0x14} {
+		if m.SuppressSpecialKeyInJoystickMode(key) {
+			t.Fatalf("TO9+ non-arrow key 0x%02x must not be suppressed in joystick keyboard mode", key)
+		}
+	}
+}
