@@ -46,9 +46,12 @@ Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
   (`0x30F8`/`0x3125`).
 - **Boot TO9+ non-GUI validé** : invariant déterministe sur `rom/to9p.rom`
   (PC reset `0xFDA0`, progression CPU, framebuffer rendu/non uniforme,
-  déterminisme inter-instances et signature FNV-1a `0xdfa2f5c5`). Le smoke GUI
-  interactif complet reste une limite à lever avant de présenter TO9+ comme
-  pleinement utilisable.
+  déterminisme inter-instances et signature FNV-1a `0xdfa2f5c5`).
+- **Smoke GUI TO9+ borné** : variables de diagnostic `DCMO5_SMOKE_FRAMES` et
+  `DCMO5_SMOKE_SCREENSHOT` pour lancer TO9+ par le vrai chemin Ebitengine,
+  capturer un PNG après un nombre de frames rendues, puis quitter proprement.
+  Cela valide le chemin application/rendu, sans prétendre certifier la
+  compatibilité interactive complète TO9+.
 - **Assets logiciels TO/MEMO7** : ajout des disquettes `blueberry_to8.fd`,
   `bob-winner_moto.fd`, `lemmings_to8.fd`, `les-bd-1_to8.fd`,
   `les-bd-2_to8.fd`, `space-racer_to8.fd`, ainsi que des cartouches

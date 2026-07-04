@@ -138,6 +138,8 @@ type App struct {
 	tapeName   string
 	diskName   string
 	cartName   string
+
+	smoke smokeState
 }
 
 // New crée une application pilotant la machine donnée via un emu.Host (mode
@@ -256,6 +258,13 @@ func (a *App) SetStartupMediaClosers(tape, disk io.Closer) {
 // Update est appelé à chaque tick (60 Hz) : il publie les entrées vers le Host
 // et pilote l'overlay. L'émulation, elle, avance dans la goroutine du Host.
 func (a *App) Update() error {
+	if err := a.smoke.updateError(); err != nil {
+		return err
+	}
+	if a.smoke.shouldQuitOnUpdate() {
+		return ErrUserQuit
+	}
+
 	// Mode launcher : aucune émulation (host==nil). On rend/anime l'UI ebitenui et,
 	// si l'utilisateur a validé « Démarrer », on instancie la machine. Branché TOUT
 	// EN HAUT, avant tout accès à overlay/host/keys (qui sont nil/inactifs ici).
@@ -775,6 +784,7 @@ var (
 
 // Draw rend l'instantané du framebuffer du Host dans la surface Ebitengine.
 func (a *App) Draw(screen *ebiten.Image) {
+	defer a.captureSmokeFrame(screen)
 	if a.launcher != nil {
 		a.launcher.ui.Draw(screen)
 		return
@@ -801,6 +811,17 @@ func (a *App) Draw(screen *ebiten.Image) {
 		float64(screen.Bounds().Dy())/float64(a.fh),
 	)
 	screen.DrawImage(a.fb, op)
+}
+
+func (a *App) captureSmokeFrame(screen *ebiten.Image) {
+	if !a.smoke.noteRenderedFrame() {
+		return
+	}
+	if err := writeSmokeScreenshot(screen, a.smoke.config.screenshot); err != nil {
+		a.smoke.markError(err)
+		return
+	}
+	a.smoke.markCaptured()
 }
 
 // blitFramebuffer recopie le dernier instantané du Host dans a.fb (pas d'accès au
@@ -895,6 +916,12 @@ func (a *App) updateTitle() {
 // En mode launcher, il dimensionne une fenêtre de launcher et NE démarre rien :
 // l'audio et le Host sont mis en route à la transition « Démarrer » (updateLauncher).
 func Run(a *App) error {
+	smokeCfg, err := smokeConfigFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	a.smoke.configure(smokeCfg)
+
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	if a.launcher != nil {
 		ebiten.SetWindowSize(launcherWidth, launcherHeight)
@@ -910,7 +937,7 @@ func Run(a *App) error {
 		}
 	}()
 	a.updateTitle()
-	err := ebiten.RunGame(a)
+	err = ebiten.RunGame(a)
 	if errors.Is(err, ErrUserQuit) {
 		return ErrUserQuit
 	}
