@@ -89,8 +89,17 @@ vidéo/timer/E/S + clavier AZERTY-FR + joystick), clavier généralisé
 - Boot non-GUI couvert par un invariant déterministe sur la ROM réelle :
   progression depuis le vecteur reset `0xFDA0`, framebuffer rendu et signature
   FNV-1a `0xdfa2f5c5`.
-- Le smoke GUI interactif complet reste à valider avant d'annoncer TO9+ comme
-  pleinement utilisable.
+- Smoke GUI borné disponible via le vrai chemin Ebitengine (`cmd` → `app.Run`
+  → `Host` → `Draw`) :
+
+  ```bash
+  DCMO5_SMOKE_FRAMES=180 \
+  DCMO5_SMOKE_SCREENSHOT=/tmp/dcmo5-to9p.png \
+  go run ./cmd/dcmo5 --machine to9p --rom rom/to9p.rom --no-audio
+  ```
+
+- Cette preuve valide le boot/rendu application, mais pas encore la
+  compatibilité interactive complète TO9+.
 
 **Overlay de pilotage Échap** : remplace le menu v1. Carte `ebitenui`
 superposée au framebuffer gelé, médias éditables + actions système (Reset

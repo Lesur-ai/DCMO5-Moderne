@@ -373,8 +373,10 @@ Incrément **v2.1** (après mise en service TO8D) : **variante clavier TO9+** (t
 ASCII), **layout ROM TO9+** (1 blob `to9prom`), **profil TO9+** et invariant de
 boot non-GUI sur `rom/to9p.rom` (signature framebuffer FNV-1a `0xdfa2f5c5` après
 progression depuis le vecteur reset `0xFDA0`). Réutilise tout le Device
-gate-array ci-dessus. Le smoke GUI interactif complet reste une validation
-séparée avant de déclarer TO9+ pleinement utilisable.
+gate-array ci-dessus. Le smoke GUI borné passe par le chemin réel Ebitengine via
+`DCMO5_SMOKE_FRAMES` + `DCMO5_SMOKE_SCREENSHOT` et capture un PNG après rendu ;
+il valide le boot/rendu application, mais la compatibilité interactive complète
+reste une validation séparée avant de déclarer TO9+ pleinement utilisable.
 
 v3 (hors Epic v2) : **MO6/PC128** (réutilise 6–9), **TO7/TO7-70** (nouveau Device
 famille TO7). Les ROMs de toutes ces machines sont récupérables dans Theodore
