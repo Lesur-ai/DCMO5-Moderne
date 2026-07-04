@@ -43,7 +43,12 @@ Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
 - **Clavier TO9+** : modèle clavier `TO9PModel` et variante gate-array TO9+
   explicite. Les frappes TO9+ publient désormais le code ASCII attendu via
   `E7DE/E7DF` d'après DCTO9P v11, au lieu d'hériter du chemin clavier TO8D
-  (`0x30F8`/`0x3125`). Le smoke firmware/GUI complet reste au Lot 4.
+  (`0x30F8`/`0x3125`).
+- **Boot TO9+ non-GUI validé** : invariant déterministe sur `rom/to9p.rom`
+  (PC reset `0xFDA0`, progression CPU, framebuffer rendu/non uniforme,
+  déterminisme inter-instances et signature FNV-1a `0xdfa2f5c5`). Le smoke GUI
+  interactif complet reste une limite à lever avant de présenter TO9+ comme
+  pleinement utilisable.
 - **Assets logiciels TO/MEMO7** : ajout des disquettes `blueberry_to8.fd`,
   `bob-winner_moto.fd`, `lemmings_to8.fd`, `les-bd-1_to8.fd`,
   `les-bd-2_to8.fd`, `space-racer_to8.fd`, ainsi que des cartouches
