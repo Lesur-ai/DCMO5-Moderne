@@ -96,9 +96,10 @@ func (g *GateArray) RenderVideoSegments(videolinenumber, videolinecycle int) {
 	if g.scanLine != videolinenumber {
 		g.scanLine = videolinenumber
 		g.scanSegment = 0
+		g.scanBorder = g.pcolor[g.bordercolor&0x0f]
 	}
 	for g.scanSegment < segmentMax {
-		g.renderDisplaySegment(g.scanout[:], y, g.scanSegment, g.pcolor[g.bordercolor&0x0f])
+		g.renderDisplaySegment(g.scanout[:], y, g.scanSegment, g.scanBorder)
 		g.scanSegment++
 	}
 }

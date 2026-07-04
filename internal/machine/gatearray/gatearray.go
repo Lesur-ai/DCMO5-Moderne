@@ -80,6 +80,7 @@ type GateArray struct {
 	scanoutValid  bool
 	scanLine      int
 	scanSegment   int
+	scanBorder    uint32
 	pagevideoBase int
 	bordercolor   int
 	vmode         videoMode
@@ -217,6 +218,7 @@ func (g *GateArray) hardReset() {
 	g.scanoutValid = false
 	g.scanLine = -1
 	g.scanSegment = 0
+	g.scanBorder = 0
 }
 
 // AttachCPU relie le CPU utilisé par les handlers d'E/S (lecture/écriture des

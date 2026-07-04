@@ -133,9 +133,11 @@ Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
   fil du balayage, comme DCTO9P/Theodore. Les changements de palette/page vidéo
   pendant une trame ou une ligne ne recolorent donc plus rétroactivement toute
   l'image, ce qui stabilise les écrans firmware qui préparent ou affichent la
-  palette 4096 couleurs. Le rendu fenêtre pré-efface aussi la surface en noir
-  avant le blit du framebuffer pour éviter les filets de bord lors d'un
-  redimensionnement non exact.
+  palette 4096 couleurs. La couleur de bordure est aussi latchée sur la ligne
+  courante, évitant qu'un changement en fin de ligne colore seulement le segment
+  de bord droit avant la ligne suivante. Le rendu fenêtre pré-efface enfin la
+  surface en noir avant le blit du framebuffer pour éviter les filets de bord
+  lors d'un redimensionnement non exact.
 - **Joystick clavier après perte de focus** : la fenêtre publie désormais un
   joystick neutre quand Ebitengine perd le focus, évitant qu'une direction
   maintenue reste collée après un alt-tab.
