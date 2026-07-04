@@ -223,3 +223,23 @@ func TestPaletteLatch(t *testing.T) {
 		t.Errorf("après octet impair : bordure = 0x%08X, want 0x%08X (latch validé)", v, wantColor(7, 7, 5))
 	}
 }
+
+func TestRenderVideoLineKeepsPaletteHistory(t *testing.T) {
+	g := newGA()
+	setColor(g, 1, 1, 0, 0)
+	setColor(g, 2, 0, 2, 0)
+
+	g.Write8(0xE7DD, 0x01)
+	g.RenderVideoLine(48)
+	g.Write8(0xE7DD, 0x02)
+	g.RenderVideoLine(49)
+
+	fb := newFrame()
+	g.DecodeFrame(fb)
+	if v := fb[0]; v != wantColor(1, 0, 0) {
+		t.Fatalf("ligne déjà balayée recolorée = 0x%08X, want ancienne palette rouge", v)
+	}
+	if v := fb[xb]; v != wantColor(0, 2, 0) {
+		t.Fatalf("ligne suivante = 0x%08X, want nouvelle palette verte", v)
+	}
+}

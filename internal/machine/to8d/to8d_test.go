@@ -19,7 +19,7 @@ var testBootDate = time.Date(2026, time.January, 2, 0, 0, 0, 0, time.UTC)
 // la fait changer. Valeur mesurée puis figée (cf. TestBootDeterministic).
 const (
 	bootCycles    = 1_200_000  // ~60 trames (50 Hz @ 1 MHz) : laisse le moniteur dessiner
-	bootSignature = 0xcd367f95 // FNV-1a du framebuffer après bootCycles (rom/to8d.rom, date fixe testBootDate)
+	bootSignature = 0x23b3abf5 // FNV-1a du framebuffer après bootCycles (rom/to8d.rom, date fixe testBootDate)
 )
 
 // mustBoot construit une machine TO8D depuis la ROM réelle versionnée, avec la date

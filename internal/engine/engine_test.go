@@ -15,6 +15,7 @@ type fakeDevice struct {
 	traps       int
 	cyclesSum   int  // somme des c reçus via OnInstructionCycles (invariant)
 	assertTimer bool // si vrai, asserte IRQTimer à chaque instruction (test livraison IRQ)
+	lines       []int
 }
 
 func newFake() *fakeDevice {
@@ -44,6 +45,7 @@ func (d *fakeDevice) OnInstructionCycles(c int, irq *machine.IRQLines) {
 		irq.Assert(machine.IRQTimer)
 	}
 }
+func (d *fakeDevice) RenderVideoLine(n int) { d.lines = append(d.lines, n) }
 
 // Vérification à la compilation que fakeDevice satisfait le contrat.
 var _ Device = (*fakeDevice)(nil)
@@ -115,6 +117,16 @@ func TestEngineFramebuffer(t *testing.T) {
 		if px != 0xFF00FF00 {
 			t.Fatalf("pixel %d = 0x%08X (DecodeFrame non délégué)", i, px)
 		}
+	}
+}
+
+func TestEngineRendersVideoLineOnBoundary(t *testing.T) {
+	d := newFake()
+	e := New(d, spec.AudioSampleRate)
+	e.Reset()
+	e.Step(spec.VideoCyclesPerLine)
+	if len(d.lines) != 1 || d.lines[0] != 0 {
+		t.Fatalf("lignes rendues = %v, want [0]", d.lines)
 	}
 }
 

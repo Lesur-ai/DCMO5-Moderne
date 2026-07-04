@@ -61,6 +61,10 @@ type frameIRQSuppressor interface {
 	SuppressFrameIRQ() bool
 }
 
+type videoLineRenderer interface {
+	RenderVideoLine(videolinenumber int)
+}
+
 // Engine exécute une machine via son Device. Il possède le CPU, l'accumulateur
 // d'échantillonnage audio, les compteurs de balayage vidéo et les lignes d'IRQ.
 type Engine struct {
@@ -181,6 +185,9 @@ func (e *Engine) Step(cycles int) int {
 		e.videolinecycle += c
 		for e.videolinecycle >= cyclesPerLine {
 			e.videolinecycle -= cyclesPerLine
+			if r, ok := e.dev.(videoLineRenderer); ok {
+				r.RenderVideoLine(e.videolinenumber)
+			}
 			e.videolinenumber++
 			if e.videolinenumber >= linesPerFrame {
 				e.videolinenumber = 0
