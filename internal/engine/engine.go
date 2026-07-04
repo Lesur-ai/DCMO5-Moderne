@@ -21,8 +21,8 @@ import (
 // Timing vidéo Thomson (commun MO5 / famille TO) : 64 cycles par ligne, 312 lignes
 // par trame → IRQ 50 Hz. Ref: dcmo5emulation.c / dcto8demulation.c Run().
 const (
-	cyclesPerLine = 64
-	linesPerFrame = 312
+	cyclesPerLine = spec.VideoCyclesPerLine
+	linesPerFrame = spec.VideoLinesPerFrame
 )
 
 // Device est la partie d'une machine que le moteur pilote : bus mémoire, dispatch

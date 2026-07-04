@@ -127,6 +127,11 @@ Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
 
 ### Corrigé
 
+- **Clignotement écran palette TO8D/TO9+** ([#197](https://github.com/Lesur-ai/dcmo5/issues/197)) :
+  la publication du framebuffer par le Host est désormais cadencée sur la trame
+  vidéo Thomson (`64×312` cycles) au lieu d'un rythme hôte 60 Hz. Cela évite
+  d'échantillonner des états intermédiaires visibles pendant les animations ou
+  modifications de palette du firmware.
 - **Joystick clavier après perte de focus** : la fenêtre publie désormais un
   joystick neutre quand Ebitengine perd le focus, évitant qu'une direction
   maintenue reste collée après un alt-tab.

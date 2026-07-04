@@ -14,6 +14,13 @@ const (
 	CPUClockHz = 1_000_000 // Motorola 6809 à 1 MHz nominal
 )
 
+// Timing vidéo Thomson commun aux machines déjà portées.
+const (
+	VideoCyclesPerLine  = 64
+	VideoLinesPerFrame  = 312
+	VideoCyclesPerFrame = VideoCyclesPerLine * VideoLinesPerFrame
+)
+
 // Audio — taux d'échantillonnage par défaut (Hz). 48000 = taux natif des
 // périphériques modernes, qui évite le rééchantillonnage du backend (source
 // d'artefacts). Configurable par machine via core.Options.AudioSampleRate ;
