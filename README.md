@@ -83,6 +83,15 @@ vidéo/timer/E/S + clavier AZERTY-FR + joystick), clavier généralisé
 - Lancement direct via `dcmo5 --machine to8d` : repli en cascade sur
   `rom/to8d.rom` si la ROM n'est pas mémorisée en config.
 
+**TO9+ (v2.1, en validation)** :
+- Profil `to9p`, ROM `rom/to9p.rom` et clavier TO9+ ASCII distinct du chemin
+  TO8D (`E7DE/E7DF`).
+- Boot non-GUI couvert par un invariant déterministe sur la ROM réelle :
+  progression depuis le vecteur reset `0xFDA0`, framebuffer rendu et signature
+  FNV-1a `0xdfa2f5c5`.
+- Le smoke GUI interactif complet reste à valider avant d'annoncer TO9+ comme
+  pleinement utilisable.
+
 **Overlay de pilotage Échap** : remplace le menu v1. Carte `ebitenui`
 superposée au framebuffer gelé, médias éditables + actions système (Reset
 / Init prog / Quitter / Changer machine / Key Joystk) + bouton « Appliquer
@@ -239,7 +248,8 @@ go run ./cmd/dcmo5 -rom rom/mo5-v1.1.rom -cart software/glouton-memo5.rom
 
 | Option | Description |
 |--------|-------------|
-| `-rom <fichier>` | ROM système MO5 (16 Ko) |
+| `-machine <id>` | Machine à présélectionner/lancer (`mo5`, `to8d`, `to9p`) |
+| `-rom <fichier>` | ROM système de la machine sélectionnée (MO5 16 Ko ; TO9+ 80 Ko avec `--machine to9p`) |
 | `-tape <fichier>` | Cassette `.k7` à monter |
 | `-disk <fichier>` | Disquette `.fd` à monter |
 | `-cart <fichier>` | Cartouche MEMO5 `.rom` à monter |

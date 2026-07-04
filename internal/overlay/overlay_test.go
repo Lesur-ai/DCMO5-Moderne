@@ -10,6 +10,7 @@ import (
 	// Enregistrement des vrais profils pour le test data-driven MO5/TO8D ci-dessous.
 	_ "github.com/Lesur-ai/dcmo5/internal/machine/mo5"
 	_ "github.com/Lesur-ai/dcmo5/internal/machine/to8d"
+	_ "github.com/Lesur-ai/dcmo5/internal/machine/to9p"
 )
 
 func TestModel_ZeroValueIsClosed(t *testing.T) {
@@ -142,13 +143,13 @@ func TestShouldPause(t *testing.T) {
 	}
 }
 
-// TestDescribeLive_RealProfiles vérifie l'acceptance #117 « data-driven MO5 ET TO8D » :
+// TestDescribeLive_RealProfiles vérifie l'acceptance #117/#190 « data-driven » :
 // l'overlay n'expose QUE les médias LiveMutable (tape/disk/cart) et JAMAIS les
 // paramètres boot-only (rom système, rom contrôleur). Test sur les VRAIS profils
 // enregistrés (pas un profil factice) — il échoue si un profil marquait par erreur la
 // ROM système LiveMutable, ou oubliait un média.
 func TestDescribeLive_RealProfiles(t *testing.T) {
-	for _, id := range []string{"mo5", "to8d"} {
+	for _, id := range []string{"mo5", "to8d", "to9p"} {
 		prof, ok := machine.ByID(id)
 		if !ok {
 			t.Fatalf("profil %q introuvable dans le registre", id)

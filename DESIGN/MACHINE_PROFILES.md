@@ -370,8 +370,11 @@ non-régression MO5. Le n° d'issue GitHub est indiqué entre crochets.
 > n'extrait l'engine qu'ensuite (3-4), gate-array après.
 
 Incrément **v2.1** (après mise en service TO8D) : **variante clavier TO9+** (table
-ASCII), **layout ROM TO9+** (1 blob `to9prom`), **profil TO9+**. Réutilise tout le
-Device gate-array ci-dessus.
+ASCII), **layout ROM TO9+** (1 blob `to9prom`), **profil TO9+** et invariant de
+boot non-GUI sur `rom/to9p.rom` (signature framebuffer FNV-1a `0xdfa2f5c5` après
+progression depuis le vecteur reset `0xFDA0`). Réutilise tout le Device
+gate-array ci-dessus. Le smoke GUI interactif complet reste une validation
+séparée avant de déclarer TO9+ pleinement utilisable.
 
 v3 (hors Epic v2) : **MO6/PC128** (réutilise 6–9), **TO7/TO7-70** (nouveau Device
 famille TO7). Les ROMs de toutes ces machines sont récupérables dans Theodore

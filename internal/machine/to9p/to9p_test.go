@@ -1,6 +1,7 @@
 package to9p
 
 import (
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,68 @@ import (
 )
 
 func romTestPath() string { return filepath.Join("..", "..", "..", "rom", "to9p.rom") }
+
+const (
+	bootCycles    = 1_200_000
+	bootSignature = 0xdfa2f5c5
+)
+
+func mustBoot(t *testing.T) machine.Machine {
+	t.Helper()
+	blob, err := os.ReadFile(romTestPath())
+	if err != nil {
+		t.Fatalf("lecture ROM TO9+ : %v", err)
+	}
+	m, err := newFromROM(blob)
+	if err != nil {
+		t.Fatalf("boot TO9+ : %v", err)
+	}
+	return m
+}
+
+func frameAfter(m machine.Machine, cycles int) []uint32 {
+	for done := 0; done < cycles; {
+		done += m.Step(cycles - done)
+	}
+	w, h := m.FrameSize()
+	fb := make([]uint32, w*h)
+	m.FramebufferInto(fb)
+	return fb
+}
+
+func fnv1a(fb []uint32) uint32 {
+	h := fnv.New32a()
+	var b [4]byte
+	for _, px := range fb {
+		b[0] = byte(px)
+		b[1] = byte(px >> 8)
+		b[2] = byte(px >> 16)
+		b[3] = byte(px >> 24)
+		h.Write(b[:])
+	}
+	return h.Sum32()
+}
+
+func equalFB(a, b []uint32) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func uniform(fb []uint32) bool {
+	for _, p := range fb {
+		if p != fb[0] {
+			return false
+		}
+	}
+	return true
+}
 
 func TestProfileRegistered(t *testing.T) {
 	p, ok := machine.ByID("to9p")
@@ -160,5 +223,40 @@ func TestNewFromROMWiresROMIntoGateArray(t *testing.T) {
 	}
 	if after := a.ga.Read8(0xf0f8); after != before {
 		t.Fatalf("TO9+ a muté le chemin moniteur TO8D : F0F8 avant=0x%02x après=0x%02x", before, after)
+	}
+}
+
+func TestBootDeterministic(t *testing.T) {
+	m1 := mustBoot(t)
+	w, h := m1.FrameSize()
+	fbReset := make([]uint32, w*h)
+	m1.FramebufferInto(fbReset)
+	if pc := m1.CPUSnapshot().PC; pc != 0xFDA0 {
+		t.Fatalf("PC au reset = 0x%04x, attendu le vecteur reset TO9+ 0xFDA0", pc)
+	}
+
+	fbBoot := frameAfter(m1, bootCycles)
+
+	if uniform(fbBoot) {
+		t.Fatal("framebuffer uniforme après boot : le firmware TO9+ n'a rien rendu")
+	}
+	if equalFB(fbReset, fbBoot) {
+		t.Fatal("framebuffer inchangé depuis le reset : le boot TO9+ n'a rien dessiné")
+	}
+	if pc := m1.CPUSnapshot().PC; pc == 0xFDA0 {
+		t.Fatal("PC toujours au vecteur reset TO9+ : le CPU n'a pas exécuté")
+	}
+
+	fbBoot2 := frameAfter(mustBoot(t), bootCycles)
+	if !equalFB(fbBoot, fbBoot2) {
+		t.Fatal("boot TO9+ non déterministe : deux instances fraîches divergent")
+	}
+
+	got := fnv1a(fbBoot)
+	if bootSignature == 0 {
+		t.Fatalf("signature de boot TO9+ à figer : bootSignature = 0x%08x", got)
+	}
+	if got != bootSignature {
+		t.Fatalf("signature framebuffer boot TO9+ = 0x%08x, attendu 0x%08x (régression du boot ?)", got, bootSignature)
 	}
 }

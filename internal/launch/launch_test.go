@@ -5,6 +5,9 @@ import (
 
 	"github.com/Lesur-ai/dcmo5/internal/launch"
 	"github.com/Lesur-ai/dcmo5/internal/machine"
+	_ "github.com/Lesur-ai/dcmo5/internal/machine/mo5"
+	_ "github.com/Lesur-ai/dcmo5/internal/machine/to8d"
+	_ "github.com/Lesur-ai/dcmo5/internal/machine/to9p"
 )
 
 // TestDirectBoot : le boot direct (contournement du launcher) n'a lieu QUE si --rom
@@ -72,5 +75,16 @@ func TestSelectIndex(t *testing.T) {
 	}
 	if i, err := launch.SelectIndex(profiles, "inconnu", false); err != nil || i != 0 {
 		t.Errorf("SelectIndex(inconnu, défaut) = (%d, %v), want (0, nil) — défaut tolérant", i, err)
+	}
+}
+
+func TestSelectIndex_RealTO9PProfile(t *testing.T) {
+	profiles := machine.Profiles()
+	i, err := launch.SelectIndex(profiles, "to9p", true)
+	if err != nil {
+		t.Fatalf("SelectIndex(to9p, profils réels) : %v", err)
+	}
+	if profiles[i].ID != "to9p" {
+		t.Fatalf("SelectIndex(to9p, profils réels) = index %d (%q), attendu to9p", i, profiles[i].ID)
 	}
 }
