@@ -88,9 +88,10 @@ vidéo/timer/E/S + clavier AZERTY-FR + joystick), clavier généralisé
   TO8D (`E7DE/E7DF`).
 - Patchs ROM TO9+ appliqués en mémoire, alignés sur DCTO9P v11, pour détourner
   les routines cassette/disque/souris/crayon/clavier vers les traps émulés.
+- Date de boot TO9+ injectée en mémoire au format `jj-mm-aa`, comme DCTO9P v11.
 - Boot non-GUI couvert par un invariant déterministe sur la ROM réelle :
   progression depuis le vecteur reset `0xFDA0`, framebuffer rendu et signature
-  FNV-1a `0xc2a774c5`.
+  FNV-1a `0xbe3a0985`.
 - Smoke GUI borné disponible via le vrai chemin Ebitengine (`cmd` → `app.Run`
   → `Host` → `Draw`) :
 

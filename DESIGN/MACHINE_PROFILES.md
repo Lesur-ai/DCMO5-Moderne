@@ -372,13 +372,14 @@ non-régression MO5. Le n° d'issue GitHub est indiqué entre crochets.
 Incrément **v2.1** (après mise en service TO8D) : **variante clavier TO9+** (table
 ASCII), **layout ROM TO9+** (1 blob `to9prom`), **profil TO9+** et patchs ROM
 TO9+ en mémoire alignés sur DCTO9P v11 pour les traps cassette/disque/souris/
-crayon/clavier. L'invariant de boot non-GUI sur `rom/to9p.rom` utilise la
-signature framebuffer FNV-1a `0xc2a774c5` après progression depuis le vecteur
-reset `0xFDA0`. Réutilise tout le Device gate-array ci-dessus. Le smoke GUI borné
-passe par le chemin réel Ebitengine via `DCMO5_SMOKE_FRAMES` +
-`DCMO5_SMOKE_SCREENSHOT` et capture un PNG après rendu ; un smoke `--exec '1\n'`
-valide une saisie clavier jusqu'au prompt BASIC. La compatibilité exhaustive
-des logiciels souris/crayon reste une validation séparée.
+crayon/clavier, avec injection de la date de boot `jj-mm-aa`. L'invariant de
+boot non-GUI sur `rom/to9p.rom` utilise la signature framebuffer FNV-1a
+`0xbe3a0985` après progression depuis le vecteur reset `0xFDA0`. Réutilise tout
+le Device gate-array ci-dessus. Le smoke GUI borné passe par le chemin réel
+Ebitengine via `DCMO5_SMOKE_FRAMES` + `DCMO5_SMOKE_SCREENSHOT` et capture un PNG
+après rendu ; un smoke `--exec '1\n'` valide une saisie clavier jusqu'au prompt
+BASIC. La compatibilité exhaustive des logiciels souris/crayon reste une
+validation séparée.
 
 v3 (hors Epic v2) : **MO6/PC128** (réutilise 6–9), **TO7/TO7-70** (nouveau Device
 famille TO7). Les ROMs de toutes ces machines sont récupérables dans Theodore

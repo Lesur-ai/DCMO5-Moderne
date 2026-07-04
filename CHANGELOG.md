@@ -41,8 +41,9 @@ Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
   [#187](https://github.com/Lesur-ai/dcmo5/pull/187)).
 - **Patchs ROM TO9+ effectifs** : les copies mémoire BASIC/moniteur sont
   alignées sur DCTO9P v11 pour détourner cassette, disque, souris, crayon,
-  imprimante et clavier vers les traps émulés. Le patcher est tout-ou-rien,
-  idempotent et refuse les variantes ROM inconnues
+  imprimante et clavier vers les traps émulés. La date de boot est injectée au
+  format `jj-mm-aa`, comme DCTO9P v11. Le patcher est tout-ou-rien, idempotent
+  et refuse les variantes ROM inconnues
   ([#195](https://github.com/Lesur-ai/dcmo5/issues/195)).
 - **Clavier TO9+** : modèle clavier `TO9PModel` et variante gate-array TO9+
   explicite. Les frappes TO9+ publient désormais le code ASCII attendu via
@@ -50,8 +51,8 @@ Conception : [`DESIGN/MACHINE_PROFILES.md`](DESIGN/MACHINE_PROFILES.md) +
   (`0x30F8`/`0x3125`).
 - **Boot TO9+ non-GUI validé** : invariant déterministe sur `rom/to9p.rom`
   (PC reset `0xFDA0`, progression CPU, framebuffer rendu/non uniforme,
-  déterminisme inter-instances et signature FNV-1a `0xc2a774c5` après patchs
-  ROM en mémoire).
+  déterminisme inter-instances et signature FNV-1a `0xbe3a0985` après patchs
+  ROM et date fixe de test en mémoire).
 - **Smoke GUI TO9+ borné** : variables de diagnostic `DCMO5_SMOKE_FRAMES` et
   `DCMO5_SMOKE_SCREENSHOT` pour lancer TO9+ par le vrai chemin Ebitengine,
   capturer un PNG après un nombre de frames rendues, puis quitter proprement.

@@ -9,6 +9,7 @@ package to9p
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/Lesur-ai/dcmo5/internal/cpu6809"
 	"github.com/Lesur-ai/dcmo5/internal/engine"
@@ -77,7 +78,7 @@ func splitROM(blob []byte) (romBasic, romMon []byte, err error) {
 	return romBasic, romMon, nil
 }
 
-func newFromROM(blob []byte) (machine.Machine, error) {
+func newFromROM(blob []byte, now time.Time) (machine.Machine, error) {
 	romBasic, romMon, err := splitROM(blob)
 	if err != nil {
 		return nil, err
@@ -86,6 +87,9 @@ func newFromROM(blob []byte) (machine.Machine, error) {
 		// Inatteignable aujourd'hui : splitROM garantit les tailles exactes. Conservé
 		// pour que les futurs patchs TO9+ puissent refuser une mutation non sûre.
 		return nil, fmt.Errorf("to9p: invariant de découpage ROM violé avant patch")
+	}
+	if !injectBootDate(romBasic, now) {
+		return nil, fmt.Errorf("to9p: injection de la date au boot impossible (ROM BASIC non reconnue)")
 	}
 
 	ga := gatearray.NewTO9P(romMon, romBasic)
@@ -122,5 +126,5 @@ func newFromConfig(cfg machine.Config) (machine.Machine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("to9p: ROM: %w", err)
 	}
-	return newFromROM(blob)
+	return newFromROM(blob, time.Now())
 }

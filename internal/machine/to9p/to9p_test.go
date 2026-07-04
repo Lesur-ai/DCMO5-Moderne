@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Lesur-ai/dcmo5/internal/keyboard"
 	"github.com/Lesur-ai/dcmo5/internal/machine"
@@ -13,9 +14,11 @@ import (
 
 func romTestPath() string { return filepath.Join("..", "..", "..", "rom", "to9p.rom") }
 
+var testBootDate = time.Date(2026, time.January, 2, 0, 0, 0, 0, time.UTC)
+
 const (
 	bootCycles    = 1_200_000
-	bootSignature = 0xc2a774c5
+	bootSignature = 0xbe3a0985
 )
 
 func mustBoot(t *testing.T) machine.Machine {
@@ -24,7 +27,7 @@ func mustBoot(t *testing.T) machine.Machine {
 	if err != nil {
 		t.Fatalf("lecture ROM TO9+ : %v", err)
 	}
-	m, err := newFromROM(blob)
+	m, err := newFromROM(blob, testBootDate)
 	if err != nil {
 		t.Fatalf("boot TO9+ : %v", err)
 	}
@@ -101,7 +104,7 @@ func TestNewFromConfigErrors(t *testing.T) {
 	if _, err := newFromConfig(machine.Config{machine.KeyROM: "/inexistant.rom"}); err == nil {
 		t.Error("ROM introuvable : erreur attendue")
 	}
-	if _, err := newFromROM(make([]byte, 1024)); err == nil {
+	if _, err := newFromROM(make([]byte, 1024), testBootDate); err == nil {
 		t.Error("taille ROM invalide : erreur attendue")
 	}
 }
@@ -284,7 +287,7 @@ func TestNewFromROMWiresROMIntoGateArray(t *testing.T) {
 	if err != nil {
 		t.Fatalf("split ROM réelle : %v", err)
 	}
-	m, err := newFromROM(blob)
+	m, err := newFromROM(blob, testBootDate)
 	if err != nil {
 		t.Fatalf("newFromROM: %v", err)
 	}
